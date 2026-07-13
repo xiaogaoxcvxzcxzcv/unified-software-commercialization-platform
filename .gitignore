@@ -1,0 +1,33 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated and runtime data
+.runtime/
+artifacts/
+dist/
+coverage/
+tmp/
+*.log
+
+# Dependencies and build caches
+node_modules/
+.npm-cache/
+*.tsbuildinfo
+.next/
+.turbo/
+.cache/
+bin/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go test/build outputs
+*.test
+*.out

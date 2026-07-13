@@ -1,0 +1,565 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Unified Software Commercialization Platform Public API",
+    "version": "1.0.0-draft.1",
+    "description": "Contract-first public client and admin API. Product, Application, Tenant and User contexts are resolved from verified sessions; identifiers supplied by clients are never authorization facts."
+  },
+  "servers": [{ "url": "/", "description": "Current environment" }],
+  "tags": [
+    { "name": "System" }, { "name": "Product" }, { "name": "ProductApplication" },
+    { "name": "Tenant" }, { "name": "Identity" }, { "name": "Entitlement" },
+    { "name": "Device" }, { "name": "License" }, { "name": "Catalog" },
+    { "name": "Order" }, { "name": "Payment" }, { "name": "AIGateway" }, { "name": "Usage" },
+    { "name": "AccessControl" }, { "name": "Audit" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"], "operationId": "getHealth", "summary": "Read process health",
+        "security": [], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Health" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products": {
+      "post": {
+        "tags": ["Product"], "operationId": "createProduct", "summary": "Create a product and its official tenant",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Product" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/client/session": {
+      "post": {
+        "tags": ["Product"], "operationId": "createClientSession", "summary": "Authenticate a registered client and resolve trusted Product/Application context",
+        "security": [], "x-idempotency-exemption": "Client proof and request nonce provide replay control; successful retries may return an equivalent short-lived session.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateClientSessionRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/ClientSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/capabilities": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "put": {
+        "tags": ["Product"], "operationId": "replaceProductCapabilities", "summary": "Replace the versioned capability set for an authorized product",
+        "security": [{ "AdminBearer": [] }], "x-idempotency-exemption": "PUT is naturally idempotent and uses the expected_version precondition.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReplaceCapabilitiesRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CapabilitySet" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/applications": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "post": {
+        "tags": ["ProductApplication"], "operationId": "createProductApplication", "summary": "Create a technical application under a product",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateApplicationRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Application" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/applications/{application_id}/redirects": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }],
+      "put": {
+        "tags": ["ProductApplication"], "operationId": "replaceApplicationRedirects", "summary": "Replace exact redirect, origin and deep-link allowlists",
+        "security": [{ "AdminBearer": [] }], "x-idempotency-exemption": "PUT replaces a complete versioned allowlist and is naturally idempotent.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RedirectPolicyRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/VersionedAdminResult" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/applications/{application_id}/suspend": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }],
+      "post": {
+        "tags": ["ProductApplication"], "operationId": "suspendProductApplication", "summary": "Suspend an application without deleting history",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuspendRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "post": {
+        "tags": ["Tenant"], "operationId": "createAgentTenant", "summary": "Create an agent tenant under an authorized product",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTenantRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Tenant" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/admins": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }],
+      "post": {
+        "tags": ["Tenant"], "operationId": "bindTenantAdmin", "summary": "Bind a global user as an administrator in one tenant scope",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindTenantAdminRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["Identity"], "operationId": "login", "summary": "Authenticate a user inside the trusted client context",
+        "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "Authentication attempts are rate-limited security events and are not business mutations.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/external/{provider}/start": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalProvider" }],
+      "post": {
+        "tags": ["Identity"], "operationId": "startExternalLogin", "summary": "Start a server-bound external identity flow",
+        "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "Each call intentionally creates a short-lived one-time state/nonce flow.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StartExternalLoginRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/ExternalLoginFlow" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/external/wechat/exchange": {
+      "post": {
+        "tags": ["Identity"], "operationId": "exchangeWechatCode", "summary": "Exchange a one-time WeChat code using the bound Application configuration",
+        "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "Provider code and flow_id are single-use replay controls.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WechatExchangeRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/ExternalExchange" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/external-identities/{provider}/link": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalProvider" }],
+      "post": {
+        "tags": ["Identity"], "operationId": "linkExternalIdentity", "summary": "Link a verified external identity to the current user",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkExternalIdentityRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/ExternalIdentity" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/external-identities/{external_identity_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalIdentityId" }],
+      "delete": {
+        "tags": ["Identity"], "operationId": "unlinkExternalIdentity", "summary": "Unlink an external identity after recent authentication",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": ["Identity"], "operationId": "refreshSession", "summary": "Rotate a refresh token and issue a new token pair",
+        "security": [], "x-idempotency-exemption": "Refresh-token rotation has dedicated concurrency and replay semantics.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/TokenPair" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": ["Identity"], "operationId": "logout", "summary": "Revoke the current session",
+        "security": [{ "UserBearer": [] }], "x-idempotency-exemption": "Revoking an already-revoked current session is a stable no-op.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/entitlements/check": {
+      "post": {
+        "tags": ["Entitlement"], "operationId": "checkEntitlement", "summary": "Evaluate current product/tenant entitlement using server time",
+        "security": [{ "UserBearer": [] }], "x-idempotency-exemption": "Read-only evaluation.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementCheckRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/EntitlementDecision" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/entitlements": {
+      "post": {
+        "tags": ["Entitlement"], "operationId": "grantEntitlement", "summary": "Grant entitlement from an audited source",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GrantEntitlementRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/EntitlementGrant" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/devices": {
+      "get": {
+        "tags": ["Device"], "operationId": "listDevices", "summary": "List redacted devices in the resolved scope",
+        "security": [{ "UserBearer": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "status", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "$ref": "#/components/responses/DevicePage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/devices/bind": {
+      "post": {
+        "tags": ["Device"], "operationId": "bindDevice", "summary": "Atomically check entitlement/device limit and bind an installation",
+        "security": [{ "UserBearer": [] }], "x-idempotency-exemption": "client_request_id and installation key identity are the module-defined idempotency controls.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindDeviceRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/DeviceBinding" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/devices/{device_id}/heartbeat": {
+      "parameters": [{ "$ref": "#/components/parameters/DeviceId" }],
+      "post": {
+        "tags": ["Device"], "operationId": "heartbeatDevice", "summary": "Prove installation possession and refresh online/offline lease state",
+        "security": [{ "UserBearer": [] }], "x-idempotency-exemption": "Server nonce is single-use; retries return a stable result without extending twice.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeviceHeartbeatRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/DeviceHeartbeat" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/devices/{device_id}/revoke": {
+      "parameters": [{ "$ref": "#/components/parameters/DeviceId" }],
+      "post": {
+        "tags": ["Device"], "operationId": "revokeDevice", "summary": "Revoke a device binding in the current scope",
+        "security": [{ "UserBearer": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/license-batches": {
+      "post": {
+        "tags": ["License"], "operationId": "createLicenseBatch", "summary": "Generate a scoped activation-code batch",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateLicenseBatchRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/LicenseBatch" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/license-batches/{batch_id}/delivery": {
+      "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
+      "post": {
+        "tags": ["License"], "operationId": "createLicenseBatchDelivery", "summary": "Create a short-lived one-time delivery artifact",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateDeliveryRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/LicenseDelivery" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/license-batches/{batch_id}/suspend": {
+      "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
+      "post": {
+        "tags": ["License"], "operationId": "suspendLicenseBatch", "summary": "Suspend a batch without revoking historical grants",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuspendLicenseBatchRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/licenses/redeem": {
+      "post": {
+        "tags": ["License"], "operationId": "redeemLicense", "summary": "Claim an activation code and start recoverable entitlement orchestration",
+        "security": [{ "UserBearer": [] }], "x-idempotency-exemption": "product_id plus client_request_id is the module-defined idempotency key.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RedeemLicenseRequest" } } } },
+        "responses": { "202": { "$ref": "#/components/responses/LicenseRedemption" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/licenses/redemptions/{redemption_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/RedemptionId" }],
+      "get": {
+        "tags": ["License"], "operationId": "getLicenseRedemption", "summary": "Read a redacted redemption result in the current scope",
+        "security": [{ "UserBearer": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/LicenseRedemption" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/catalog/offers": {
+      "get": {
+        "tags": ["Catalog"], "operationId": "listCatalogOffers", "summary": "List currently sellable offers and server-selected prices",
+        "security": [{ "ClientSessionBearer": [] }, { "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "name": "locale", "in": "query", "schema": { "type": "string", "maxLength": 35 } }, { "name": "currency", "in": "query", "schema": { "$ref": "#/components/schemas/Currency" } }, { "name": "sales_scenario", "in": "query", "schema": { "type": "string", "maxLength": 64 } }],
+        "responses": { "200": { "$ref": "#/components/responses/CatalogOffers" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/catalog/offers": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "post": {
+        "tags": ["Catalog"], "operationId": "createCatalogOffer", "summary": "Create an offer and draft version",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateOfferRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/CatalogOffer" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/catalog/offers/{offer_id}/publish": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/OfferId" }],
+      "post": {
+        "tags": ["Catalog"], "operationId": "publishCatalogOffer", "summary": "Publish immutable offer and price versions",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublishOfferRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/VersionedAdminResult" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/orders": {
+      "post": {
+        "tags": ["Order"], "operationId": "createOrder", "summary": "Create an order from a server-issued catalog snapshot",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateOrderRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Order" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "get": {
+        "tags": ["Order"], "operationId": "listOrders", "summary": "List orders for the current Product/Tenant/User scope",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/OrderStatus" } }],
+        "responses": { "200": { "$ref": "#/components/responses/OrderPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/orders/{order_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/OrderId" }],
+      "get": {
+        "tags": ["Order"], "operationId": "getOrder", "summary": "Read one order in the current scope",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Order" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/orders/{order_id}/cancel": {
+      "parameters": [{ "$ref": "#/components/parameters/OrderId" }],
+      "post": {
+        "tags": ["Order"], "operationId": "cancelOrder", "summary": "Cancel a still-unpaid order through its state machine",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReasonRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Order" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/payments/intents": {
+      "post": {
+        "tags": ["Payment"], "operationId": "createPaymentIntent", "summary": "Create a payment intent from the server-side payable order summary",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatePaymentIntentRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/PaymentIntent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/payments/intents/{payment_intent_id}/cashier-sessions": {
+      "parameters": [{ "$ref": "#/components/parameters/PaymentIntentId" }],
+      "post": {
+        "tags": ["Payment"], "operationId": "createCashierSession", "summary": "Create short-lived safe payment-launch parameters",
+        "security": [{ "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCashierSessionRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/CashierSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/payments/{payment_intent_id}/refunds": {
+      "parameters": [{ "$ref": "#/components/parameters/PaymentIntentId" }],
+      "post": {
+        "tags": ["Payment"], "operationId": "createRefund", "summary": "Start an audited asynchronous refund",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRefundRequest" } } } },
+        "responses": { "202": { "$ref": "#/components/responses/Refund" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/ai/responses": {
+      "post": {
+        "tags": ["AIGateway"], "operationId": "createAiResponse", "summary": "Invoke a versioned logical model through the AI Gateway",
+        "description": "The server resolves Provider, provider model, credentials, route version and price version. For SSE, exactly one terminal event reports completed, cancelled or failed settlement state.",
+        "security": [{ "UserBearer": [] }, { "DeveloperKey": [] }],
+        "x-idempotency-exemption": "product scope plus client_request_id is the AI/Usage idempotency boundary and prevents duplicate settlement.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAiResponseRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AiResponse" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/ai/model-routes/{logical_model_code}": {
+      "parameters": [{ "$ref": "#/components/parameters/LogicalModelCode" }],
+      "put": {
+        "tags": ["AIGateway"], "operationId": "putAiModelRoute", "summary": "Create an immutable logical-model route version",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PutAiModelRouteRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AiModelRoute" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/usage/prices": {
+      "post": {
+        "tags": ["Usage"], "operationId": "createUsagePriceVersion", "summary": "Create an immutable metering price version",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateUsagePriceRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/UsagePrice" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/usage/records": {
+      "get": {
+        "tags": ["Usage"], "operationId": "listUsageRecords", "summary": "List metered usage and safe billing details in the resolved scope",
+        "security": [{ "UserBearer": [] }, { "DeveloperKey": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "occurred_from", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "occurred_to", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "logical_model_code", "in": "query", "schema": { "$ref": "#/components/schemas/Identifier" } }],
+        "responses": { "200": { "$ref": "#/components/responses/UsagePage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/access/role-bindings/{binding_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/BindingId" }],
+      "put": {
+        "tags": ["AccessControl"], "operationId": "putAdminRoleBinding", "summary": "Create or replace a scoped administrator role binding",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleBindingRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/audit/events": {
+      "get": {
+        "tags": ["Audit"], "operationId": "listAuditEvents", "summary": "Search redacted audit events inside the authorized scope",
+        "security": [{ "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "occurred_from", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "occurred_to", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "actor_id", "in": "query", "schema": { "$ref": "#/components/schemas/Identifier" } }, { "name": "action", "in": "query", "schema": { "type": "string", "maxLength": 128 } }, { "name": "result", "in": "query", "schema": { "type": "string" } }, { "name": "trace_id", "in": "query", "schema": { "type": "string", "maxLength": 128 } }],
+        "responses": { "200": { "$ref": "#/components/responses/AuditPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ClientSessionBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Short-lived client session containing server-resolved ProductContext and ApplicationContext." },
+      "UserBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "User session bound to trusted Product/Application and server-resolved Tenant context." },
+      "AdminBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Administrator session; every target product/tenant is re-authorized by Access Control." }
+      ,"DeveloperKey": { "type": "apiKey", "in": "header", "name": "Authorization", "description": "Restricted developer key. The key resolves Product/Tenant/scope server-side and cannot select arbitrary contexts." }
+    },
+    "parameters": {
+      "RequestId": { "name": "X-Request-Id", "in": "header", "required": false, "description": "Optional caller correlation ID; not an authorization or idempotency fact.", "schema": { "type": "string", "minLength": 8, "maxLength": 128 } },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Opaque operation-scoped idempotency key. Reuse with a different payload returns conflict.", "schema": { "type": "string", "minLength": 16, "maxLength": 128 } },
+      "Cursor": { "name": "cursor", "in": "query", "schema": { "type": "string", "maxLength": 512 } },
+      "PageSize": { "name": "page_size", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+      "ProductId": { "name": "product_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "TenantId": { "name": "tenant_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "ApplicationId": { "name": "application_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "DeviceId": { "name": "device_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "BatchId": { "name": "batch_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "RedemptionId": { "name": "redemption_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "OfferId": { "name": "offer_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "OrderId": { "name": "order_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "PaymentIntentId": { "name": "payment_intent_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "BindingId": { "name": "binding_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "ExternalIdentityId": { "name": "external_identity_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "ExternalProvider": { "name": "provider", "in": "path", "required": true, "schema": { "type": "string", "enum": ["wechat", "oidc", "other"] } }
+      ,"LogicalModelCode": { "name": "logical_model_code", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }
+    },
+    "headers": {
+      "RequestId": { "description": "Server request/correlation ID.", "schema": { "type": "string" } }
+    },
+    "responses": {
+      "Error": { "description": "Stable safe error", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "NoContent": { "description": "Completed", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "X-Audit-Id": { "description": "Audit event identifier when applicable.", "schema": { "type": "string" } } } },
+      "Health": { "description": "Process is serving", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } },
+      "Product": { "$ref": "#/components/responses/JsonProduct" },
+      "JsonProduct": { "description": "Product", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+      "ClientSession": { "description": "Trusted client session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientSession" } } } },
+      "CapabilitySet": { "description": "Versioned capability set", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapabilitySet" } } } },
+      "Application": { "description": "Product application", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductApplication" } } } },
+      "Tenant": { "description": "Agent tenant", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } },
+      "AdminMutation": { "description": "Audited mutation result", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminMutationResult" } } } },
+      "VersionedAdminResult": { "description": "Versioned audited result", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VersionedAdminResult" } } } },
+      "UserSession": { "description": "User session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSession" } } } },
+      "TokenPair": { "description": "Rotated token pair", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPair" } } } },
+      "ExternalLoginFlow": { "description": "One-time external flow", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalLoginFlow" } } } },
+      "ExternalExchange": { "description": "Platform session or explicit conflict", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalExchangeResult" } } } },
+      "ExternalIdentity": { "description": "Redacted linked identity", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalIdentity" } } } },
+      "EntitlementDecision": { "description": "Authoritative entitlement decision", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementDecision" } } } },
+      "EntitlementGrant": { "description": "Entitlement grant", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementGrant" } } } },
+      "DevicePage": { "description": "Redacted devices", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DevicePage" } } } },
+      "DeviceBinding": { "description": "Device binding", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeviceBinding" } } } },
+      "DeviceHeartbeat": { "description": "Heartbeat and optional new lease", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeviceHeartbeat" } } } },
+      "LicenseBatch": { "description": "License batch summary", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LicenseBatch" } } } },
+      "LicenseDelivery": { "description": "One-time delivery artifact", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LicenseDelivery" } } } },
+      "LicenseRedemption": { "description": "Redemption state", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LicenseRedemption" } } } },
+      "CatalogOffers": { "description": "Sellable offers", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/CatalogOffer" } } } } } } },
+      "CatalogOffer": { "description": "Offer", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CatalogOffer" } } } },
+      "Order": { "description": "Order", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } },
+      "OrderPage": { "description": "Orders", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Order" } }, "next_cursor": { "type": ["string", "null"] } } } } } },
+      "PaymentIntent": { "description": "Payment intent", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentIntent" } } } },
+      "CashierSession": { "description": "Short-lived cashier session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CashierSession" } } } },
+      "Refund": { "description": "Asynchronous refund", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Refund" } } } },
+      "AiResponse": { "description": "Final JSON response or an SSE stream with one terminal event", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiResponse" } }, "text/event-stream": { "schema": { "type": "string", "description": "SSE events use versioned JSON data; the terminal event contains request_id, terminal status and usage_settlement_ref." } } } },
+      "AiModelRoute": { "description": "Immutable route version", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiModelRoute" } } } },
+      "UsagePrice": { "description": "Immutable usage price version", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsagePrice" } } } },
+      "UsagePage": { "description": "Scoped usage records", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsagePage" } } } },
+      "AuditPage": { "description": "Redacted audit events", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditPage" } } } }
+    },
+    "schemas": {
+      "Identifier": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+      "Currency": { "type": "string", "pattern": "^[A-Z]{3}$", "examples": ["CNY"] },
+      "Timestamp": { "type": "string", "format": "date-time" },
+      "Environment": { "type": "string", "enum": ["local", "test", "production"] },
+      "Platform": { "type": "string", "enum": ["windows", "macos", "linux", "web", "h5", "android", "ios", "wechat_miniprogram", "other"] },
+      "Health": { "type": "object", "required": ["status", "time"], "properties": { "status": { "type": "string", "const": "ok" }, "time": { "$ref": "#/components/schemas/Timestamp" } } },
+      "ErrorEnvelope": { "type": "object", "required": ["type", "title", "status", "code", "request_id", "retryable"], "properties": { "type": { "type": "string", "format": "uri-reference" }, "title": { "type": "string" }, "status": { "type": "integer", "minimum": 400, "maximum": 599 }, "code": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" }, "detail": { "type": "string" }, "request_id": { "type": "string" }, "retryable": { "type": "boolean" }, "retry_after_seconds": { "type": "integer", "minimum": 0 }, "field_errors": { "type": "array", "items": { "type": "object", "required": ["field", "code"], "properties": { "field": { "type": "string" }, "code": { "type": "string" }, "message": { "type": "string" } } } } } },
+      "ProductContext": { "type": "object", "required": ["product_id", "product_code", "environment"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "product_code": { "$ref": "#/components/schemas/Identifier" }, "environment": { "$ref": "#/components/schemas/Environment" } }, "additionalProperties": false },
+      "ApplicationContext": { "type": "object", "required": ["product_id", "environment", "application_id", "application_code", "platform", "distribution_channel", "client_id", "client_version", "release_track", "context_version"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "environment": { "$ref": "#/components/schemas/Environment" }, "application_id": { "$ref": "#/components/schemas/Identifier" }, "application_code": { "$ref": "#/components/schemas/Identifier" }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/Identifier" }, "client_id": { "$ref": "#/components/schemas/Identifier" }, "client_version": { "type": "string" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "context_version": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+      "CreateProductRequest": { "type": "object", "required": ["code", "name", "status"], "properties": { "code": { "$ref": "#/components/schemas/Identifier" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "status": { "type": "string", "enum": ["active", "suspended"] } }, "additionalProperties": false },
+      "Product": { "type": "object", "required": ["product_id", "code", "name", "status", "created_at"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "code": { "$ref": "#/components/schemas/Identifier" }, "name": { "type": "string" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "official_tenant_id": { "$ref": "#/components/schemas/Identifier" }, "created_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "CreateClientSessionRequest": { "type": "object", "required": ["client_id", "client_proof", "client_version", "request_nonce"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "client_proof": { "type": "object", "description": "Versioned proof bound to the registered client; never a permanent embedded secret.", "required": ["type", "value"], "properties": { "type": { "type": "string" }, "value": { "type": "string", "minLength": 16 } } }, "client_version": { "type": "string", "minLength": 1, "maxLength": 64 }, "device_summary": { "type": "object", "additionalProperties": true }, "channel_proof": { "type": "object", "additionalProperties": true }, "request_nonce": { "type": "string", "minLength": 16, "maxLength": 256 } }, "additionalProperties": false },
+      "ClientSession": { "type": "object", "required": ["client_session_token", "expires_at", "product_context", "application_context"], "properties": { "client_session_token": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "product_context": { "$ref": "#/components/schemas/ProductContext" }, "application_context": { "$ref": "#/components/schemas/ApplicationContext" } } },
+      "ReplaceCapabilitiesRequest": { "type": "object", "required": ["expected_version", "capabilities"], "properties": { "expected_version": { "type": "integer", "minimum": 0 }, "capabilities": { "type": "array", "items": { "type": "object", "required": ["capability_id", "enabled"], "properties": { "capability_id": { "$ref": "#/components/schemas/Identifier" }, "enabled": { "type": "boolean" }, "policy": { "type": "object", "additionalProperties": true } } } } } },
+      "CapabilitySet": { "type": "object", "required": ["product_id", "version", "capabilities"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "version": { "type": "integer", "minimum": 1 }, "capabilities": { "type": "array", "items": { "type": "object" } }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "CreateApplicationRequest": { "type": "object", "required": ["application_code", "name", "platform", "distribution_channel", "release_track", "status"], "properties": { "application_code": { "$ref": "#/components/schemas/Identifier" }, "name": { "type": "string", "maxLength": 120 }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/Identifier" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "status": { "type": "string", "enum": ["active", "suspended"] } }, "additionalProperties": false },
+      "ProductApplication": { "type": "object", "required": ["application_id", "product_id", "application_code", "platform", "status", "created_at", "audit_id"], "properties": { "application_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "application_code": { "$ref": "#/components/schemas/Identifier" }, "platform": { "$ref": "#/components/schemas/Platform" }, "status": { "type": "string" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "RedirectPolicyRequest": { "type": "object", "required": ["web_redirect_uris", "allowed_origins", "deep_links"], "properties": { "web_redirect_uris": { "type": "array", "items": { "type": "string", "format": "uri" }, "uniqueItems": true }, "allowed_origins": { "type": "array", "items": { "type": "string", "format": "uri" }, "uniqueItems": true }, "deep_links": { "type": "array", "items": { "type": "object", "required": ["scheme", "path_pattern"], "properties": { "scheme": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*$" }, "path_pattern": { "type": "string" } } } } }, "additionalProperties": false },
+      "SuspendRequest": { "type": "object", "required": ["reason", "session_policy"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "session_policy": { "type": "string", "enum": ["keep_existing", "revoke_existing"] } }, "additionalProperties": false },
+      "CreateTenantRequest": { "type": "object", "required": ["name", "tenant_code", "status"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "tenant_code": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "external_agent_ref": { "type": "string", "maxLength": 128 } }, "additionalProperties": false },
+      "Tenant": { "type": "object", "required": ["tenant_id", "product_id", "tenant_type", "status", "audit_id"], "properties": { "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_type": { "type": "string", "const": "agent" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "BindTenantAdminRequest": { "type": "object", "required": ["user_id", "role_code"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "role_code": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "LoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "device_risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
+      "TokenPair": { "type": "object", "required": ["access_token", "refresh_token", "expires_at"], "properties": { "access_token": { "type": "string" }, "refresh_token": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "UserSession": { "allOf": [{ "$ref": "#/components/schemas/TokenPair" }, { "type": "object", "required": ["user"], "properties": { "user": { "type": "object", "required": ["user_id", "account_status"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "account_status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "display_name": { "type": "string" } } } } }] },
+      "StartExternalLoginRequest": { "type": "object", "required": ["mode", "return_target_code"], "properties": { "mode": { "type": "string", "enum": ["redirect", "qr", "native"] }, "return_target_code": { "$ref": "#/components/schemas/Identifier" }, "risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
+      "ExternalLoginFlow": { "type": "object", "required": ["flow_id", "expires_at"], "properties": { "flow_id": { "$ref": "#/components/schemas/Identifier" }, "authorization_url": { "type": "string", "format": "uri" }, "qr_payload": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "WechatExchangeRequest": { "type": "object", "required": ["code", "flow_id"], "properties": { "code": { "type": "string", "minLength": 1, "writeOnly": true }, "flow_id": { "$ref": "#/components/schemas/Identifier" }, "device_risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
+      "ExternalExchangeResult": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "enum": ["authenticated", "link_required", "conflict", "review_required"] }, "session": { "$ref": "#/components/schemas/UserSession" }, "proof_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "LinkExternalIdentityRequest": { "type": "object", "required": ["external_proof_id"], "properties": { "external_proof_id": { "$ref": "#/components/schemas/Identifier" }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
+      "ExternalIdentity": { "type": "object", "required": ["external_identity_id", "provider", "status", "linked_at", "audit_id"], "properties": { "external_identity_id": { "$ref": "#/components/schemas/Identifier" }, "provider": { "type": "string" }, "masked_subject": { "type": "string" }, "status": { "type": "string", "enum": ["active", "revoked"] }, "linked_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "RefreshRequest": { "type": "object", "required": ["refresh_token"], "properties": { "refresh_token": { "type": "string", "minLength": 16, "writeOnly": true } }, "additionalProperties": false },
+      "EntitlementCheckRequest": { "type": "object", "required": ["requested_features"], "properties": { "requested_features": { "type": "array", "items": { "$ref": "#/components/schemas/Identifier" }, "uniqueItems": true }, "device_id": { "$ref": "#/components/schemas/Identifier" }, "client_time": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "EntitlementDecision": { "type": "object", "required": ["allowed", "features", "reason_code"], "properties": { "allowed": { "type": "boolean" }, "plan_code": { "type": ["string", "null"] }, "features": { "type": "array", "items": { "$ref": "#/components/schemas/Identifier" } }, "valid_until": { "type": ["string", "null"], "format": "date-time" }, "offline_grace_until": { "type": ["string", "null"], "format": "date-time" }, "reason_code": { "type": "string" }, "signed_decision": { "type": "string", "description": "Optional signed offline-cache payload." } } },
+      "GrantEntitlementRequest": { "type": "object", "required": ["user_id", "product_id", "tenant_id", "policy", "validity", "source_type", "source_id"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "policy": { "type": "object", "additionalProperties": true }, "validity": { "type": "object", "additionalProperties": true }, "source_type": { "$ref": "#/components/schemas/Identifier" }, "source_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "EntitlementGrant": { "type": "object", "required": ["entitlement_id", "grant_id", "valid_until"], "properties": { "entitlement_id": { "$ref": "#/components/schemas/Identifier" }, "grant_id": { "$ref": "#/components/schemas/Identifier" }, "valid_until": { "type": ["string", "null"], "format": "date-time" } } },
+      "DeviceProof": { "type": "object", "required": ["installation_public_key", "installation_id", "proof_signature"], "properties": { "installation_public_key": { "type": "string", "minLength": 32 }, "installation_id": { "$ref": "#/components/schemas/Identifier" }, "proof_signature": { "type": "string", "minLength": 32 }, "privacy_fingerprint": { "type": "string" }, "attestation": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
+      "BindDeviceRequest": { "type": "object", "required": ["device_proof", "device_label", "client_request_id"], "properties": { "device_proof": { "$ref": "#/components/schemas/DeviceProof" }, "device_label": { "type": "string", "minLength": 1, "maxLength": 120 }, "client_request_id": { "type": "string", "minLength": 16, "maxLength": 128 } }, "additionalProperties": false },
+      "DeviceBinding": { "type": "object", "required": ["device_id", "binding_id", "binding_status", "active_count", "device_limit", "audit_id"], "properties": { "device_id": { "$ref": "#/components/schemas/Identifier" }, "binding_id": { "$ref": "#/components/schemas/Identifier" }, "binding_status": { "type": "string" }, "active_count": { "type": "integer", "minimum": 0 }, "device_limit": { "type": "integer", "minimum": 0 }, "offline_lease": { "type": "object", "additionalProperties": true }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "DeviceSummary": { "type": "object", "required": ["device_id", "device_label", "binding_status", "first_bound_at", "last_active_at"], "properties": { "device_id": { "$ref": "#/components/schemas/Identifier" }, "device_label": { "type": "string" }, "application_id": { "$ref": "#/components/schemas/Identifier" }, "binding_status": { "type": "string" }, "first_bound_at": { "$ref": "#/components/schemas/Timestamp" }, "last_active_at": { "$ref": "#/components/schemas/Timestamp" }, "lease_expires_at": { "type": ["string", "null"], "format": "date-time" }, "revoked_at": { "type": ["string", "null"], "format": "date-time" } } },
+      "DevicePage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/DeviceSummary" } }, "next_cursor": { "type": ["string", "null"] } } },
+      "DeviceHeartbeatRequest": { "type": "object", "required": ["nonce", "proof_signature", "client_version"], "properties": { "nonce": { "type": "string", "minLength": 16 }, "proof_signature": { "type": "string", "minLength": 32 }, "client_version": { "type": "string" }, "risk_summary": { "type": "object", "additionalProperties": true }, "current_offline_lease_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "DeviceHeartbeat": { "type": "object", "required": ["binding_status", "server_time", "online_review_required_at"], "properties": { "binding_status": { "type": "string" }, "server_time": { "$ref": "#/components/schemas/Timestamp" }, "offline_lease": { "type": "object", "additionalProperties": true }, "online_review_required_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "RevokeRequest": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
+      "AdminMutationResult": { "type": "object", "required": ["status", "audit_id"], "properties": { "status": { "type": "string" }, "resource_id": { "$ref": "#/components/schemas/Identifier" }, "audit_id": { "$ref": "#/components/schemas/Identifier" }, "affected_count": { "type": "integer", "minimum": 0 }, "impact_summary": { "type": "object", "additionalProperties": true } } },
+      "VersionedAdminResult": { "allOf": [{ "$ref": "#/components/schemas/AdminMutationResult" }, { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } }] },
+      "LicenseBatchPolicy": { "type": "object", "required": ["product_id", "tenant_id", "environment", "entitlement_policy_id", "validity_rule", "max_redemptions_per_code", "code_format_version"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "environment": { "$ref": "#/components/schemas/Environment" }, "entitlement_policy_id": { "$ref": "#/components/schemas/Identifier" }, "validity_rule": { "type": "string", "enum": ["fixed_duration", "fixed_end_at", "permanent"] }, "max_redemptions_per_code": { "type": "integer", "const": 1 }, "batch_expires_at": { "type": ["string", "null"], "format": "date-time" }, "application_allowlist": { "type": "array", "items": { "$ref": "#/components/schemas/Identifier" } }, "code_format_version": { "type": "integer", "minimum": 1 } }, "additionalProperties": true },
+      "CreateLicenseBatchRequest": { "type": "object", "required": ["name", "quantity", "policy", "purpose"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "quantity": { "type": "integer", "minimum": 1, "maximum": 100000 }, "policy": { "$ref": "#/components/schemas/LicenseBatchPolicy" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 500 } }, "additionalProperties": false },
+      "LicenseBatch": { "type": "object", "required": ["batch_id", "quantity", "status", "artifact_id", "audit_id"], "properties": { "batch_id": { "$ref": "#/components/schemas/Identifier" }, "quantity": { "type": "integer" }, "status": { "type": "string" }, "artifact_id": { "$ref": "#/components/schemas/Identifier" }, "expires_at": { "type": ["string", "null"], "format": "date-time" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "CreateDeliveryRequest": { "type": "object", "required": ["format", "purpose"], "properties": { "format": { "type": "string", "enum": ["csv", "txt", "encrypted_archive"] }, "purpose": { "type": "string", "minLength": 1, "maxLength": 500 }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
+      "LicenseDelivery": { "type": "object", "required": ["artifact_id", "checksum_sha256", "expires_at"], "properties": { "artifact_id": { "$ref": "#/components/schemas/Identifier" }, "download_url": { "type": "string", "format": "uri" }, "encrypted_artifact_ref": { "type": "string" }, "checksum_sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "SuspendLicenseBatchRequest": { "type": "object", "required": ["reason", "disable_unclaimed_codes"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "disable_unclaimed_codes": { "type": "boolean" } }, "additionalProperties": false },
+      "RedeemLicenseRequest": { "type": "object", "required": ["license_code", "client_request_id"], "properties": { "license_code": { "type": "string", "minLength": 16, "writeOnly": true }, "client_request_id": { "type": "string", "minLength": 16, "maxLength": 128 }, "device_proof": { "$ref": "#/components/schemas/DeviceProof" } }, "additionalProperties": false },
+      "LicenseRedemption": { "type": "object", "required": ["redemption_id", "status", "created_at", "audit_id"], "properties": { "redemption_id": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["pending", "completed", "rejected", "review_required"] }, "masked_code_prefix": { "type": "string" }, "batch_summary": { "type": "object", "additionalProperties": true }, "entitlement_summary": { "type": "object", "additionalProperties": true }, "failure_category": { "type": ["string", "null"] }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "completed_at": { "type": ["string", "null"], "format": "date-time" }, "poll_url": { "type": "string", "format": "uri-reference" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "CatalogOffer": { "type": "object", "required": ["offer_id", "offer_code", "status"], "properties": { "offer_id": { "$ref": "#/components/schemas/Identifier" }, "offer_code": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["draft", "active", "suspended", "retired"] }, "display_name": { "type": "string" }, "description": { "type": "string" }, "billing_kind": { "type": "string", "enum": ["free", "trial", "fixed_term", "lifetime", "usage_credit"] }, "feature_items": { "type": "array", "items": { "type": "object" } }, "device_limit": { "type": "integer", "minimum": 0 }, "price": { "$ref": "#/components/schemas/Money" }, "catalog_snapshot_id": { "$ref": "#/components/schemas/Identifier" }, "snapshot_hash": { "type": "string" }, "snapshot_expires_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "Money": { "type": "object", "required": ["currency", "amount_minor"], "properties": { "currency": { "$ref": "#/components/schemas/Currency" }, "amount_minor": { "type": "integer", "minimum": 0 } }, "additionalProperties": false },
+      "CreateOfferRequest": { "type": "object", "required": ["offer_code", "draft", "tenant_scope"], "properties": { "offer_code": { "$ref": "#/components/schemas/Identifier" }, "tenant_scope": { "type": "string", "enum": ["official", "selected_tenant"] }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "draft": { "type": "object", "required": ["display_name", "billing_kind"], "properties": { "display_name": { "type": "string" }, "description": { "type": "string" }, "billing_kind": { "type": "string", "enum": ["free", "trial", "fixed_term", "lifetime", "usage_credit"] }, "entitlement_policy": { "type": "object", "additionalProperties": true }, "feature_items": { "type": "array", "items": { "type": "object" } }, "device_limit": { "type": "integer", "minimum": 0 } } } }, "additionalProperties": false },
+      "PublishOfferRequest": { "type": "object", "required": ["draft_offer_version_id", "prices", "effective_at"], "properties": { "draft_offer_version_id": { "$ref": "#/components/schemas/Identifier" }, "prices": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["currency", "amount_minor", "scope", "valid_from"], "properties": { "currency": { "$ref": "#/components/schemas/Currency" }, "amount_minor": { "type": "integer", "minimum": 0 }, "compare_at_amount_minor": { "type": ["integer", "null"], "minimum": 0 }, "scope": { "type": "string", "enum": ["official", "tenant", "application_restricted"] }, "valid_from": { "$ref": "#/components/schemas/Timestamp" }, "valid_until": { "type": ["string", "null"], "format": "date-time" } } } }, "effective_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "OrderStatus": { "type": "string", "enum": ["pending_payment", "payment_confirmed", "completed", "cancelled", "expired", "refund_pending", "partially_refunded", "refunded", "review_required"] },
+      "CreateOrderRequest": { "type": "object", "required": ["catalog_snapshot_id", "snapshot_hash", "purchase_confirmed"], "properties": { "catalog_snapshot_id": { "$ref": "#/components/schemas/Identifier" }, "snapshot_hash": { "type": "string", "minLength": 32 }, "purchase_confirmed": { "type": "boolean", "const": true }, "interaction_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "Order": { "type": "object", "required": ["order_id", "order_number", "status", "currency", "subtotal_minor", "discount_minor", "tax_minor", "total_minor", "paid_minor", "refunded_minor", "expires_at", "created_at"], "properties": { "order_id": { "$ref": "#/components/schemas/Identifier" }, "order_number": { "type": "string" }, "status": { "$ref": "#/components/schemas/OrderStatus" }, "currency": { "$ref": "#/components/schemas/Currency" }, "subtotal_minor": { "type": "integer", "minimum": 0 }, "discount_minor": { "type": "integer", "minimum": 0 }, "tax_minor": { "type": "integer", "minimum": 0 }, "total_minor": { "type": "integer", "minimum": 0 }, "paid_minor": { "type": "integer", "minimum": 0 }, "refunded_minor": { "type": "integer", "minimum": 0 }, "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "available_actions": { "type": "array", "items": { "type": "string" } }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "completed_at": { "type": ["string", "null"], "format": "date-time" } } },
+      "ReasonRequest": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 } }, "additionalProperties": false },
+      "CreatePaymentIntentRequest": { "type": "object", "required": ["order_id"], "properties": { "order_id": { "$ref": "#/components/schemas/Identifier" }, "preferred_channel": { "type": "string", "enum": ["wechat_native", "wechat_jsapi", "wechat_h5", "wechat_app", "wechat_miniprogram"] } }, "additionalProperties": false },
+      "PaymentIntent": { "type": "object", "required": ["payment_intent_id", "order_id", "amount_minor", "currency", "status", "available_channels", "expires_at", "created_at"], "properties": { "payment_intent_id": { "$ref": "#/components/schemas/Identifier" }, "order_id": { "$ref": "#/components/schemas/Identifier" }, "amount_minor": { "type": "integer", "minimum": 1 }, "currency": { "$ref": "#/components/schemas/Currency" }, "status": { "type": "string", "enum": ["requires_payment", "processing", "succeeded", "failed", "cancelled", "expired", "review_required"] }, "available_channels": { "type": "array", "items": { "type": "string" } }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "succeeded_at": { "type": ["string", "null"], "format": "date-time" } } },
+      "CreateCashierSessionRequest": { "type": "object", "required": ["channel"], "properties": { "channel": { "type": "string", "enum": ["wechat_native", "wechat_jsapi", "wechat_h5", "wechat_app", "wechat_miniprogram"] }, "hosted_interaction_id": { "$ref": "#/components/schemas/Identifier" }, "sdk_session_ref": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "CashierSession": { "type": "object", "required": ["cashier_session_id", "payment_intent_id", "channel", "status", "expires_at"], "properties": { "cashier_session_id": { "$ref": "#/components/schemas/Identifier" }, "payment_intent_id": { "$ref": "#/components/schemas/Identifier" }, "channel": { "type": "string" }, "status": { "type": "string", "enum": ["created", "provider_ready", "presented", "completed", "cancelled", "expired"] }, "display": { "type": "object", "additionalProperties": true }, "launch_parameters": { "type": "object", "description": "Channel-minimized short-lived parameters; never contains reusable provider credentials.", "additionalProperties": true }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "CreateRefundRequest": { "type": "object", "required": ["order_id", "amount_minor", "reason", "commerce_process_id"], "properties": { "order_id": { "$ref": "#/components/schemas/Identifier" }, "amount_minor": { "type": "integer", "minimum": 1 }, "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "commerce_process_id": { "$ref": "#/components/schemas/Identifier" }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
+      "Refund": { "type": "object", "required": ["refund_id", "payment_intent_id", "amount_minor", "currency", "status", "audit_id"], "properties": { "refund_id": { "$ref": "#/components/schemas/Identifier" }, "payment_intent_id": { "$ref": "#/components/schemas/Identifier" }, "amount_minor": { "type": "integer", "minimum": 1 }, "currency": { "$ref": "#/components/schemas/Currency" }, "status": { "type": "string", "enum": ["requested", "submitted", "processing", "succeeded", "failed", "cancelled", "review_required"] }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "CreateAiResponseRequest": { "type": "object", "required": ["logical_model_code", "modality", "input", "stream", "client_request_id"], "properties": { "logical_model_code": { "$ref": "#/components/schemas/Identifier" }, "modality": { "type": "string", "enum": ["text", "image", "audio", "video", "embedding", "tools"] }, "input": { "description": "Versioned provider-neutral input envelope.", "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object", "additionalProperties": true } }, { "type": "object", "additionalProperties": true }] }, "tools": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "stream": { "type": "boolean" }, "client_request_id": { "type": "string", "minLength": 16, "maxLength": 128 }, "max_budget_hint": { "type": "integer", "minimum": 0, "description": "Non-authoritative client ceiling hint in the product's configured quota unit." } }, "additionalProperties": false },
+      "AiResponse": { "type": "object", "required": ["request_id", "status", "output", "provider_usage", "usage_settlement_ref"], "properties": { "request_id": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["completed", "cancelled", "failed"] }, "output": { "description": "Provider-neutral response content.", "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object", "additionalProperties": true } }, { "type": "object", "additionalProperties": true }, { "type": "null" }] }, "provider_usage": { "type": "array", "items": { "$ref": "#/components/schemas/UsageDimension" } }, "usage_settlement_ref": { "$ref": "#/components/schemas/Identifier" } } },
+      "PutAiModelRouteRequest": { "type": "object", "required": ["provider", "provider_model", "priority", "capability_metadata", "rollout_scope", "effective_at"], "properties": { "provider": { "$ref": "#/components/schemas/Identifier" }, "provider_model": { "type": "string", "minLength": 1, "maxLength": 200 }, "priority": { "type": "integer", "minimum": 0 }, "capability_metadata": { "type": "object", "additionalProperties": true }, "rollout_scope": { "type": "object", "description": "Authorized product/application rollout constraints; never credentials.", "additionalProperties": true }, "effective_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "AiModelRoute": { "type": "object", "required": ["logical_model_code", "route_version", "status", "effective_at", "audit_id"], "properties": { "logical_model_code": { "$ref": "#/components/schemas/Identifier" }, "route_version": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["scheduled", "active", "retired"] }, "effective_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "UsageDimension": { "type": "object", "required": ["dimension_code", "unit", "variant", "quantity"], "properties": { "dimension_code": { "$ref": "#/components/schemas/Identifier" }, "unit": { "type": "string", "enum": ["token", "image", "second", "minute", "request", "byte"] }, "variant": { "type": "string", "enum": ["input", "output", "cache_read", "cache_write", "standard", "hd", "custom"] }, "quantity": { "type": "integer", "minimum": 0 } } },
+      "CreateUsagePriceRequest": { "type": "object", "required": ["scope_type", "logical_model_code", "dimension_code", "pricing_quantity", "unit_cost_integer", "unit_sale_integer", "currency", "effective_at"], "properties": { "scope_type": { "type": "string", "enum": ["product", "tenant"] }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "logical_model_code": { "$ref": "#/components/schemas/Identifier" }, "dimension_code": { "$ref": "#/components/schemas/Identifier" }, "pricing_quantity": { "type": "integer", "minimum": 1 }, "unit_cost_integer": { "type": "integer", "minimum": 0 }, "unit_sale_integer": { "type": "integer", "minimum": 0 }, "currency": { "$ref": "#/components/schemas/Currency" }, "effective_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "UsagePrice": { "type": "object", "required": ["price_version_id", "status", "effective_at", "audit_id"], "properties": { "price_version_id": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["scheduled", "active", "ended"] }, "effective_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "UsageRecord": { "type": "object", "required": ["usage_record_id", "request_id", "logical_model_code", "route_version", "price_version_id", "dimensions", "sale_amount_integer", "currency", "occurred_at"], "properties": { "usage_record_id": { "$ref": "#/components/schemas/Identifier" }, "request_id": { "$ref": "#/components/schemas/Identifier" }, "logical_model_code": { "$ref": "#/components/schemas/Identifier" }, "route_version": { "type": "integer", "minimum": 1 }, "price_version_id": { "$ref": "#/components/schemas/Identifier" }, "dimensions": { "type": "array", "items": { "$ref": "#/components/schemas/UsageDimension" } }, "cost_amount_integer": { "type": "integer", "minimum": 0, "description": "Returned only when the current authorization scope may view internal cost." }, "sale_amount_integer": { "type": "integer", "minimum": 0 }, "currency": { "$ref": "#/components/schemas/Currency" }, "occurred_at": { "$ref": "#/components/schemas/Timestamp" } } },
+      "UsagePage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/UsageRecord" } }, "next_cursor": { "type": ["string", "null"] } } },
+      "RoleBindingRequest": { "type": "object", "required": ["admin_user_id", "role_code", "scope_type", "effective_from"], "properties": { "admin_user_id": { "$ref": "#/components/schemas/Identifier" }, "role_code": { "$ref": "#/components/schemas/Identifier" }, "scope_type": { "type": "string", "enum": ["platform", "product", "tenant"] }, "scope_id": { "$ref": "#/components/schemas/Identifier" }, "effective_from": { "$ref": "#/components/schemas/Timestamp" }, "expires_at": { "type": ["string", "null"], "format": "date-time" }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
+      "AuditEvent": { "type": "object", "required": ["audit_id", "occurred_at", "actor_id", "permission", "scope_type", "action", "target_type", "target_id", "result", "trace_id"], "properties": { "audit_id": { "$ref": "#/components/schemas/Identifier" }, "occurred_at": { "$ref": "#/components/schemas/Timestamp" }, "actor_id": { "$ref": "#/components/schemas/Identifier" }, "permission": { "type": "string" }, "scope_type": { "type": "string", "enum": ["platform", "product", "tenant"] }, "scope_id": { "$ref": "#/components/schemas/Identifier" }, "action": { "type": "string" }, "target_type": { "type": "string" }, "target_id": { "$ref": "#/components/schemas/Identifier" }, "result": { "type": "string" }, "reason_code": { "type": ["string", "null"] }, "trace_id": { "type": "string" }, "redacted_summary": { "type": "object", "additionalProperties": true } } },
+      "AuditPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/AuditEvent" } }, "next_cursor": { "type": ["string", "null"] } } }
+    }
+  }
+}
