@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "rollback_id": "rollback.request-demo",
+  "workspace_ref": "workspace.demo",
+  "target_snapshot_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "previous_state": "present",
+  "manifest_path": "artifacts/assembly-manifest.json",
+  "manifest_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "lock_path": "artifacts/generated-project-lock.json",
+  "lock_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "files": [{ "path": "src/generated/account.ts", "ownership": "generated", "action": "updated", "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "backup_path": "artifacts/rollback/request-demo/files/src/generated/account.ts" }],
+  "rollback_checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"platform.local/commercialization/backend/internal/platform/httpx"
+	"platform.local/capability-platform/backend/internal/platform/httpx"
 )
 
 type Probe interface {

@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/common.schema.json",
+  "title": "Capability Platform Common Contract Values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identifier",
+    "version",
+    "checksum",
+    "path",
+    "secret_ref",
+    "target",
+    "delivery_mode"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/schemaVersion" },
+    "identifier": { "$ref": "#/$defs/identifier" },
+    "version": { "$ref": "#/$defs/semver" },
+    "checksum": { "$ref": "#/$defs/sha256" },
+    "path": { "$ref": "#/$defs/safeRelativePath" },
+    "secret_ref": { "$ref": "#/$defs/secretRef" },
+    "target": { "$ref": "#/$defs/target" },
+    "delivery_mode": { "$ref": "#/$defs/deliveryMode" }
+  },
+  "$defs": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "packageId": {
+      "type": "string",
+      "minLength": 9,
+      "maxLength": 128,
+      "pattern": "^package\\.[a-z][a-z0-9-]*$"
+    },
+    "templateId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "blueprintId": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 128,
+      "pattern": "^bp_[a-z0-9][a-z0-9-]+$"
+    },
+    "semver": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "semverRange": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?:\\*|(?:[~^]|>=?|<=?)?(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?: (?:>=?|<=?)(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?)*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "safeRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "key", "environment"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/identifier" },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "test", "staging", "production"]
+        }
+      }
+    },
+    "target": {
+      "type": "string",
+      "enum": ["web", "desktop_webview", "h5", "wechat_miniprogram", "mobile_app"]
+    },
+    "deliveryMode": {
+      "type": "string",
+      "enum": ["hosted", "package", "generated_source"]
+    },
+    "renderStrategy": {
+      "type": "string",
+      "enum": ["copy", "strict_template", "generated_region"]
+    },
+    "contentType": {
+      "type": "string",
+      "enum": ["text", "json", "binary"]
+    },
+    "integrationMerge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "region_id", "comment_prefix"],
+      "properties": {
+        "strategy": { "type": "string", "const": "generated_region_v1" },
+        "region_id": { "$ref": "#/$defs/identifier" },
+        "comment_prefix": { "type": "string", "enum": ["//", "#"] }
+      }
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["development", "test", "staging", "production"]
+    },
+    "catalogVisibility": {
+      "type": "string",
+      "enum": ["ordinary", "experimental"]
+    },
+    "packageReadiness": {
+      "type": "string",
+      "enum": ["verified", "available"]
+    },
+    "permissionCode": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "blockId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "operationId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Z][A-Z0-9_]+$"
+    },
+    "contentFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "kind"],
+      "properties": {
+        "path": { "$ref": "#/$defs/safeRelativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "kind": { "type": "string", "enum": ["file"] }
+      }
+    },
+    "packageRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "version_range"],
+      "properties": {
+        "package_id": { "$ref": "#/$defs/packageId" },
+        "version_range": { "$ref": "#/$defs/semverRange" },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  }
+}

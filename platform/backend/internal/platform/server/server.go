@@ -9,10 +9,10 @@ import (
 	"runtime/debug"
 	"time"
 
-	"platform.local/commercialization/backend/internal/platform/config"
-	"platform.local/commercialization/backend/internal/platform/health"
-	"platform.local/commercialization/backend/internal/platform/httpx"
-	"platform.local/commercialization/backend/internal/platform/requestid"
+	"platform.local/capability-platform/backend/internal/platform/config"
+	"platform.local/capability-platform/backend/internal/platform/health"
+	"platform.local/capability-platform/backend/internal/platform/httpx"
+	"platform.local/capability-platform/backend/internal/platform/requestid"
 )
 
 type BuildInfo struct {
@@ -28,8 +28,8 @@ type App struct {
 	build           BuildInfo
 }
 
-func New(cfg config.Config, logger *slog.Logger, database health.Probe, build BuildInfo) *App {
-	handler := NewHandler(logger, []health.Probe{database}, cfg.HealthCheckTimeout, build)
+func New(cfg config.Config, logger *slog.Logger, database health.Probe, modules *ModuleRegistrar, build BuildInfo) *App {
+	handler := NewHandler(logger, []health.Probe{database}, cfg.HealthCheckTimeout, build, modules)
 	return &App{
 		server: &http.Server{
 			Addr: cfg.HTTPAddress, Handler: handler,
@@ -74,11 +74,12 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-func NewHandler(logger *slog.Logger, probes []health.Probe, timeout time.Duration, build BuildInfo) http.Handler {
+func NewHandler(logger *slog.Logger, probes []health.Probe, timeout time.Duration, build BuildInfo, modules *ModuleRegistrar) http.Handler {
 	probeHandler := health.New(probes, timeout, build.Version)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health/live", probeHandler.Live)
 	mux.HandleFunc("/health/ready", probeHandler.Ready)
+	modules.install(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	})

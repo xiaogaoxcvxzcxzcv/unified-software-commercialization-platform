@@ -1,10 +1,63 @@
 import type {
-  AuditRecord,
   EntitlementRecord,
   Product,
   TenantRecord,
   UserRecord,
 } from "../types";
+import { authenticatedAdminRequest, getAdminCsrfToken } from "./authClient";
+
+interface ProductSummaryDto {
+  product_id: string;
+  code: string;
+  name: string;
+  status: "active" | "suspended";
+  provisioning_state: "pending" | "ready" | "failed";
+  official_tenant_id?: string | null;
+}
+
+interface TenantSummaryDto {
+  tenant_id: string;
+  product_id: string;
+  tenant_code: string;
+  name: string;
+  tenant_type: "official" | "agent";
+  status: "active" | "suspended";
+}
+
+interface ProductCreateDto {
+  product_id: string;
+  code: string;
+  name: string;
+  status: "active" | "suspended";
+}
+
+const idempotencyKey = () => globalThis.crypto?.randomUUID?.() ?? `idem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const productAccent = (code: string) => {
+  const palette = ["#0f9f8f", "#3b82f6", "#7c3aed", "#d97706"];
+  const index = [...code].reduce((total, character) => total + character.charCodeAt(0), 0) % palette.length;
+  return palette[index];
+};
+const mapProduct = (item: ProductSummaryDto | ProductCreateDto): Product => ({
+  id: item.product_id,
+  code: item.code,
+  name: item.name,
+  version: "未发布",
+  status: item.status === "active" ? "active" : "paused",
+  users: 0,
+  activeUsers: 0,
+  enabledCapabilities: ["代理租户"],
+  accent: productAccent(item.code),
+});
+const mapTenant = (item: TenantSummaryDto): TenantRecord => ({
+  id: item.tenant_id,
+  productId: item.product_id,
+  name: item.name,
+  code: item.tenant_code,
+  type: item.tenant_type,
+  admins: 0,
+  users: 0,
+  status: item.status,
+});
 
 let products: Product[] = [
   {
@@ -67,13 +120,6 @@ let tenants: TenantRecord[] = [
   { id: "T-ASSETS", productId: "prod-assets", name: "官方直营", code: "official", type: "official", admins: 1, users: 204, status: "active" },
 ];
 
-const audits: AuditRecord[] = [
-  { id: "A-99128", productId: "prod-video", tenantId: "T-OFFICIAL", actor: "admin", action: "授予权益", target: "U-10028 / 专业年卡", result: "success", createdAt: "今天 15:42" },
-  { id: "A-99127", productId: "prod-video", tenantId: "T-EAST", actor: "support-01", action: "撤销设备", target: "U-10025 / Windows", result: "success", createdAt: "今天 14:09" },
-  { id: "A-99126", productId: "prod-video", tenantId: "T-SOUTH", actor: "agent-south", action: "读取其他租户用户", target: "U-10026", result: "denied", createdAt: "今天 12:31" },
-  { id: "A-88114", productId: "prod-copy", tenantId: "T-COPY", actor: "admin", action: "启用产品能力", target: "代理租户", result: "success", createdAt: "昨天 18:22" },
-];
-
 const wait = () => new Promise((resolve) => window.setTimeout(resolve, 120));
 const requireCapability = (productId: string, capability: string) => {
   const product = products.find((item) => item.id === productId);
@@ -87,9 +133,10 @@ const requireTenant = (productId: string, tenantId: string) => {
 };
 
 export const adminClient = {
-  mode: "demo" as const,
+  mode: "api" as const,
   async listProducts() {
-    await wait();
+    const response = await authenticatedAdminRequest<{ items: ProductSummaryDto[] }>("/api/v1/admin/products");
+    products = response.items.map(mapProduct);
     return [...products];
   },
   async listUsers(productId: string, tenantId: string) {
@@ -105,50 +152,36 @@ export const adminClient = {
     return entitlements.filter((item) => item.productId === productId && item.tenantId === tenantId);
   },
   async listTenants(productId: string) {
-    await wait();
-    if (!products.some((product) => product.id === productId)) throw new Error("软件不存在或已被删除");
-    return tenants.filter((tenant) => tenant.productId === productId);
+    const response = await authenticatedAdminRequest<{ items: TenantSummaryDto[] }>(`/api/v1/admin/products/${encodeURIComponent(productId)}/tenants`);
+    const scoped = response.items.map(mapTenant);
+    tenants = [...tenants.filter((tenant) => tenant.productId !== productId), ...scoped];
+    return scoped;
   },
   async listAudits(productId: string, tenantId: string) {
-    await wait();
-    requireTenant(productId, tenantId);
-    return audits.filter((audit) => audit.productId === productId && audit.tenantId === tenantId);
+    const response = await authenticatedAdminRequest<{ items: Array<{ audit_id: string; product_id?: string; tenant_id?: string; actor_id: string; action: string; target_type: string; target_id: string; result: "success" | "denied"; occurred_at: string }> }>("/api/v1/admin/audit/events?limit=100");
+    return response.items
+      .filter((item) => item.product_id === productId && (!item.tenant_id || item.tenant_id === tenantId))
+      .map((item) => ({ id: item.audit_id, productId, tenantId: item.tenant_id ?? tenantId, actor: item.actor_id, action: item.action, target: `${item.target_type} / ${item.target_id}`, result: item.result, createdAt: new Date(item.occurred_at).toLocaleString("zh-CN") }));
   },
   async createProduct(input: Pick<Product, "name" | "code">) {
-    await wait();
-    if (products.some((item) => item.code === input.code)) throw new Error("产品代码已经存在");
-    const product: Product = {
-      id: `prod-${Date.now()}`,
-      name: input.name,
-      code: input.code,
-      version: "v0.1.0",
-      status: "active",
-      users: 0,
-      activeUsers: 0,
-      enabledCapabilities: ["统一账号", "权益"],
-      accent: "#0f9f8f",
-    };
-    const officialTenant: TenantRecord = {
-      id: `T-${Date.now()}-OFFICIAL`, productId: product.id, name: "官方直营", code: "official",
-      type: "official", admins: 1, users: 0, status: "active",
-    };
-    products = [...products, product];
-    tenants = [...tenants, officialTenant];
+    const result = await authenticatedAdminRequest<ProductCreateDto>("/api/v1/admin/products", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey() },
+      body: JSON.stringify({ code: input.code.toLowerCase(), name: input.name, status: "active" }),
+    }, getAdminCsrfToken());
+    const product = mapProduct(result);
+    products = [...products.filter((item) => item.id !== product.id), product];
     return product;
   },
-  async updateProduct(productId: string, input: Pick<Product, "name" | "version">) {
-    await wait();
-    const existing = products.find((product) => product.id === productId);
-    if (!existing) throw new Error("软件不存在或已被删除");
-    products = products.map((product) => product.id === productId ? { ...product, ...input } : product);
-    return products.find((product) => product.id === productId)!;
+  async updateProduct(productId: string, input: Pick<Product, "name" | "version">): Promise<Product> {
+    void productId;
+    void input;
+    throw new Error("产品资料修改接口尚未进入当前可用能力，请先完成对应公共能力变更");
   },
-  async updateCapabilities(productId: string, enabledCapabilities: string[]) {
-    await wait();
-    const existing = products.find((product) => product.id === productId);
-    if (!existing) throw new Error("软件不存在或已被删除");
-    products = products.map((product) => product.id === productId ? { ...product, enabledCapabilities: [...enabledCapabilities] } : product);
-    return products.find((product) => product.id === productId)!;
+  async updateCapabilities(productId: string, enabledCapabilities: string[]): Promise<Product> {
+    void productId;
+    void enabledCapabilities;
+    throw new Error("能力只能由可信装配计划启用，当前没有可用的生产能力包");
   },
   async grantEntitlement(productId: string, tenantId: string, userId: string, plan: string) {
     await wait();
@@ -193,20 +226,14 @@ export const adminClient = {
     return user;
   },
   async createTenant(productId: string, name: string, code: string) {
-    await wait();
-    requireCapability(productId, "代理租户");
-    if (tenants.some((item) => item.productId === productId && item.code === code)) throw new Error("当前软件已存在相同租户代码");
-    const tenant: TenantRecord = {
-      id: `T-${Date.now()}`,
-      productId,
-      name,
-      code,
-      type: "agent",
-      admins: 0,
-      users: 0,
-      status: "active",
-    };
-    tenants = [...tenants, tenant];
+    await authenticatedAdminRequest(`/api/v1/admin/products/${encodeURIComponent(productId)}/tenants`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey() },
+      body: JSON.stringify({ name, tenant_code: code.toLowerCase(), status: "active" }),
+    }, getAdminCsrfToken());
+    const refreshed = await adminClient.listTenants(productId);
+    const tenant = refreshed.find((item) => item.code === code.toLowerCase());
+    if (!tenant) throw new Error("租户已创建，但刷新列表时未找到结果");
     return tenant;
   },
 };

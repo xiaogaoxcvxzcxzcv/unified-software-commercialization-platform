@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "blueprint_id": "bp_catalog-injection",
+  "version": "1.0.0",
+  "catalog_visibility": "ordinary",
+  "product": { "code": "catalog-injection", "name": "Catalog Injection" },
+  "packages": [
+    { "package_id": "package.account", "version": "1.0.0", "catalog_readiness": "available" }
+  ],
+  "applications": [
+    {
+      "application_id": "catalog-injection.web",
+      "target": "web",
+      "channel": "official",
+      "environment": "production",
+      "ui": {
+        "template_id": "standard-a",
+        "version": "1.0.0",
+        "delivery_mode": "generated_source",
+        "catalog_readiness": "available"
+      },
+      "output_path": "apps/web"
+    }
+  ],
+  "provider_refs": [],
+  "extensions": [],
+  "generator": { "id": "platform.generator", "version": "1.0.0" },
+  "sdk": { "id": "platform.sdk", "version": "1.0.0" },
+  "output_root": "generated-products/catalog-injection"
+}

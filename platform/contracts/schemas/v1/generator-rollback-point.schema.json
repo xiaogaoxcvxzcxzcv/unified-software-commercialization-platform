@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generator-rollback-point.schema.json",
+  "title": "Generator Rollback Point",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "rollback_id", "workspace_ref", "target_snapshot_checksum", "previous_state", "files", "rollback_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "rollback_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "workspace_ref": { "$ref": "common.schema.json#/$defs/identifier" },
+    "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "previous_state": { "type": "string", "enum": ["absent", "present"] },
+    "manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "lock_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "lock_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "ownership", "action"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+          "ownership": { "type": "string", "enum": ["generated", "integration"] },
+          "action": { "type": "string", "enum": ["created", "updated", "unchanged"] },
+          "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "backup_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+        },
+        "allOf": [
+          { "if": { "properties": { "action": { "const": "updated" } }, "required": ["action"] }, "then": { "required": ["sha256", "backup_path"] } },
+          { "if": { "properties": { "action": { "enum": ["created", "unchanged"] } }, "required": ["action"] }, "then": { "not": { "anyOf": [{ "required": ["sha256"] }, { "required": ["backup_path"] }] } } }
+        ]
+      }
+    },
+    "rollback_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "allOf": [
+    { "if": { "properties": { "previous_state": { "const": "present" } }, "required": ["previous_state"] }, "then": { "required": ["manifest_path", "manifest_sha256", "lock_path", "lock_sha256"] } },
+    { "if": { "properties": { "previous_state": { "const": "absent" } }, "required": ["previous_state"] }, "then": { "not": { "anyOf": [{ "required": ["manifest_path"] }, { "required": ["manifest_sha256"] }, { "required": ["lock_path"] }, { "required": ["lock_sha256"] }] } } }
+  ]
+}

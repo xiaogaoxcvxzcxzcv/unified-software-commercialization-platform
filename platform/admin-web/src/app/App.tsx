@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AppProvider } from "./AppContext";
 import { useAppContext } from "./AppContext";
+import { AuthProvider, getDefaultAdminPath, useAuth } from "./AuthContext";
+import { ProtectedRoute } from "./ProtectedRoute";
+import { LoginPage } from "../pages/LoginPage";
 
 const AuditPage = lazy(() => import("../pages/AuditPage").then((module) => ({ default: module.AuditPage })));
 const EntitlementsPage = lazy(() => import("../pages/EntitlementsPage").then((module) => ({ default: module.EntitlementsPage })));
@@ -36,8 +39,9 @@ function GlobalRoute({ children }: { children: React.ReactNode }) {
   return children;
 }
 
-export function App() {
-  return <AppProvider><Suspense fallback={<div className="route-loading">正在加载工作区...</div>}><Routes>
+function AuthenticatedRoutes() {
+  const { session } = useAuth();
+  return <AppProvider><Routes>
     <Route path="/overview" element={<GlobalRoute><OverviewPage /></GlobalRoute>} />
     <Route path="/products" element={<GlobalRoute><ProductsPage /></GlobalRoute>} />
     <Route path="/system/health" element={<GlobalRoute><HealthPage /></GlobalRoute>} />
@@ -47,6 +51,13 @@ export function App() {
     <Route path="/products/:productId/entitlements" element={<ProductRoute capability="权益"><EntitlementsPage /></ProductRoute>} />
     <Route path="/products/:productId/tenants" element={<ProductRoute capability="代理租户"><TenantsPage /></ProductRoute>} />
     <Route path="/products/:productId/audit" element={<ProductRoute><AuditPage /></ProductRoute>} />
-    <Route path="*" element={<Navigate replace to="/products/prod-video/overview" />} />
-  </Routes></Suspense></AppProvider>;
+    <Route path="*" element={<Navigate replace to={session ? getDefaultAdminPath(session) : "/login"} />} />
+  </Routes></AppProvider>;
+}
+
+export function App() {
+  return <AuthProvider><Suspense fallback={<div className="route-loading">正在加载工作区...</div>}><Routes>
+    <Route path="/login" element={<LoginPage />} />
+    <Route path="*" element={<ProtectedRoute><AuthenticatedRoutes /></ProtectedRoute>} />
+  </Routes></Suspense></AuthProvider>;
 }

@@ -13,7 +13,8 @@ if (!document.openapi?.startsWith("3.1.")) {
 const operationIds = new Map();
 const methods = new Set(["get", "post", "put", "patch", "delete", "head", "options", "trace"]);
 const requiredOperations = new Set([
-  "GET /health",
+  "GET /health/live",
+  "GET /health/ready",
   "POST /api/v1/admin/products",
   "POST /api/v1/client/session",
   "PUT /api/v1/admin/products/{product_id}/capabilities",
@@ -29,6 +30,10 @@ const requiredOperations = new Set([
   "DELETE /api/v1/account/external-identities/{external_identity_id}",
   "POST /api/v1/auth/refresh",
   "POST /api/v1/auth/logout",
+  "POST /api/v1/admin/auth/login",
+  "GET /api/v1/admin/auth/session",
+  "POST /api/v1/admin/auth/refresh",
+  "POST /api/v1/admin/auth/logout",
   "POST /api/v1/entitlements/check",
   "POST /api/v1/admin/entitlements",
   "GET /api/v1/devices",
@@ -92,6 +97,19 @@ for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
       if (!hasIdempotencyKey && !operation["x-idempotency-exemption"]) {
         errors.push(`${location} needs Idempotency-Key or x-idempotency-exemption`);
       }
+    }
+    const security = operation.security ?? [];
+    const supportsAdminBearer = security.some((requirement) => Object.hasOwn(requirement, "AdminBearer"));
+    const supportsAdminCookie = security.some((requirement) => Object.hasOwn(requirement, "AdminAccessCookie"));
+    if (supportsAdminBearer && !supportsAdminCookie) {
+      errors.push(`${location} supports AdminBearer but not the default AdminAccessCookie browser transport`);
+    }
+    const isUnsafeAdminCookieOperation = supportsAdminCookie
+      && !["get", "head", "options", "trace"].includes(method)
+      && location !== "POST /api/v1/admin/auth/refresh";
+    if (isUnsafeAdminCookieOperation) {
+      const hasAdminCsrfToken = parameters.some((parameter) => parameter.$ref === "#/components/parameters/AdminCsrfToken" || parameter.name === "X-CSRF-Token");
+      if (!hasAdminCsrfToken) errors.push(`${location} needs conditional X-CSRF-Token for administrator Cookie transport`);
     }
   }
 }

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "plan_id": "plan.demo",
+  "blueprint_id": "bp_demo-product",
+  "blueprint_version": 1,
+  "environment": "test",
+  "catalog_snapshot": { "revision": "catalog-abcdef123456", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "packages": [{ "package_id": "package.account", "version": "1.0.0", "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+  "applications": [
+    {
+      "application_id": "demo-product.desktop",
+      "target": "desktop_webview",
+      "channel": "official",
+      "environment": "test",
+      "delivery_mode": "generated_source",
+      "output_path": "apps/desktop",
+      "template": { "template_id": "standard-desktop", "version": "1.0.0", "checksum": "sha256:abababababababababababababababababababababababababababababababab" }
+    },
+    {
+      "application_id": "demo-product.web",
+      "target": "web",
+      "channel": "official",
+      "environment": "test",
+      "delivery_mode": "generated_source",
+      "output_path": "apps/web",
+      "template": { "template_id": "standard-web", "version": "1.0.0", "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+    }
+  ],
+  "extensions": [],
+  "generator": { "generator_id": "platform.generator", "version": "1.0.0", "checksum": "sha256:1212121212121212121212121212121212121212121212121212121212121212" },
+  "sdks": [{ "sdk_id": "sdk.typescript", "version": "1.0.0", "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }],
+  "capabilities": [{ "capability_id": "identity.user-session", "enabled": true, "policy": {}, "source_package_id": "package.account", "source_package_version": "1.0.0" }],
+  "dependencies": [],
+  "conflicts": [],
+  "risks": [{ "risk_id": "risk.generated-files", "level": "medium", "category": "generation", "summary": "Generated files will be replaced only when their lock checksum matches.", "requires_confirmation": true }],
+  "providers": [{ "provider": "vault.local", "environment": "test", "config_ref": "configs/vault-local.json", "secret_refs": [{ "provider": "vault.local", "key": "CLIENT_SECRET", "environment": "test" }] }],
+  "required_providers": ["vault.local"],
+  "required_secret_refs": [{ "provider": "vault.local", "key": "CLIENT_SECRET", "environment": "test" }],
+  "expected_outputs": [{ "path": "src/generated/account.ts", "ownership": "generated", "source_id": "package.account", "source_version": "1.0.0", "source_path": "content/account.ts.tmpl", "source_sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "render_strategy": "strict_template", "content_type": "text" }],
+  "confirmation": { "required": true, "blocking_conflict_count": 0, "risk_count": 1, "statements": ["Confirm generated file ownership."], "summary_checksum": "sha256:ab254cbb2886ff1913ab3b13ef467217c082b00272060cf2a1a1c3d43d001e06" },
+  "executable": true,
+  "plan_checksum": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

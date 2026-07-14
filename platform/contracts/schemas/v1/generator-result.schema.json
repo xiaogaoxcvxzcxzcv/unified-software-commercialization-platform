@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generator-result.schema.json",
+  "title": "Generator Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "status", "files_written", "preserved_files", "diagnostic_ids", "staging_cleanup_completed", "atomic_commit_completed", "rollback_attempted", "rollback_completed", "target_unchanged", "result_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "status": { "type": "string", "enum": ["succeeded", "failed", "conflict"] },
+    "files_written": { "type": "array", "items": { "$ref": "#/$defs/writtenFile" } },
+    "preserved_files": { "type": "array", "items": { "$ref": "#/$defs/preservedFile" } },
+    "diagnostic_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "staging_cleanup_completed": { "type": "boolean" },
+    "atomic_commit_completed": { "type": "boolean" },
+    "rollback_attempted": { "type": "boolean" },
+    "rollback_completed": { "type": "boolean" },
+    "target_unchanged": { "type": "boolean" },
+    "rollback_point_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "commit_journal_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "assembly_manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "generated_lock_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "result_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "succeeded" } }, "required": ["status"] },
+      "then": { "required": ["assembly_manifest_path", "generated_lock_path", "rollback_point_path", "commit_journal_path"], "properties": { "atomic_commit_completed": { "const": true }, "rollback_attempted": { "const": false }, "rollback_completed": { "const": false }, "diagnostic_ids": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "conflict" } }, "required": ["status"] },
+      "then": { "properties": { "files_written": { "maxItems": 0 }, "atomic_commit_completed": { "const": false }, "rollback_attempted": { "const": false }, "rollback_completed": { "const": false }, "target_unchanged": { "const": true }, "diagnostic_ids": { "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": {
+        "properties": { "atomic_commit_completed": { "const": false }, "diagnostic_ids": { "minItems": 1 } },
+        "anyOf": [
+          { "properties": { "target_unchanged": { "const": true } } },
+          { "properties": { "rollback_attempted": { "const": true }, "rollback_completed": { "const": true } }, "required": ["rollback_point_path", "commit_journal_path"] }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "writtenFile": {
+      "type": "object", "additionalProperties": false, "required": ["path", "ownership", "sha256", "action"],
+      "properties": {
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "ownership": { "type": "string", "enum": ["generated", "integration"] },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "action": { "type": "string", "enum": ["created", "updated", "unchanged"] }
+      }
+    },
+    "preservedFile": {
+      "type": "object", "additionalProperties": false, "required": ["path", "ownership", "sha256"],
+      "properties": {
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "ownership": { "type": "string", "enum": ["custom", "forked"] },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

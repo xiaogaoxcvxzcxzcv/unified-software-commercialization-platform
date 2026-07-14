@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/ui-template-manifest.schema.json",
+  "title": "UI Template Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "template_id", "version", "name", "availability", "supported_targets", "supported_delivery_modes", "supported_blocks", "package_compatibility", "entrypoints", "source_root", "preview_assets", "content_files", "content_tree_sha256", "manifest_sha256"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "template_id": { "$ref": "common.schema.json#/$defs/templateId" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "availability": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/availability" } },
+    "supported_targets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/target" } },
+    "supported_delivery_modes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/deliveryMode" } },
+    "supported_blocks": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/blockId" } },
+    "package_compatibility": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
+    "entrypoints": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/entrypoint" } },
+    "source_root": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "preview_assets": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "content_files": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/contentFile" } },
+    "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "availability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "delivery_mode", "environments", "visibility", "readiness", "evidence_refs"],
+      "properties": {
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" },
+        "environments": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/environment" } },
+        "visibility": { "$ref": "common.schema.json#/$defs/catalogVisibility" },
+        "readiness": { "$ref": "common.schema.json#/$defs/packageReadiness" },
+        "evidence_refs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "visibility": { "const": "ordinary" } }, "required": ["visibility"] },
+          "then": { "properties": { "readiness": { "const": "available" } } }
+        },
+        {
+          "if": { "properties": { "visibility": { "const": "experimental" } }, "required": ["visibility"] },
+          "then": { "properties": { "readiness": { "const": "verified" } } }
+        }
+      ]
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "delivery_mode", "path", "ownership", "source_path", "source_sha256", "render_strategy", "content_type"],
+      "properties": {
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" },
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "ownership": { "type": "string", "enum": ["generated", "integration"] },
+        "source_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "source_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "render_strategy": { "$ref": "common.schema.json#/$defs/renderStrategy" },
+        "content_type": { "$ref": "common.schema.json#/$defs/contentType" },
+        "merge": { "$ref": "common.schema.json#/$defs/integrationMerge" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ownership": { "const": "integration" } }, "required": ["ownership"] },
+          "then": { "required": ["merge"], "properties": { "render_strategy": { "const": "generated_region" }, "content_type": { "const": "text" } } }
+        },
+        {
+          "if": { "properties": { "ownership": { "const": "generated" } }, "required": ["ownership"] },
+          "then": { "not": { "required": ["merge"] } }
+        },
+        {
+          "if": { "properties": { "content_type": { "const": "binary" } }, "required": ["content_type"] },
+          "then": { "properties": { "render_strategy": { "const": "copy" } } }
+        }
+      ]
+    }
+  }
+}

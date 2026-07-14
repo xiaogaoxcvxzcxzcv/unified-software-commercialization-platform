@@ -1,6 +1,6 @@
 # Hosted UI Contract
 
-本契约定义统一商业化平台托管的最终用户页面。新软件可以通过浏览器、WebView 或平台适配器打开统一登录、个人中心、套餐、收银台和支付结果页，无需复制这些页面的源码。
+本契约定义统一商业化平台托管的最终用户页面。Hosted UI 是完整能力包的三种用户前台交付方式之一；新软件也可以选择版本化组件依赖或 Generated Source，不得把本契约误解为唯一前台形态。
 
 Hosted UI 是 `platform/client-ui/` 的一种交付方式，复用 `client-ui-contract.md` 的字段、状态、Feature Block 和主题 Token。它不是管理后台，也不是新的账号、订单、支付或权益事实来源。
 
@@ -236,4 +236,3 @@ temporarily_unavailable
 6. 小程序登录与支付走原生渠道适配，不依赖 Web Cookie。
 7. App 深链接晚到或重复到达只完成一次交互。
 8. 产品 A 的 HostedInteraction 不能读取产品 B 或同产品其他代理租户的数据。
-

@@ -22,7 +22,7 @@ export function ProductsPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await adminClient.createProduct({ name, code: code.toUpperCase() });
+      await adminClient.createProduct({ name, code: code.toLowerCase() });
       await refreshProducts();
       setOpen(false);
       setName("");

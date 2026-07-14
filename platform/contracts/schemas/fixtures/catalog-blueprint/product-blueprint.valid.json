@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "blueprint_id": "bp_video-brain",
+  "version": "1.0.0",
+  "product": {
+    "code": "video-brain",
+    "name": "Video Brain",
+    "brand_name": "Video Brain"
+  },
+  "packages": [
+    { "package_id": "package.account", "version": "1.0.0" }
+  ],
+  "applications": [
+    {
+      "application_id": "video-brain.web",
+      "target": "web",
+      "channel": "official",
+      "environment": "production",
+      "ui": {
+        "template_id": "standard-a",
+        "version": "1.0.0",
+        "delivery_mode": "generated_source"
+      },
+      "output_path": "apps/web"
+    }
+  ],
+  "provider_refs": [],
+  "extensions": [],
+  "generator": { "id": "platform.generator", "version": "1.0.0" },
+  "sdk": { "id": "platform.sdk", "version": "1.0.0" },
+  "output_root": "generated-products/video-brain"
+}

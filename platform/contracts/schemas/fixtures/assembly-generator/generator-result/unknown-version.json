@@ -1,0 +1,6 @@
+{
+  "schema_version": "3.0.0", "request_id": "request.demo", "status": "succeeded",
+  "files_written": [{ "path": "src/generated/account.ts", "ownership": "generated", "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "action": "created" }],
+  "preserved_files": [], "diagnostic_ids": [], "staging_cleanup_completed": true, "atomic_commit_completed": true,
+  "generated_lock_path": "artifacts/generated-project-lock.json", "result_checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

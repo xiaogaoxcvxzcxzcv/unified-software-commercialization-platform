@@ -18,9 +18,9 @@ Product Application 是 Product 内部的多端客户端表面与渠道子模块
 ## 拥有的数据
 
 - `product_applications`
-- `application_redirect_uris`
-- `application_channel_bindings`
-- Application 与 Product 客户端凭据的关联
+- `application_client_bindings`
+- `redirect_policy_versions` 与 `redirect_policy_entries`
+- `idempotency_records` 与 `outbox_events`
 
 真实 OAuth、微信、支付和签名密钥不保存在本模块业务表中，只保存密钥系统引用或不可逆摘要。
 
@@ -55,3 +55,6 @@ Product Application 是 Product 内部的多端客户端表面与渠道子模块
 - Application 只能收窄 ProductCapabilitySet，不能越权打开 Product 已关闭的能力。
 - 被停用的 Application 不能建立新会话；已有会话按版本化停用策略撤销或自然到期。
 
+## 当前实现
+
+G1-03 已实现创建/list、精确 Product/环境/client 绑定、HMAC/Ed25519 客户端凭据组合流程、版本化回调/Origin/深链白名单、停用、ApplicationContext 解析、管理 HTTP、事务 Outbox 与真实 PostgreSQL 测试。Identity、Payment、Release、Config 对 ApplicationContext 的消费仍属于后续能力包，不在本状态内。

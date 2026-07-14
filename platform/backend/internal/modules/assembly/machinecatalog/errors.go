@@ -1,0 +1,27 @@
+package machinecatalog
+
+import "errors"
+
+var (
+	ErrInvalidLayout            = errors.New("invalid machine catalog layout")
+	ErrIdentityMismatch         = errors.New("catalog path and manifest identity mismatch")
+	ErrDuplicatePackageVersion  = errors.New("duplicate package version")
+	ErrDuplicateTemplateVersion = errors.New("duplicate template version")
+	ErrChecksumMismatch         = errors.New("catalog checksum mismatch")
+	ErrContentTreeMismatch      = errors.New("catalog content tree mismatch")
+	ErrCatalogState             = errors.New("catalog state is not allowed in this view")
+	ErrUnknownBlock             = errors.New("unknown feature block")
+	ErrBlockNotReady            = errors.New("feature block is not ready")
+	ErrUnknownPackage           = errors.New("unknown capability package")
+	ErrVersionConflict          = errors.New("capability package version constraints cannot be satisfied")
+	ErrDependencyCycle          = errors.New("capability package dependency cycle")
+	ErrPackageConflict          = errors.New("capability packages conflict")
+	ErrUnsupportedTarget        = errors.New("target is not supported")
+	ErrUnsupportedDeliveryMode  = errors.New("delivery mode is not supported")
+	ErrUnavailableEnvironment   = errors.New("catalog item is unavailable in environment")
+	ErrUnknownTemplate          = errors.New("unknown UI template")
+	ErrTemplateIncompatible     = errors.New("UI template is incompatible with selected package")
+	ErrTemplateMissingBlock     = errors.New("UI template is missing a required client block")
+	ErrEntrypointMismatch       = errors.New("UI template entrypoint mismatch")
+	ErrUnknownContent           = errors.New("locked catalog content is unavailable")
+)

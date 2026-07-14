@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "lock_id": "lock.demo",
+  "assembly_manifest_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "blueprint_checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "catalog_checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "target_snapshot_checksum": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+  "rollback_point_path": "artifacts/rollback/request-demo.json",
+  "generator": { "generator_id": "generator.typescript", "version": "1.0.0", "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+  "packages": [{ "id": "package.account", "version": "1.0.0", "checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }],
+  "templates": [{ "id": "standard-web", "version": "1.0.0", "checksum": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }],
+  "sdks": [{ "id": "sdk.typescript", "version": "1.0.0", "checksum": "sha256:1111111111111111111111111111111111111111111111111111111111111111" }],
+  "files": [
+    { "path": "src/generated/account.ts", "ownership": "generated", "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "generated_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "source_id": "package.account", "source_version": "1.0.0", "source_path": "content/account.ts.tmpl", "source_sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "render_strategy": "strict_template", "content_type": "text", "update_policy": "replace_generated" },
+    { "path": "src/custom/workbench.ts", "ownership": "custom", "sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "update_policy": "preserve_custom" }
+  ],
+  "created_at": "2026-07-13T12:00:00Z",
+  "lock_checksum": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "generated-product-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --configLoader runner",
+    "build": "tsc --noEmit && vite build --configLoader runner",
+    "preview": "vite preview --host 127.0.0.1 --configLoader runner",
+    "test": "vitest run --configLoader runner"
+  },
+  "dependencies": {
+    "@capability-platform/client-sdk": "0.1.0",
+    "@capability-platform/client-ui": "0.1.0",
+    "@tabler/icons-react": "3.44.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1", "@testing-library/react": "16.3.0",
+    "@types/react": "19.2.17", "@types/react-dom": "19.2.3", "@vitejs/plugin-react": "5.0.4",
+    "jsdom": "26.1.0", "typescript": "5.9.3", "vite": "6.4.2", "vitest": "3.2.4"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/catalog-snapshot.schema.json",
+  "title": "Immutable Machine Catalog Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "revision", "packages", "templates", "permission_catalog", "feature_block_catalog", "schema_catalog", "snapshot_sha256"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "revision": { "$ref": "common.schema.json#/$defs/identifier" },
+    "packages": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/catalogItem" } },
+    "templates": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/catalogItem" } },
+    "permission_catalog": { "$ref": "#/$defs/versionedInput" },
+    "feature_block_catalog": { "$ref": "#/$defs/versionedInput" },
+    "schema_catalog": { "$ref": "#/$defs/versionedInput" },
+    "snapshot_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "versionedInput": {
+      "type": "object", "additionalProperties": false, "required": ["version", "sha256"],
+      "properties": { "version": { "$ref": "common.schema.json#/$defs/semver" }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" } }
+    },
+    "catalogItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "manifest_sha256", "content_tree_sha256", "availability", "dependencies", "conflicts", "supported_targets", "supported_delivery_modes", "backend_capabilities"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "availability": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/availability" } },
+        "dependencies": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
+        "conflicts": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
+        "supported_targets": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/target" } },
+        "supported_delivery_modes": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/deliveryMode" } }
+        ,"backend_capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } }
+      }
+    },
+    "availability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "delivery_mode", "environments", "visibility", "readiness"],
+      "properties": {
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" },
+        "environments": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/environment" } },
+        "visibility": { "$ref": "common.schema.json#/$defs/catalogVisibility" },
+        "readiness": { "$ref": "common.schema.json#/$defs/packageReadiness" }
+      }
+    }
+  }
+}

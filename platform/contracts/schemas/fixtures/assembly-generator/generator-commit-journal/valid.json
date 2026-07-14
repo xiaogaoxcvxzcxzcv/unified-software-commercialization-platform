@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "request.demo",
+  "workspace_ref": "workspace.demo",
+  "target_snapshot_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "committed",
+  "changes": [
+    {
+      "path": "src/generated/account.ts",
+      "ownership": "generated",
+      "action": "updated",
+      "before_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "after_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "backup_path": "artifacts/assembly/assembly-demo/backups/src/generated/account.ts"
+    }
+  ],
+  "rollback_attempted": false,
+  "rollback_completed": false,
+  "journal_checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}
