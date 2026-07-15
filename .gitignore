@@ -14,6 +14,10 @@ artifacts/reviews/*
 artifacts/reviews/F0-02/*
 !artifacts/reviews/F0-02/admin-auth-e2e.md
 !artifacts/reviews/F0-02/quality-gate-full-postgres-remediation.json
+!artifacts/reviews/F0-03/
+artifacts/reviews/F0-03/*
+!artifacts/reviews/F0-03/hosted-quality-gate.md
+!artifacts/reviews/F0-03/quality-gate-hosted.json
 !artifacts/smoke/
 artifacts/smoke/*
 !artifacts/smoke/2026-07-15/

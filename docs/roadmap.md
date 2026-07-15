@@ -22,7 +22,7 @@
 
 目标：能够创建一个不含软件独有业务内容的基础软件蓝图，并安全、可重复地产生前台框架和装配结果。
 
-F0-02 管理员认证浏览器 E2E 的首次通过结论曾在 2026-07-15 被三个 P1 推翻；旧 session 响应覆盖新 CSRF、Bearer logout proof 类型未锁定、混合 family Cookie 部分退出均已修复，并以真实 PostgreSQL、双标签浏览器和 Full 18 项门禁重新验证，F0-02 现为 `verified_after_remediation`。当前严格关口为 F0-03：首次托管 CI 失败日志已取得，需提交 Linux 路径与离线模板依赖修复、取得绿色运行并落实 required check，之后才进入 G1-07 模板视觉 QA。当前没有 `available` 完整能力包。
+F0-02 管理员认证浏览器 E2E 的首次通过结论曾在 2026-07-15 被三个 P1 推翻；三项均已修复并完成补救复验，F0-02 现为 `verified_after_remediation`。F0-03 的 Linux 路径、npm peer 解析和模板离线 metadata 缓存问题已由连续托管运行暴露并修复，push 运行 `29403678552` 与 PR 运行 `29403976845` 均绿色。当前严格关口只剩 required check：私有仓库现有 GitHub 套餐拒绝保护规则写入，需所有者裁决升级套餐或改变仓库可见性；裁决前不得进入 G1-07 模板视觉 QA。当前没有 `available` 完整能力包。
 
 范围：
 

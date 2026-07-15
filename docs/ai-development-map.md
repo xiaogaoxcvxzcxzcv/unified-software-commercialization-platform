@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-- 当前阶段：F0-02 的三个认证边界 P1 已按契约修复，并通过真实 PostgreSQL、真实双标签浏览器和 Full 18 项质量门补救复验，重新达到 `verified`。当前唯一关口为 F0-03：修复首次托管 CI 暴露的 Linux 路径与离线模板依赖问题，取得绿色托管运行并配置 required check。完整能力包尚未开始。
+- 当前阶段：F0-02 已在补救复验后重新达到 `verified`。F0-03 的 push 与 pull_request 托管 Full 质量门均已绿色，当前唯一剩余项是 required check；私有仓库的现有 GitHub 套餐拒绝 branch protection/ruleset 写入，需要所有者在升级套餐与改变仓库可见性之间明确裁决。裁决前 F0-03 保持 `in_progress`，完整能力包尚未开始。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程和内存演示 Client；它用于验证信息架构、产品/租户上下文与交互，不是生产数据源。

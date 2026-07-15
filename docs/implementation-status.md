@@ -20,7 +20,7 @@
 
 | 交付面 | 当前状态 | 已有成果 | 仍缺少 |
 |---|---|---|---|
-| 工程治理 | implemented | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 PowerShell 门禁覆盖 Go、SDK、Client UI、standard-a 模板、管理后台、OpenAPI、机器契约/目录、UTF-8、迁移、链接、秘密和空白检查；F0-02 补救后本地真实 PostgreSQL Full 18 项通过；GitHub Actions 首次托管失败日志已取得 | 修复并取得 GitHub Actions 绿色托管运行、required check、每阶段专用门禁和真实恢复演练 |
+| 工程治理 | implemented | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 PowerShell 门禁覆盖 Go、SDK、Client UI、standard-a 模板、管理后台、OpenAPI、机器契约/目录、UTF-8、迁移、链接、秘密和空白检查；F0-02 补救后本地真实 PostgreSQL Full 18 项通过；GitHub Actions push 与 PR Full 18 项均绿色 | required check 受私有仓库套餐限制；每阶段专用门禁和真实恢复演练 |
 | 产品蓝图与 Assembly | G1-05 verified + G1-07 implemented | G1-04 后端基础与 G1-05 确定性 Generator 已通过真实 PostgreSQL Full 门禁；G1-07 增加真实实验模板、模板预览命令和正式 Renderer/Committer 生成检查；F0-02 已完成补救复验 | 当前 F0-03；随后 G1-07 模板视觉关口；G1-07.1 受信工具目录；G1-08 创建向导和软件管理工作区；G1-10 lifecycle API；G1-11 可信扩展目录 |
 | 完整能力包目录 | planned | 首批 package 边界和交付标准、Manifest/目录机器基础已登记并验证；普通与实验能力包目录均为空 | 真实独立 Package Manifest、九个交付面、目标端 E2E；当前没有 available 包 |
 | UI Template / Generated Source | G1-07 implemented candidate | `standard-a` 0.1.0 已进入受控实验模板目录，覆盖 Web/desktop WebView、generated/integration/custom 边界、独有工作台插槽、主题和测试配置；正式 Generator 分别生成 11 个文件，离线安装、4 条模板交互测试、生产构建和本机 HTTP 启动通过；Codex 内置浏览器本机访问已恢复 | 模板自身桌面/窄屏无重叠视觉 QA；普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E |
@@ -61,7 +61,7 @@
 - 管理后台 Vite 生产构建：通过；转换模块数量不作为产品完成证据。
 - F0-02：`verified_after_remediation`。首次证据被三个 P1 推翻的历史保留；契约与实现现已加入单调 `session_version`、Bearer transport/access 类型绑定、Cookie access/refresh 同 session/family 原子校验及 consumed refresh replay 优先撤销。真实 PostgreSQL 负向/并发测试、双标签浏览器和退出清理均重新通过。
 - Go 后端：`go test -count=1 ./internal/modules/identity/... ./cmd/server ./cmd/bootstrap-admin` 与对应 `go vet` 通过；Full 门禁中的全后端测试使用真实 PostgreSQL 通过，且没有缺失数据库的跳过标记。
-- F0-03 共用质量门禁：补救后的本地 `Full -RequirePostgres` 18 项全部通过，包含严格 UTF-8（477 个文本文件）、11 对迁移、110 份 Markdown 链接、秘密扫描、OpenAPI 59 条路径/63 个 operationId、机器契约/目录、真实 PostgreSQL 全后端、Go vet、SDK 8 条、Client UI 14 条、standard-a 双目标各 4 条测试/构建/启动，以及管理后台 32 条测试和构建。脱敏报告位于 `artifacts/reviews/F0-02/quality-gate-full-postgres-remediation.json`；GitHub Actions 首次托管运行已暴露 Linux 路径和离线模板安装问题，当前待推送修复并取得绿色运行，required check 尚未落实。
+- F0-03 共用质量门禁：本地 `Full -RequirePostgres`、push 托管运行 `29403678552` 和 PR 托管运行 `29403976845` 均通过 18 项；托管环境为 Ubuntu + PostgreSQL 17，真实数据库测试未跳过。Linux 路径、npm 10 peer 解析与 Standard-A 离线 registry metadata 缓存问题均由失败运行反证并修复。证据位于 `artifacts/reviews/F0-03/hosted-quality-gate.md` 和 `quality-gate-hosted.json`。required check 因私有仓库现有 GitHub 套餐返回 403 尚未落实，F0-03 保持 `in_progress`。
 - G1-01：12 份 Draft 2020-12 Schema、50 个正反 fixtures、RFC 8785 规范化摘要、ECMA-262 pattern、安全相对路径与 ADR-0011 通过；运行时不解析 Markdown，不接受明文秘密或 custom 覆盖。
 - G1-02/G1-05 机器契约：当前 Schema 总数 17、fixtures 总数 65；普通/实验目录隔离、Feature Block 机器目录与 Markdown ID 防漂移、Manifest/内容树摘要、Permission 引用不授权、蓝图目录状态注入拒绝、依赖闭包/版本无解/环/冲突、目标端/交付形态/环境、模板 Block/包兼容、确定性快照，以及 Commit Journal/Eject Plan 正反例均通过；真实能力包仍为 0，实验 UI 模板现为 1 个。
 - 框架安全/模块入口：中性 module path、Module Registrar、多模块路由、注册冻结、权限目录、Identity-Audit Port 边界和随机源失败注入测试通过。
