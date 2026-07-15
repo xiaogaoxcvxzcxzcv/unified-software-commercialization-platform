@@ -17,6 +17,7 @@ $AdminNpmCache = Join-Path $RepoRoot 'platform/admin-web/.npm-cache'
 $NpmCache = Join-Path $RuntimeRoot 'npm-cache'
 $Npm = if ($env:OS -eq 'Windows_NT') { 'npm.cmd' } else { 'npm' }
 $Node = (Get-Command node -ErrorAction Stop).Source
+$ProductName = -join (@(0x6807, 0x51C6, 0x6A21, 0x677F, 0x9A8C, 0x8BC1, 0x8F6F, 0x4EF6) | ForEach-Object { [char]$_ })
 $env:GOTELEMETRY = 'off'
 $env:GOCACHE = Join-Path $RuntimeRoot 'go-build-cache'
 $env:GOMODCACHE = Join-Path $RuntimeRoot 'go-mod-cache'
@@ -155,7 +156,7 @@ try {
             '--template-version', '0.1.0',
             '--target', $target.Name,
             '--output', $projectRoot,
-            '--product-name', '标准模板验证软件'
+            '--product-name', $ProductName
         ) -WorkingDirectory (Join-Path $RepoRoot 'platform/backend')
 
         $customTarget = Join-Path $projectRoot 'src/custom'

@@ -21,16 +21,16 @@
 | 交付面 | 当前状态 | 已有成果 | 仍缺少 |
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 Full 18 项门禁；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
-| 产品蓝图与 Assembly | G1-05 verified + G1-07 in_progress | G1-04 后端基础与 G1-05 确定性 Generator 已通过真实 PostgreSQL Full 门禁；G1-07 增加真实实验模板、模板预览命令和正式 Renderer/Committer 生成检查；F0 已退出 | 当前 G1-07 模板视觉关口；随后 G1-07.1 受信工具目录；G1-08 创建向导和软件管理工作区；G1-10 lifecycle API；G1-11 可信扩展目录 |
+| 产品蓝图与 Assembly | G1-05/G1-07 verified + G1-07.1 in_progress | G1-04 后端基础、G1-05 确定性 Generator 和 G1-07 Standard-A 模板已通过真实 PostgreSQL Full 门禁；Web/desktop WebView 真实生成、裸空状态、custom 注入和多尺寸浏览器视觉验收完成；F0 已退出 | 当前 G1-07.1 受信工具目录；随后 G1-08 创建向导和软件管理工作区；G1-10 lifecycle API；G1-11 可信扩展目录 |
 | 完整能力包目录 | planned | 首批 package 边界和交付标准、Manifest/目录机器基础已登记并验证；普通与实验能力包目录均为空 | 真实独立 Package Manifest、九个交付面、目标端 E2E；当前没有 available 包 |
-| UI Template / Generated Source | G1-07 implemented candidate | `standard-a` 0.1.0 已进入受控实验模板目录，覆盖 Web/desktop WebView、generated/integration/custom 边界、独有工作台插槽、主题和测试配置；正式 Generator 分别生成 11 个文件，离线安装、4 条模板交互测试、生产构建和本机 HTTP 启动通过；Codex 内置浏览器本机访问已恢复 | 模板自身桌面/窄屏无重叠视觉 QA；普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E |
+| UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 真实样板软件 | planned | G2 黄金链和验收标准已确定 | 可运行样板仓库、独有工作台、account/entitlement 装配与回归证据 |
 | 管理后台 | demo + auth verified | React + TypeScript 可运行工程；平台/产品双上下文；管理员登录、单调 session_version、双标签单次刷新、403、退出重试、Cookie 属性和视觉 E2E 已通过补救复验；32 项 Vitest 与生产构建通过 | 真实业务 OpenAPI Client、业务页面 E2E、平板视觉 QA |
 | Go 后端 | implemented + G1-05 verified | 中性 module path、Module Registrar/组合入口、模块化单体边界和 G1-03/G1-04 基础已通过 Full 门禁；Assembly generation 与 assemblyexecution 已实现最终机器证据、受信输出根、事务文件提交、Run 编排和持久回滚 | G1-06 以后客户端交付、账号/权益等完整能力包、公开升级管理 API、浏览器 Cookie 证据与生产部署验证 |
 | OpenAPI | implemented | OpenAPI 3.1 公共契约，覆盖管理员认证、Product/Application/Tenant、可信 Client Session、Access Control、Audit，以及 Blueprint/Plan/Run/Manifest/Generated Project Lock 管理 API；含无依赖结构校验器 | 第三方 schema lint、生成 Client、浏览器/API E2E；公开 upgrade/eject/rollback 管理 API |
-| Client UI / Hosted UI | G1-06 verified foundation + G1-07 implemented | `@capability-platform/client-ui` v0.1.0 基座已验证；`standard-a` 候选模板已完成 Web/desktop WebView 生成、custom 路由发现、响应式 Shell、主题切换、离线安装、测试、构建与启动检查 | G1-07 浏览器视觉 QA；业务 Feature Block、小程序/原生适配、真实 HostedInteraction 后端和浏览器/跨端 E2E |
+| Client UI / Hosted UI | G1-06 foundation + G1-07 template verified | `@capability-platform/client-ui` v0.1.0 基座已验证；`standard-a` 已完成 Web/desktop WebView 生成、custom 路由、响应式 Shell、主题、离线安装、构建、浏览器视觉与键盘验收 | 业务 Feature Block、小程序/原生适配、真实 HostedInteraction 后端和浏览器/跨端 E2E |
 | SDK | G1-06 verified foundation | `@capability-platform/client-sdk` v0.1.0 已实现可信 Client/Product/Application/Tenant Context、内存 token、受保护 HTTP、分类错误、超时/取消/受限重试和未知枚举降级；8 条测试、构建与发布清单检查通过 | 业务模块专用方法、离线缓存策略、真实生成软件接入和旧版本兼容回归 |
-| 部署 | planned | 模块化单体与 Docker Compose 方向 | 环境模板、PostgreSQL/Redis/S3、备份恢复 |
+| 部署 | planned | 模块化单体与 Docker Compose 方向；主计划已增加“本机 -> 托管 CI -> 云端测试 -> 正式生产”的四级验证和 G7 自动化优先生产终验 | 云端测试/生产环境模板、部署自动化、域名/TLS、Secret Manager/KMS、监控告警、容量压测、ST-012/ST-040 至 ST-042、正式发布与观察期 |
 
 `in_progress` 条目合入并验证前不得视为可交付；本表在每次交付收口时更新为实际结果。
 
@@ -40,7 +40,7 @@
 
 | 模块 | 当前状态 | 说明 |
 |---|---|---|
-| assembly | G1-05 verified + G1-07 in_progress | G1-04/G1-05 后端与 Generator 闭包已验证；受控实验目录已有 `standard-a` 0.1.0，开发预览命令通过真实目录、PureRenderer、generated region 和 FileCommitter 生成 Web/desktop WebView，同时证明 Generator 不创建 custom 代码；普通包、模板和工具目录仍为空 | 当前 G1-07 视觉 QA；随后 G1-07.1 受信工具、G1-08 向导/软件工作区、G1-10 lifecycle API、G1-11 扩展目录；G2C 真实样板与 ST-027 至 ST-033 |
+| assembly | G1-05/G1-07 verified + G1-07.1 in_progress | G1-04/G1-05 后端与 Generator 闭包已验证；`standard-a` 0.1.0 已完成 Web/desktop WebView 生成、custom 所有权、裸空状态、多尺寸视觉和 Full 18 项验收；普通包、模板和工具目录仍为空 | 当前 G1-07.1 受信工具；随后 G1-08 向导/软件工作区、G1-10 lifecycle API、G1-11 扩展目录；G2C 真实样板与 ST-027 至 ST-033 |
 | product / product-application | verified foundation + admin demo | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过本地自动化；Product CapabilitySet 只接受受信 Plan，G1-05 Run 已通过公开服务组合 Product/official Tenant/Application/CapabilitySet | 真实管理后台 API Client、完整能力包装配、浏览器 E2E 与生产部署 |
 | tenant | verified foundation + admin demo | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过本地自动化 | agent 停用/恢复管理入口、真实业务模块租户回归、管理后台 API Client 与浏览器 E2E |
 | identity | admin auth verified + user auth contracted | Cookie/受控 Bearer 登录、单调 session_version、会话轮换、严格 logout proof、同 family Cookie 原子退出、重放防护、受控客户端生命周期与真实 PostgreSQL/浏览器证据均已通过补救复验 | 最终用户密码、微信/OIDC、绑定与合并仍只有契约 |

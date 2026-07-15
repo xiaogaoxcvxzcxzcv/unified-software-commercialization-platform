@@ -399,6 +399,12 @@ try {
     }
 
     if ($Mode -eq 'Full') {
+        $testTemp = Join-Path $RepoRoot '.runtime/test-temp'
+        New-Item -ItemType Directory -Force -Path $testTemp | Out-Null
+        $env:TEMP = $testTemp
+        $env:TMP = $testTemp
+        $env:TMPDIR = $testTemp
+
         Invoke-GateStep -Name 'PostgreSQL test environment' -Action {
             if ($RequirePostgres -and [string]::IsNullOrWhiteSpace($env:TEST_DATABASE_URL)) {
                 throw 'TEST_DATABASE_URL is required for this quality gate run'
