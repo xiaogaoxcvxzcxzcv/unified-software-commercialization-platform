@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-- 当前阶段：F0-02 已在补救复验后重新达到 `verified`。F0-03 的 push 与 pull_request 托管 Full 质量门均已绿色，当前唯一剩余项是 required check；私有仓库的现有 GitHub 套餐拒绝 branch protection/ruleset 写入，需要所有者在升级套餐与改变仓库可见性之间明确裁决。裁决前 F0-03 保持 `in_progress`，完整能力包尚未开始。
+- 当前阶段：F0-02 已在补救复验后重新达到 `verified`。F0-03 的 push 与 pull_request 托管 Full 质量门均已绿色；所有者已授权公开仓库，`main` 已配置必须经 PR 且 `quality-gate` 成功、管理员不可绕过、禁止强推和删除。当前正在用真实 PR 验证 pending 阻断与 success 放行；完成动态证据前 F0-03 保持 `in_progress`，完整能力包尚未开始。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程和内存演示 Client；它用于验证信息架构、产品/租户上下文与交互，不是生产数据源。
