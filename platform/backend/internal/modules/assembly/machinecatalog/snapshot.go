@@ -29,11 +29,16 @@ func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManif
 		}
 		return templateItems[i].ID < templateItems[j].ID
 	})
+	generatorItems := c.snapshotTools("generator")
+	sdkItems := c.snapshotTools("sdk")
 	snapshot := CatalogSnapshot{
 		SchemaVersion:       machinecontract.SchemaVersion,
 		Revision:            "catalog-pending",
+		CatalogScope:        c.view.visibility,
 		Packages:            packageItems,
 		Templates:           templateItems,
+		Generators:          generatorItems,
+		SDKs:                sdkItems,
 		PermissionCatalog:   VersionedInput{Version: c.permissions.Version(), SHA256: c.permissions.Checksum()},
 		FeatureBlockCatalog: VersionedInput{Version: c.blocks.Version(), SHA256: c.blocks.Checksum()},
 		SchemaCatalog:       VersionedInput{Version: c.contracts.Version(), SHA256: c.contracts.Checksum()},
@@ -57,6 +62,32 @@ func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManif
 		return CatalogSnapshot{}, fmt.Errorf("validate catalog snapshot: %w", err)
 	}
 	return snapshot, nil
+}
+
+func (c *Catalog) snapshotTools(kind string) []ToolSnapshotItem {
+	items := make([]ToolSnapshotItem, 0)
+	for key, manifests := range c.tools {
+		if len(key) <= len(kind) || key[:len(kind)] != kind || key[len(kind)] != '\x00' {
+			continue
+		}
+		for _, manifest := range manifests {
+			items = append(items, ToolSnapshotItem{
+				ToolID: manifest.ToolID, Version: manifest.Version,
+				ManifestSHA256: manifest.ManifestSHA256, ContentTreeSHA256: manifest.ContentTreeSHA256,
+				Protocol: manifest.Protocol, Execution: manifest.Execution,
+				SupportedTargets:       stableStrings(manifest.SupportedTargets),
+				SupportedDeliveryModes: stableStrings(manifest.SupportedDeliveryModes),
+				SupportedEnvironments:  stableStrings(manifest.SupportedEnvironments),
+			})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ToolID == items[j].ToolID {
+			return items[i].Version < items[j].Version
+		}
+		return items[i].ToolID < items[j].ToolID
+	})
+	return items
 }
 
 func snapshotDigest(snapshot CatalogSnapshot) (string, error) {

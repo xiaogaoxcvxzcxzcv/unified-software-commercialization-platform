@@ -55,6 +55,8 @@ type Assembly struct {
 	SchemaDirectory         string
 	CapabilityPackageRoot   string
 	TemplateRoot            string
+	GeneratorToolRoot       string
+	SDKToolRoot             string
 	FeatureBlockCatalogPath string
 	OutputTargets           []AssemblyOutputTarget
 }
@@ -96,6 +98,8 @@ func Load(lookup LookupEnv) (Config, error) {
 			SchemaDirectory:         value(lookup, "PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY", "../contracts/schemas/v1"),
 			CapabilityPackageRoot:   value(lookup, "PLATFORM_ASSEMBLY_CAPABILITY_PACKAGE_ROOT", "../capability-packages"),
 			TemplateRoot:            value(lookup, "PLATFORM_ASSEMBLY_TEMPLATE_ROOT", "../templates"),
+			GeneratorToolRoot:       value(lookup, "PLATFORM_ASSEMBLY_GENERATOR_TOOL_ROOT", "../tools/generators"),
+			SDKToolRoot:             value(lookup, "PLATFORM_ASSEMBLY_SDK_TOOL_ROOT", "../tools/sdks"),
 			FeatureBlockCatalogPath: value(lookup, "PLATFORM_ASSEMBLY_FEATURE_BLOCK_CATALOG", "../contracts/catalogs/v1/feature-blocks.json"),
 			OutputTargets:           outputTargets(value(lookup, "PLATFORM_ASSEMBLY_OUTPUT_TARGETS", "")),
 		},
@@ -176,6 +180,8 @@ func (c Config) validate() error {
 		"PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY":        c.Assembly.SchemaDirectory,
 		"PLATFORM_ASSEMBLY_CAPABILITY_PACKAGE_ROOT": c.Assembly.CapabilityPackageRoot,
 		"PLATFORM_ASSEMBLY_TEMPLATE_ROOT":           c.Assembly.TemplateRoot,
+		"PLATFORM_ASSEMBLY_GENERATOR_TOOL_ROOT":     c.Assembly.GeneratorToolRoot,
+		"PLATFORM_ASSEMBLY_SDK_TOOL_ROOT":           c.Assembly.SDKToolRoot,
 		"PLATFORM_ASSEMBLY_FEATURE_BLOCK_CATALOG":   c.Assembly.FeatureBlockCatalogPath,
 	} {
 		if strings.TrimSpace(path) == "" {

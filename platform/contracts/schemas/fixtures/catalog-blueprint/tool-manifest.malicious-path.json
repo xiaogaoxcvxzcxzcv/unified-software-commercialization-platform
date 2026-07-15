@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0.0",
+  "tool_kind": "sdk",
+  "tool_id": "platform.sdk.typescript",
+  "version": "0.1.0",
+  "name": "Platform SDK",
+  "catalog_scope": "experimental",
+  "readiness": "verified",
+  "supported_targets": ["web"],
+  "supported_delivery_modes": ["generated_source"],
+  "supported_environments": ["test"],
+  "protocol": { "id": "assembly.sdk", "version": "1.0.0" },
+  "platform_contract_range": "^1.0.0",
+  "execution": {
+    "mode": "node",
+    "path": "../outside/tool.mjs",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "evidence": [
+    {
+      "type": "test_report",
+      "target": "web",
+      "delivery_mode": "generated_source",
+      "environment": "test",
+      "status": "passed",
+      "path": "evidence/test-report.json",
+      "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "content_files": [
+    {
+      "path": "evidence/test-report.json",
+      "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "kind": "file"
+    }
+  ],
+  "content_tree_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}

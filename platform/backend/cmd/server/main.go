@@ -174,18 +174,17 @@ func main() {
 		logger.Error("assembly feature block catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	assemblyCatalog, err := machinecatalog.LoadOrdinary(cfg.Assembly.CapabilityPackageRoot, cfg.Assembly.TemplateRoot, assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks)
+	assemblyCatalog, err := machinecatalog.LoadOrdinaryWithTools(
+		cfg.Assembly.CapabilityPackageRoot, cfg.Assembly.TemplateRoot,
+		cfg.Assembly.GeneratorToolRoot, cfg.Assembly.SDKToolRoot,
+		assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks,
+	)
 	if err != nil {
 		logger.Error("assembly production catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	trustedTools, err := planning.NewToolCatalog(nil)
-	if err != nil {
-		logger.Error("assembly trusted tool catalog initialization failed", "error", err)
-		os.Exit(1)
-	}
 	assemblyService := assemblycore.NewService(
-		assemblypostgres.New(db.Pool()), assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog, trustedTools), securevalue.ID, nil,
+		assemblypostgres.New(db.Pool()), assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
 	)
 	configuredWorkspaces := make([]assemblygeneration.Workspace, 0, len(cfg.Assembly.OutputTargets))
 	for _, target := range cfg.Assembly.OutputTargets {

@@ -22,20 +22,13 @@ import (
 func TestPlannerBuildsDeterministicMultiApplicationPlan(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog([]TrustedTool{
-		{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: digestOf("generator-v1")},
-		{Kind: "sdk", ID: "platform.sdk", Version: "1.0.0", Checksum: digestOf("sdk-v1")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	document := loadBlueprint(t)
 	blueprintDigest, err := machinecontract.Digest(document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	blueprint := core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + blueprintDigest}
-	planner := New(catalog, tools)
+	planner := New(catalog)
 
 	first, err := planner.BuildPlan(context.Background(), blueprint, "production")
 	if err != nil {
@@ -81,16 +74,8 @@ func TestPlannerBuildsDeterministicMultiApplicationPlan(t *testing.T) {
 	}
 }
 
-func TestPlannerBuildsBlankSoftwarePlanWithoutCapabilityPackages(t *testing.T) {
+func TestPlannerRejectsBlueprintWithoutCapabilityPackages(t *testing.T) {
 	registry := loadRegistry(t)
-	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog([]TrustedTool{
-		{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: digestOf("generator-v1")},
-		{Kind: "sdk", ID: "platform.sdk", Version: "1.0.0", Checksum: digestOf("sdk-v1")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	document := loadBlueprint(t)
 	var value map[string]any
 	if err := json.Unmarshal(document, &value); err != nil {
@@ -102,53 +87,24 @@ func TestPlannerBuildsBlankSoftwarePlanWithoutCapabilityPackages(t *testing.T) {
 		ui["template_id"] = "blank-a"
 		ui["version"] = "1.0.0"
 	}
-	document, err = json.Marshal(value)
+	document, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Validate("product-blueprint", document); err != nil {
-		t.Fatalf("blank blueprint schema validation failed: %v", err)
-	}
-	digest, err := machinecontract.Digest(document)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := New(catalog, tools).BuildPlan(context.Background(), core.Blueprint{
-		BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest,
-	}, "production")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.Validate("assembly-plan", plan.Document); err != nil {
-		t.Fatalf("blank plan schema validation failed: %v", err)
-	}
-	var result struct {
-		Packages      []resolvedPackage     `json:"packages"`
-		Capabilities  []map[string]any      `json:"capabilities"`
-		Applications  []resolvedApplication `json:"applications"`
-		ExpectedFiles []expectedOutput      `json:"expected_outputs"`
-	}
-	if err := json.Unmarshal(plan.Document, &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Packages) != 0 || len(result.Capabilities) != 0 || len(plan.Capabilities) != 0 || len(result.Applications) != 2 || len(result.ExpectedFiles) != 2 {
-		t.Fatalf("blank plan closure = %#v / %#v", result, plan.Capabilities)
+	if err := registry.Validate("product-blueprint", document); err == nil {
+		t.Fatal("product blueprint without a capability package unexpectedly passed validation")
 	}
 }
 
 func TestPlannerFailsClosedWithoutTrustedTool(t *testing.T) {
 	registry := loadRegistry(t)
-	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	catalog := loadTestCatalogWithoutTools(t, registry)
 	document := loadBlueprint(t)
 	digest, err := machinecontract.Digest(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = New(catalog, tools).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
 	if !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("BuildPlan() error = %v, want %v", err, ErrUnknownTool)
 	}
@@ -157,13 +113,6 @@ func TestPlannerFailsClosedWithoutTrustedTool(t *testing.T) {
 func TestPlannerRejectsDuplicateApplicationIdentity(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog([]TrustedTool{
-		{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: digestOf("generator-v1")},
-		{Kind: "sdk", ID: "platform.sdk", Version: "1.0.0", Checksum: digestOf("sdk-v1")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	document := loadBlueprint(t)
 	var value map[string]any
 	if err := json.Unmarshal(document, &value); err != nil {
@@ -171,7 +120,7 @@ func TestPlannerRejectsDuplicateApplicationIdentity(t *testing.T) {
 	}
 	applications := value["applications"].([]any)
 	applications[1].(map[string]any)["application_id"] = applications[0].(map[string]any)["application_id"]
-	document, err = json.Marshal(value)
+	document, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,29 +128,15 @@ func TestPlannerRejectsDuplicateApplicationIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = New(catalog, tools).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
 	if !errors.Is(err, ErrBlueprintMismatch) {
 		t.Fatalf("BuildPlan() error = %v, want %v", err, ErrBlueprintMismatch)
-	}
-}
-
-func TestToolCatalogRejectsMalformedDigest(t *testing.T) {
-	_, err := NewToolCatalog([]TrustedTool{{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: "sha256:" + strings.Repeat("z", 64)}})
-	if !errors.Is(err, ErrUnknownTool) {
-		t.Fatalf("NewToolCatalog() error = %v, want %v", err, ErrUnknownTool)
 	}
 }
 
 func TestPlannerRejectsUnresolvedExtensionAndOverlappingOutputs(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog([]TrustedTool{
-		{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: digestOf("generator-v1")},
-		{Kind: "sdk", ID: "platform.sdk", Version: "1.0.0", Checksum: digestOf("sdk-v1")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	base := loadBlueprint(t)
 	for _, test := range []struct {
 		name   string
@@ -229,7 +164,7 @@ func TestPlannerRejectsUnresolvedExtensionAndOverlappingOutputs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = New(catalog, tools).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+			_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
 			if !errors.Is(err, ErrBlueprintMismatch) {
 				t.Fatalf("BuildPlan() error = %v, want %v", err, ErrBlueprintMismatch)
 			}
@@ -271,20 +206,13 @@ func loadBlueprint(t *testing.T) json.RawMessage {
 func TestPlannerRejectsMissingRequiredProvider(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog([]TrustedTool{
-		{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: digestOf("generator-v1")},
-		{Kind: "sdk", ID: "platform.sdk", Version: "1.0.0", Checksum: digestOf("sdk-v1")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	document := loadBlueprint(t)
 	var value map[string]any
 	if err := json.Unmarshal(document, &value); err != nil {
 		t.Fatal(err)
 	}
 	value["provider_refs"] = []any{}
-	document, err = json.Marshal(value)
+	document, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +220,7 @@ func TestPlannerRejectsMissingRequiredProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = New(catalog, tools).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
 	if !errors.Is(err, ErrBlueprintMismatch) {
 		t.Fatalf("BuildPlan() error = %v, want %v", err, ErrBlueprintMismatch)
 	}
@@ -301,13 +229,6 @@ func TestPlannerRejectsMissingRequiredProvider(t *testing.T) {
 func TestPlannerRejectsAmbiguousOrCrossProviderSecretConfiguration(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
-	tools, err := NewToolCatalog([]TrustedTool{
-		{Kind: "generator", ID: "platform.generator", Version: "1.0.0", Checksum: digestOf("generator-v1")},
-		{Kind: "sdk", ID: "platform.sdk", Version: "1.0.0", Checksum: digestOf("sdk-v1")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	base := loadBlueprint(t)
 	for _, test := range []struct {
 		name   string
@@ -336,7 +257,7 @@ func TestPlannerRejectsAmbiguousOrCrossProviderSecretConfiguration(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = New(catalog, tools).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+			_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
 			if !errors.Is(err, ErrBlueprintMismatch) {
 				t.Fatalf("BuildPlan() error=%v, want %v", err, ErrBlueprintMismatch)
 			}
@@ -345,10 +266,20 @@ func TestPlannerRejectsAmbiguousOrCrossProviderSecretConfiguration(t *testing.T)
 }
 
 func loadTestCatalog(t *testing.T, registry *machinecontract.Registry) *machinecatalog.Catalog {
+	return loadTestCatalogWithTools(t, registry, true)
+}
+
+func loadTestCatalogWithoutTools(t *testing.T, registry *machinecontract.Registry) *machinecatalog.Catalog {
+	return loadTestCatalogWithTools(t, registry, false)
+}
+
+func loadTestCatalogWithTools(t *testing.T, registry *machinecontract.Registry, includeTools bool) *machinecatalog.Catalog {
 	t.Helper()
 	root := t.TempDir()
 	packageRoot := filepath.Join(root, "packages")
 	templateRoot := filepath.Join(root, "templates")
+	generatorRoot := filepath.Join(root, "generators")
+	sdkRoot := filepath.Join(root, "sdks")
 	writeCatalogDocument(t, filepath.Join(repositoryRoot(t), "platform", "contracts", "schemas", "fixtures", "catalog-blueprint", "package-manifest.valid.json"), packageRoot, "package.account", "1.0.0", "manifest.json", "content/account.txt", []byte("account package content"))
 	writeCatalogDocument(t, filepath.Join(repositoryRoot(t), "platform", "contracts", "schemas", "fixtures", "catalog-blueprint", "ui-template-manifest.valid.json"), templateRoot, "standard-a", "1.0.0", "template.json", "template/index.tsx", []byte("export const template = 'standard-a';\n"))
 	writeCatalogDocument(t, filepath.Join(repositoryRoot(t), "platform", "contracts", "schemas", "fixtures", "catalog-blueprint", "ui-template-manifest.blank.valid.json"), templateRoot, "blank-a", "1.0.0", "template.json", "template/index.tsx", []byte("export const template = 'blank-a';\n"))
@@ -361,11 +292,72 @@ func loadTestCatalog(t *testing.T, registry *machinecontract.Registry) *machinec
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog, err := machinecatalog.LoadOrdinary(packageRoot, templateRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+	var catalog *machinecatalog.Catalog
+	if includeTools {
+		writeToolCatalogDocument(t, generatorRoot, "generator", "platform.generator", "1.0.0")
+		writeToolCatalogDocument(t, sdkRoot, "sdk", "platform.sdk", "1.0.0")
+		catalog, err = machinecatalog.LoadOrdinaryWithTools(packageRoot, templateRoot, generatorRoot, sdkRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+	} else {
+		catalog, err = machinecatalog.LoadOrdinary(packageRoot, templateRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	return catalog
+}
+
+func writeToolCatalogDocument(t *testing.T, root, kind, id, version string) {
+	t.Helper()
+	versionRoot := filepath.Join(root, id, version)
+	evidenceContents := []byte("{\"status\":\"passed\"}\n")
+	evidenceDigest := digestOfBytes(evidenceContents)
+	evidence := make([]any, 0, 2)
+	for _, target := range []string{"web", "desktop_webview"} {
+		evidence = append(evidence, map[string]any{
+			"type": "test_report", "target": target, "delivery_mode": "generated_source", "environment": "production",
+			"status": "passed", "path": "evidence/test-report.json", "sha256": evidenceDigest,
+		})
+	}
+	files := []machinecatalog.ContentFile{{Path: "evidence/test-report.json", SHA256: evidenceDigest, Kind: "file"}}
+	treeRaw, err := json.Marshal(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeDigest, err := machinecontract.Digest(treeRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := map[string]any{
+		"schema_version": "1.0.0", "tool_kind": kind, "tool_id": id, "version": version, "name": id,
+		"catalog_scope": "ordinary", "readiness": "available",
+		"supported_targets": []string{"web", "desktop_webview"}, "supported_delivery_modes": []string{"generated_source"},
+		"supported_environments": []string{"production"}, "protocol": map[string]any{"id": "assembly." + kind, "version": "1.0.0"},
+		"platform_contract_range": "^1.0.0", "execution": map[string]any{"mode": "builtin_adapter", "adapter_id": map[string]string{"generator": "assembly.pure-renderer", "sdk": "assembly.client-sdk"}[kind]},
+		"evidence": evidence, "content_files": files, "content_tree_sha256": "sha256:" + treeDigest,
+		"manifest_sha256": "sha256:" + strings.Repeat("0", 64),
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest, err := machinecontract.DigestWithoutTopLevelField(raw, "manifest_sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document["manifest_sha256"] = manifestDigest
+	raw, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(versionRoot, "evidence"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionRoot, "evidence", "test-report.json"), evidenceContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionRoot, "manifest.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeCatalogDocument(t *testing.T, fixture, root, id, version, manifestName, contentPath string, content []byte) {

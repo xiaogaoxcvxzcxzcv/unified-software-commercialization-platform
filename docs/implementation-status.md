@@ -21,7 +21,7 @@
 | 交付面 | 当前状态 | 已有成果 | 仍缺少 |
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 Full 18 项门禁；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
-| 产品蓝图与 Assembly | G1-05/G1-07 verified + G1-07.1 in_progress | G1-04 后端基础、G1-05 确定性 Generator 和 G1-07 Standard-A 模板已通过真实 PostgreSQL Full 门禁；Web/desktop WebView 真实生成、裸空状态、custom 注入和多尺寸浏览器视觉验收完成；F0 已退出 | 当前 G1-07.1 受信工具目录；随后 G1-08 创建向导和软件管理工作区；G1-10 lifecycle API；G1-11 可信扩展目录 |
+| 产品蓝图与 Assembly | G1-05/G1-07/G1-07.1 verified | G1-04 后端基础、确定性 Generator、Standard-A 模板及受信工具目录基础已通过真实 PostgreSQL Full 门禁；工具清单、内容树、入口、适配器、兼容性与快照由服务端锁定；四个工具目录当前为空 | 当前 G1-08.1 创建软件 API Client 与状态模型；随后创建向导和软件工作区、lifecycle API、可信扩展目录 |
 | 完整能力包目录 | planned | 首批 package 边界和交付标准、Manifest/目录机器基础已登记并验证；普通与实验能力包目录均为空 | 真实独立 Package Manifest、九个交付面、目标端 E2E；当前没有 available 包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 真实样板软件 | planned | G2 黄金链和验收标准已确定 | 可运行样板仓库、独有工作台、account/entitlement 装配与回归证据 |
@@ -40,7 +40,7 @@
 
 | 模块 | 当前状态 | 说明 |
 |---|---|---|
-| assembly | G1-05/G1-07 verified + G1-07.1 in_progress | G1-04/G1-05 后端与 Generator 闭包已验证；`standard-a` 0.1.0 已完成 Web/desktop WebView 生成、custom 所有权、裸空状态、多尺寸视觉和 Full 18 项验收；普通包、模板和工具目录仍为空 | 当前 G1-07.1 受信工具；随后 G1-08 向导/软件工作区、G1-10 lifecycle API、G1-11 扩展目录；G2C 真实样板与 ST-027 至 ST-033 |
+| assembly | G1-05/G1-07/G1-07.1 verified | 后端、Generator 文件安全、`standard-a` 视觉与受信工具目录基础已验证；普通/实验 scope、Manifest/内容树/入口/证据、内置适配器白名单、每 Application 兼容与快照闭包完成；普通包、模板和真实工具版本仍为空 | 当前 G1-08.1 API Client/状态模型；随后向导/软件工作区、lifecycle API、扩展目录；G2C 发布真实工具并装配样板 |
 | product / product-application | verified foundation + admin demo | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过本地自动化；Product CapabilitySet 只接受受信 Plan，G1-05 Run 已通过公开服务组合 Product/official Tenant/Application/CapabilitySet | 真实管理后台 API Client、完整能力包装配、浏览器 E2E 与生产部署 |
 | tenant | verified foundation + admin demo | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过本地自动化 | agent 停用/恢复管理入口、真实业务模块租户回归、管理后台 API Client 与浏览器 E2E |
 | identity | admin auth verified + user auth contracted | Cookie/受控 Bearer 登录、单调 session_version、会话轮换、严格 logout proof、同 family Cookie 原子退出、重放防护、受控客户端生命周期与真实 PostgreSQL/浏览器证据均已通过补救复验 | 最终用户密码、微信/OIDC、绑定与合并仍只有契约 |
@@ -70,7 +70,8 @@
 - G1-04：Assembly Blueprint/Plan/Run/Manifest/lock 的 Domain/Application/PostgreSQL/HTTP、`000011`、权限与 Outbox、确定性多 Application 计划、CapabilitySet/Provider/输出锁定、确认摘要重算、`output_target_ref`、确认后的幂等重试、Run 演进、目录与完成产物闭包已实现；本地真实 PostgreSQL Full 13 项门禁通过，状态为 `verified foundation`。生产工具目录和能力包目录为空、扩展目录未实现并失败关闭，Generator/UI/ST-028 仍未验证。评审见 `artifacts/reviews/G1-04/assembly-foundation.md`。
 - G1-05：`assembly/generation` 与 `assemblyexecution` 已实现纯渲染、目标快照、所有权分析、generated region、最终机器证据、受信输出根、Run 跨模块编排、原子提交、持久 journal、升级前一版本恢复、显式 rollback 和 eject plan；本地真实 PostgreSQL `Full -RequirePostgres` 13 项门禁通过，状态为 `verified`。ST-030/ST-031 的后端生成/冲突/文件恢复子范围有证据，但真实样板与完整升级冒烟仍未验证。评审见 `artifacts/reviews/G1-05/deterministic-generator-file-safety.md`。
 - G1-06：TypeScript SDK 与 Client UI 基座已实现可信上下文、受保护 HTTP、错误/超时/取消/受限重试、未知枚举降级、八态 Headless、React Provider/基础组件/主题 Token 和 Hosted 启动解析；两包共 22 条测试、构建与 npm dry-run 发布清单通过，状态为 `verified foundation`。业务 Feature Block 和生成软件 E2E 仍未实现；首套候选模板已在后续 G1-07 增加。评审见 `artifacts/reviews/G1-06/client-sdk-ui-foundation.md`。
-- G1-07：`in_progress`。`standard-a` 0.1.0 已实现 Web/desktop WebView 候选模板；Manifest 锁定 15 个内容文件和每目标 11 个生成入口。真实生成、custom 工作台、离线安装、4 条交互测试、生产构建和 HTTP 启动检查通过；当前唯一工作是桌面、窄屏和移动浏览器视觉 QA、交互与可访问性证据。评审见 `artifacts/reviews/G1-07/standard-a-template.md`。
+- G1-07：`verified`。`standard-a` 0.1.0 的双目标生成、裸空状态、custom 工作台、离线安装、7 条交互测试、生产构建、多视口/深色/键盘浏览器验收和 Full 18 项门禁通过。评审见 `artifacts/reviews/G1-07/standard-a-template.md`。
+- G1-07.1：`verified`。Tool Manifest Schema、四个 scope 隔离目录、磁盘完整性、平台/目标/交付/环境兼容、证据闭包、内置适配器白名单、确定性快照及规划器接线完成；真实工具版本尚未发布，创建流程继续失败关闭。评审见 `artifacts/reviews/G1-07.1/trusted-tool-catalog.md`。
 - OpenAPI：路径与操作数量以 `node platform/contracts/openapi/validate.mjs` 的最近输出为准；仓库校验器覆盖管理员认证必需操作。
 - 管理后台产品/租户隔离 P1 代码审查：通过；桌面概览截图视觉 QA 通过，移动/平板截图仍未验证。
 - 能力索引：数量以自动唯一性检查的最近输出为准；包含四项管理员认证能力且无重复。

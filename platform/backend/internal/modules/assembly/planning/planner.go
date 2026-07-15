@@ -2,7 +2,6 @@ package planning
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,56 +16,16 @@ import (
 
 var (
 	ErrPlannerUnavailable = errors.New("assembly planner is unavailable")
-	ErrUnknownTool        = errors.New("trusted assembly tool is unknown")
+	ErrUnknownTool        = machinecatalog.ErrUnknownTool
 	ErrBlueprintMismatch  = errors.New("product blueprint does not match the requested plan")
 )
 
-type TrustedTool struct {
-	Kind     string
-	ID       string
-	Version  string
-	Checksum string
-}
-
-type ToolCatalog struct {
-	tools map[string]TrustedTool
-}
-
-func NewToolCatalog(tools []TrustedTool) (*ToolCatalog, error) {
-	catalog := &ToolCatalog{tools: make(map[string]TrustedTool, len(tools))}
-	for _, tool := range tools {
-		if (tool.Kind != "generator" && tool.Kind != "sdk") || tool.ID == "" || tool.Version == "" || !isDigest(tool.Checksum) {
-			return nil, ErrUnknownTool
-		}
-		key := toolKey(tool.Kind, tool.ID, tool.Version)
-		if _, duplicate := catalog.tools[key]; duplicate {
-			return nil, ErrUnknownTool
-		}
-		catalog.tools[key] = tool
-	}
-	return catalog, nil
-}
-
-func (c *ToolCatalog) Resolve(kind, id, version string) (TrustedTool, error) {
-	if c == nil {
-		return TrustedTool{}, ErrUnknownTool
-	}
-	tool, ok := c.tools[toolKey(kind, id, version)]
-	if !ok {
-		return TrustedTool{}, fmt.Errorf("%w: %s %s@%s", ErrUnknownTool, kind, id, version)
-	}
-	return tool, nil
-}
-
-func toolKey(kind, id, version string) string { return kind + "\x00" + id + "\x00" + version }
-
 type Planner struct {
 	catalog *machinecatalog.Catalog
-	tools   *ToolCatalog
 }
 
-func New(catalog *machinecatalog.Catalog, tools *ToolCatalog) *Planner {
-	return &Planner{catalog: catalog, tools: tools}
+func New(catalog *machinecatalog.Catalog) *Planner {
+	return &Planner{catalog: catalog}
 }
 
 type blueprintDocument struct {
@@ -234,7 +193,7 @@ type planConfirmation struct {
 }
 
 func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environment string) (core.PlannedDocument, error) {
-	if p == nil || p.catalog == nil || p.tools == nil {
+	if p == nil || p.catalog == nil {
 		return core.PlannedDocument{}, ErrPlannerUnavailable
 	}
 	if environment != "development" && environment != "test" && environment != "staging" && environment != "production" {
@@ -246,14 +205,6 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	}
 	if len(input.Extensions) != 0 {
 		return core.PlannedDocument{}, fmt.Errorf("%w: extension manifests require a trusted extension catalog", ErrBlueprintMismatch)
-	}
-	generator, err := p.tools.Resolve("generator", input.Generator.ID, input.Generator.Version)
-	if err != nil {
-		return core.PlannedDocument{}, err
-	}
-	sdk, err := p.tools.Resolve("sdk", input.SDK.ID, input.SDK.Version)
-	if err != nil {
-		return core.PlannedDocument{}, err
 	}
 	requirements := make([]machinecatalog.Requirement, 0, len(input.Packages))
 	for _, selected := range input.Packages {
@@ -279,6 +230,8 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	packageByID := make(map[string]machinecatalog.PackageManifest)
 	applicationIDs := make(map[string]struct{}, len(applications))
 	outputPaths := make([]string, 0, len(applications))
+	var generator machinecatalog.ToolManifest
+	var sdk machinecatalog.ToolManifest
 	for _, application := range applications {
 		if _, duplicate := applicationIDs[application.ApplicationID]; duplicate {
 			return core.PlannedDocument{}, fmt.Errorf("%w: duplicate application_id %s", ErrBlueprintMismatch, application.ApplicationID)
@@ -293,6 +246,16 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 		if application.Environment != environment {
 			return core.PlannedDocument{}, fmt.Errorf("%w: application %s environment is %s, requested %s", ErrBlueprintMismatch, application.ApplicationID, application.Environment, environment)
 		}
+		resolvedGeneratorTool, err := p.catalog.ResolveTool("generator", input.Generator.ID, input.Generator.Version, application.Target, application.UI.DeliveryMode, environment)
+		if err != nil {
+			return core.PlannedDocument{}, err
+		}
+		resolvedSDKTool, err := p.catalog.ResolveTool("sdk", input.SDK.ID, input.SDK.Version, application.Target, application.UI.DeliveryMode, environment)
+		if err != nil {
+			return core.PlannedDocument{}, err
+		}
+		generator = resolvedGeneratorTool
+		sdk = resolvedSDKTool
 		resolution, err := p.catalog.Resolve(machinecatalog.ResolveRequest{
 			Packages: requirements, TemplateID: application.UI.TemplateID, TemplateRange: application.UI.Version,
 			Target: application.Target, DeliveryMode: application.UI.DeliveryMode, Environment: environment,
@@ -473,7 +436,7 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 		CatalogSHA256   string `json:"catalog_sha256"`
 		GeneratorSHA256 string `json:"generator_sha256"`
 		SDKSHa256       string `json:"sdk_sha256"`
-	}{blueprint.ContentSHA256, environment, snapshot.SnapshotSHA256, generator.Checksum, sdk.Checksum})
+	}{blueprint.ContentSHA256, environment, snapshot.SnapshotSHA256, generator.ManifestSHA256, sdk.ManifestSHA256})
 	if err != nil {
 		return core.PlannedDocument{}, err
 	}
@@ -482,8 +445,8 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 		SchemaVersion: "1.0.0", PlanID: planID, BlueprintID: blueprint.BlueprintID, BlueprintVersion: blueprint.Revision,
 		Environment: environment, CatalogSnapshot: catalogSnapshotRef{Revision: snapshot.Revision, Checksum: snapshot.SnapshotSHA256},
 		Packages: resolvedPackages, Applications: resolvedApplications, Extensions: []resolvedExtension{},
-		Generator: resolvedGenerator{GeneratorID: generator.ID, Version: generator.Version, Checksum: generator.Checksum},
-		SDKs:      []resolvedSDK{{SDKID: sdk.ID, Version: sdk.Version, Checksum: sdk.Checksum}}, Capabilities: capabilities, Dependencies: dependencies,
+		Generator: resolvedGenerator{GeneratorID: generator.ToolID, Version: generator.Version, Checksum: generator.ManifestSHA256},
+		SDKs:      []resolvedSDK{{SDKID: sdk.ToolID, Version: sdk.Version, Checksum: sdk.ManifestSHA256}}, Capabilities: capabilities, Dependencies: dependencies,
 		Conflicts: []any{}, Risks: risks, Providers: providers, RequiredProviders: requiredProviders, RequiredSecretRefs: secretRefs, ExpectedOutputs: expectedOutputs,
 		Confirmation: planConfirmation{Required: true, BlockingConflictCount: 0, RiskCount: len(risks), Statements: statements, SummaryChecksum: confirmationDigest},
 		Executable:   true, PlanChecksum: "sha256:" + strings.Repeat("0", 64),
@@ -514,14 +477,6 @@ func digestJSON(value any) (string, error) {
 		return "", err
 	}
 	return "sha256:" + digest, nil
-}
-
-func isDigest(value string) bool {
-	if len(value) != 71 || !strings.HasPrefix(value, "sha256:") {
-		return false
-	}
-	decoded, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
-	return err == nil && len(decoded) == 32 && value == strings.ToLower(value)
 }
 
 func pathsOverlap(first, second string) bool {
