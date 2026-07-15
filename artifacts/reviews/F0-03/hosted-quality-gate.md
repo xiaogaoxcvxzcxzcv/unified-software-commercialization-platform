@@ -2,7 +2,7 @@
 
 日期：2026-07-15
 
-状态：`required_check_configured_verification_pending`
+状态：`verified`
 
 ## 已验证
 
@@ -29,4 +29,12 @@
 - `required_pull_request_reviews` 已启用且审批数为 0，即必须通过 PR，但单人仓库不要求无法完成的自我审批。
 - `enforce_admins=true`，管理员也不可绕过；`allow_force_pushes=false`、`allow_deletions=false`、`required_conversation_resolution=true`。
 
-尚需用本次证据提交验证：检查处于 pending 时 PR 必须为 blocked，检查成功后才恢复可合入。完成该动态验证前 F0-03 仍保持 `in_progress`。
+## 动态阻断与放行证据
+
+- 证据提交：`5d0c6297e2967069218cac4ecbca578d53de6fb0`。
+- push 运行：`29405501867`；pull_request 运行：`29405503889`。
+- 两个检查均为 `IN_PROGRESS` 时，GitHub 返回 `mergeable=MERGEABLE` 但 `mergeStateStatus=BLOCKED`，证明不是代码冲突或草稿状态造成阻断。
+- 两个 `quality-gate` 均成功后，同一提交返回 `mergeStateStatus=CLEAN`，证明 required check 只在门禁成功后放行。
+- 机器证据：`required-check-evidence.json`。记录不包含 token、Cookie、数据库连接串或其他秘密。
+
+本地、push、pull_request、报告脱敏和 required check 动态验证均已满足，F0-03 裁决为 `verified`；下一唯一关口为 G1-07 模板视觉收口。

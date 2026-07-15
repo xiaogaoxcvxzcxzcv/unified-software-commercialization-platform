@@ -22,7 +22,7 @@
 
 目标：能够创建一个不含软件独有业务内容的基础软件蓝图，并安全、可重复地产生前台框架和装配结果。
 
-F0-02 管理员认证浏览器 E2E 的首次通过结论曾在 2026-07-15 被三个 P1 推翻；三项均已修复并完成补救复验，F0-02 现为 `verified_after_remediation`。F0-03 的 Linux 路径、npm peer 解析和模板离线 metadata 缓存问题已由连续托管运行暴露并修复，push 与 PR Full 门禁均绿色。所有者已授权公开仓库，`main` 已启用必须经 PR、`quality-gate`、管理员不可绕过及禁止强推/删除的保护规则；当前正以 PR #1 验证 pending 阻断与 success 放行，完成前不得进入 G1-07 模板视觉 QA。当前没有 `available` 完整能力包。
+F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03 的跨平台与离线缓存问题已由连续托管运行暴露并修复，本地、push、PR Full 门禁和 required check `BLOCKED -> CLEAN` 动态验证均通过，状态为 `verified`。当前严格关口进入 G1-07 模板视觉 QA；完成前不得进入 G1-07.1。当前没有 `available` 完整能力包。
 
 范围：
 

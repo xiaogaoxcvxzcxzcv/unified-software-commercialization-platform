@@ -6,7 +6,7 @@
 
 ## F0 工程门禁证据
 
-F0-03 不是业务冒烟编号，但它是以下所有 ST 的最低执行前置。统一入口为 `scripts/quality-gate.ps1`：Core 模式执行离线结构检查，Full 模式增加机器契约、机器目录、Go、管理后台和真实 PostgreSQL 测试；`-RequirePostgres` 缺少 `TEST_DATABASE_URL` 时直接失败。2026-07-15 本地与 GitHub push/PR 的 Full 18 项均通过；最新脱敏报告为 `artifacts/reviews/F0-03/quality-gate-hosted.json`。公开仓库 `main` 已要求 PR 与 strict `quality-gate`，当前待完成 pending 阻断/success 放行动态证据。报告只保存步骤、状态、耗时和脱敏错误摘要，不保存命令输出、环境值、连接串或秘密匹配正文。
+F0-03 不是业务冒烟编号，但它是以下所有 ST 的最低执行前置。统一入口为 `scripts/quality-gate.ps1`：Core 模式执行离线结构检查，Full 模式增加机器契约、机器目录、Go、管理后台和真实 PostgreSQL 测试；`-RequirePostgres` 缺少 `TEST_DATABASE_URL` 时直接失败。2026-07-15 本地与 GitHub push/PR 的 Full 18 项均通过；`main` required `quality-gate` 已用同一 PR 提交证明 pending 时 `BLOCKED`、成功后 `CLEAN`。F0-03 状态为 `verified`，证据位于 `artifacts/reviews/F0-03/`。报告只保存步骤、状态、耗时和脱敏错误摘要，不保存命令输出、环境值、连接串或秘密匹配正文。
 
 | test_id | 目的 | 前置条件 | 核心步骤 | 预期结果 | 失败排查 | 最近验证 |
 |---|---|---|---|---|---|---|
