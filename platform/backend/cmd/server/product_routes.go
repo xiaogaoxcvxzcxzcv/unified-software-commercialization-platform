@@ -32,7 +32,7 @@ type productAdminRouter struct {
 func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	switch {
-	case path == "/api/v1/admin/blueprints" || path == "/api/v1/admin/assembly-output-targets" || strings.HasPrefix(path, "/api/v1/admin/blueprints/") ||
+	case path == "/api/v1/admin/blueprints" || path == "/api/v1/admin/assembly-output-targets" || path == "/api/v1/admin/assembly-catalog-options" || path == "/api/v1/admin/experimental/assembly-catalog-options" || strings.HasPrefix(path, "/api/v1/admin/blueprints/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-plans/") || strings.HasPrefix(path, "/api/v1/admin/assembly-runs/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-manifests/") || strings.HasPrefix(path, "/api/v1/admin/generated-project-locks/"):
 		h.assembly.ServeHTTP(w, r)

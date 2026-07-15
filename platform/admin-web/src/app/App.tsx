@@ -7,6 +7,7 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { LoginPage } from "../pages/LoginPage";
 
 const AuditPage = lazy(() => import("../pages/AuditPage").then((module) => ({ default: module.AuditPage })));
+const CreateSoftwarePage = lazy(() => import("../pages/CreateSoftwarePage").then((module) => ({ default: module.CreateSoftwarePage })));
 const EntitlementsPage = lazy(() => import("../pages/EntitlementsPage").then((module) => ({ default: module.EntitlementsPage })));
 const HealthPage = lazy(() => import("../pages/HealthPage").then((module) => ({ default: module.HealthPage })));
 const OverviewPage = lazy(() => import("../pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
@@ -43,6 +44,8 @@ function AuthenticatedRoutes() {
   const { session } = useAuth();
   return <AppProvider><Routes>
     <Route path="/overview" element={<GlobalRoute><OverviewPage /></GlobalRoute>} />
+    <Route path="/create" element={<GlobalRoute><CreateSoftwarePage /></GlobalRoute>} />
+    <Route path="/create/experimental" element={<GlobalRoute><CreateSoftwarePage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/products" element={<GlobalRoute><ProductsPage /></GlobalRoute>} />
     <Route path="/system/health" element={<GlobalRoute><HealthPage /></GlobalRoute>} />
     <Route path="/products/:productId/overview" element={<ProductRoute><OverviewPage /></ProductRoute>} />

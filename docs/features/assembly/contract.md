@@ -78,6 +78,14 @@
 - 失败关闭：未知、已移除、环境不匹配或当前未授权的 ref 在确认 Plan 前统一返回 `assembly.output_target_unavailable`，不泄露该 ref 是否在其他环境存在；列表读取后执行时必须再次解析当前目录。HTTP 组合 Adapter 与 Assembly Core 注入的 `OutputTargetVerifier` 双重校验，内部调用也不能绕过服务端 allowlist。
 - 恢复：本关 Client 的 retry 只重试可安全重放的读取或带同一幂等键的请求，并通过 GET 重新恢复已持久化 Blueprint/Plan/Run；失败 Run 的业务级 retry/resume/cancel 留在 G1-08.4/G1-10，不在前端伪造
 
+### 查询创建向导目录
+
+- 普通入口固定使用 `GET /api/v1/admin/assembly-catalog-options?target={target}&delivery_mode={delivery_mode}&environment={environment}`，要求 platform scope 的 `assembly.plan`。服务端只读取 ordinary 目录并只投影 `available` 条目；空目录必须返回 200 和稳定空数组，不能回填 fixture、实验模板或演示数据。
+- 受控实验入口固定使用独立路径 `GET /api/v1/admin/experimental/assembly-catalog-options?target={target}&delivery_mode={delivery_mode}&environment={environment}`，要求 platform scope 的 `assembly.experimental.use`。该权限不默认授予 bootstrap 平台管理员；未经显式绑定返回 403。服务端只读取 experimental 目录并只投影 `verified` 条目。
+- 两个入口都只接受且必须接受一次 `target`、`delivery_mode`、`environment`；额外 query、重复参数、请求体、scope query、scope header 和 Blueprint 中的 scope/readiness 字段均拒绝。目录 scope 只能来自服务端路由 wiring，普通请求不能探测或开启实验目录。
+- 响应固定包含服务端 scope、稳定 `catalog_revision`、筛选条件，以及按 ID/版本稳定排序的 `packages`、`templates`、`generators`、`sdks`。包只公开 ID、版本、名称、用户价值、依赖/冲突和兼容模板引用；模板只公开 ID、版本、名称和支持 Block；工具只公开 ID、版本和名称。响应不得包含目录根、宿主路径、Manifest/内容摘要、执行入口、adapter、命令、证据路径或 readiness 注入字段。
+- 目录投影只用于浏览器构建候选选择，不能替代 Plan。创建 Blueprint 时仍只提交精确 ID/版本；Plan 必须重新从当前服务端目录解析依赖、兼容、工具和快照，目录变化后旧投影不能授权执行。
+
 - API：`POST /api/v1/admin/blueprints/{blueprint_id}/assemble`
 - 输入：已确认计划版本、Plan checksum、确认摘要、幂等键和输出目标的受控引用 `output_target_ref`
 - 输出：run_id，最终生成 Assembly Manifest、Generated Project Lock 与测试报告引用

@@ -1,13 +1,13 @@
 {
   "schema_version": "1.0.0",
-  "catalog_version": "1.0.0",
+  "catalog_version": "1.1.0",
   "blocks": [
     { "block_id": "account.center", "surface": "client", "readiness": "not_ready" },
     { "block_id": "account.profile", "surface": "client", "readiness": "not_ready" },
     { "block_id": "account.security", "surface": "client", "readiness": "not_ready" },
     { "block_id": "ai.model-route-table", "surface": "admin", "readiness": "not_ready" },
-    { "block_id": "assembly.blueprint-wizard", "surface": "admin", "readiness": "not_ready" },
-    { "block_id": "assembly.plan-review", "surface": "admin", "readiness": "not_ready" },
+    { "block_id": "assembly.blueprint-wizard", "surface": "admin", "readiness": "ready" },
+    { "block_id": "assembly.plan-review", "surface": "admin", "readiness": "ready" },
     { "block_id": "assembly.run-status", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "assembly.upgrade-plan", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "audit.event-table", "surface": "admin", "readiness": "not_ready" },
@@ -57,5 +57,5 @@
     { "block_id": "usage.price-editor", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "usage.record-detail", "surface": "client", "readiness": "not_ready" }
   ],
-  "catalog_sha256": "sha256:83afa4518d078f59dbe682f797257a07359d5730ada5da4920448ac42766dd2d"
+  "catalog_sha256": "sha256:548c4d3e009292c8bf45e125ec3b4953edcd404480ff6e95e1811dbeff3a5733"
 }

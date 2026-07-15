@@ -704,16 +704,26 @@ func controlledClientPayload(clientID, credentialID, proofType, proof string) ma
 func assertCatalogAuthorization(t *testing.T, snapshot accesscontrol.Snapshot, scopeType, productID string) {
 	t.Helper()
 	definitions := accesscontrol.CurrentPermissionCatalog().Definitions()
-	if len(snapshot.Permissions) != len(definitions) {
-		t.Fatalf("authorization permissions = %v, want complete catalog", snapshot.Permissions)
+	wantPermissionCount := 0
+	for _, definition := range definitions {
+		if definition.GrantsPlatformSuperAdminOnBootstrap() {
+			wantPermissionCount++
+		}
+	}
+	if len(snapshot.Permissions) != wantPermissionCount {
+		t.Fatalf("authorization permissions = %v, want bootstrap-granted catalog permissions", snapshot.Permissions)
 	}
 	granted := make(map[string]struct{}, len(snapshot.Permissions))
 	for _, permission := range snapshot.Permissions {
 		granted[permission] = struct{}{}
 	}
 	for _, definition := range definitions {
-		if _, ok := granted[definition.Code]; !ok {
+		_, ok := granted[definition.Code]
+		if definition.GrantsPlatformSuperAdminOnBootstrap() && !ok {
 			t.Fatalf("authorization is missing permission %q", definition.Code)
+		}
+		if !definition.GrantsPlatformSuperAdminOnBootstrap() && ok {
+			t.Fatalf("authorization unexpectedly granted permission %q", definition.Code)
 		}
 	}
 	if len(snapshot.Scopes) != 1 || snapshot.Scopes[0].Type != scopeType || snapshot.Scopes[0].ProductID != productID {
