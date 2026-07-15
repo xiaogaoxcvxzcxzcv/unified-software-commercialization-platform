@@ -1,0 +1,3 @@
+BEGIN;
+DROP SCHEMA IF EXISTS product_application CASCADE;
+COMMIT;

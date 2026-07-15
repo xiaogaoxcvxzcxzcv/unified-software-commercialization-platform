@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/extension-manifest.schema.json",
+  "title": "Product Extension Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "extension_id", "version", "product_id", "public_api_operations", "published_events", "subscribed_events", "slots", "owned_paths", "manifest_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "extension_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "product_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "public_api_operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/operationId" } },
+    "published_events": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/eventName" } },
+    "subscribed_events": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/eventName" } },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot_id", "target", "entry_path"],
+        "properties": {
+          "slot_id": { "$ref": "common.schema.json#/$defs/identifier" },
+          "target": { "$ref": "common.schema.json#/$defs/target" },
+          "entry_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+        }
+      }
+    },
+    "owned_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "eventName": { "type": "string", "minLength": 5, "maxLength": 160, "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.v[1-9][0-9]*$" }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema_version": "7.0.0", "diagnostic_id": "diagnostic.demo", "request_id": "request.demo",
+  "severity": "error", "category": "schema", "code": "UNKNOWN_SCHEMA_VERSION", "message": "Unsupported contract version.",
+  "blocking": true, "retryable": false, "related_paths": [], "remediation": ["Use schema version 1.0.0."]
+}

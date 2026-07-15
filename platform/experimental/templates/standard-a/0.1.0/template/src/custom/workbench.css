@@ -1,0 +1,17 @@
+.workbench-panel { display: grid; gap: 20px; }
+.workbench-panel > header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.workbench-panel header span { color: var(--standard-brand); font-size: 13px; font-weight: 700; }
+.workbench-panel h2 { margin: 4px 0 0; font-size: 24px; }
+.workbench-panel header strong { color: var(--standard-muted); font-size: 14px; }
+.workbench-panel form { display: grid; gap: 7px; max-width: 620px; }
+.workbench-panel form label { font-size: 14px; font-weight: 650; }
+.workbench-panel form div { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 8px; }
+.workbench-panel input { min-width: 0; min-height: 42px; padding: 8px 11px; border: 1px solid var(--standard-border); border-radius: 6px; color: var(--standard-text); background: var(--standard-surface); }
+.workbench-panel button { display: grid; place-items: center; border: 1px solid var(--standard-border); border-radius: 6px; color: var(--standard-text); background: var(--standard-surface); cursor: pointer; }
+.workbench-panel form button { color: #fff; border-color: var(--standard-brand); background: var(--standard-brand); }
+.workbench-panel form button:disabled { cursor: not-allowed; opacity: .48; }
+.workbench-panel button svg { width: 18px; height: 18px; }
+.workbench-panel ul { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.workbench-panel li { min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: center; gap: 12px; padding: 6px 8px 6px 14px; border: 1px solid var(--standard-border); border-radius: 6px; background: var(--standard-surface); }
+.workbench-panel li span { overflow-wrap: anywhere; }
+.workbench-panel li button { width: 34px; height: 34px; color: var(--standard-danger); }

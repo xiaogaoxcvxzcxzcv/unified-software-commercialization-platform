@@ -39,6 +39,7 @@ ApplicationContext 由服务端在客户端认证后生成，并绑定当前 Pro
 - 错误：产品与 Application 不匹配、通配范围过宽、不安全 scheme、无权限
 - 事件：`product_application.redirects_changed.v1`
 - 安全：生产环境禁止任意域名、任意端口和不受约束的通配回调；不得直接采用请求中临时传入的回调地址
+- 安全：客户端绑定、凭据轮换与撤销同样使用 `product.application.security.manage`，且不得回显历史秘密；新秘密只允许一次性交付。
 
 ## 绑定客户端凭据
 
@@ -49,14 +50,21 @@ ApplicationContext 由服务端在客户端认证后生成，并绑定当前 Pro
 - 事件：`product_application.client_bound.v1`
 - 安全：公开客户端凭据只用于识别和风险控制，不能被当作不可提取的永久秘密；服务端密钥只保存于密钥系统
 
+### 管理 API
+
+- `POST /api/v1/admin/products/{product_id}/applications/{application_id}/clients`：注册客户端并一次性交付初始 proof。
+- `POST /api/v1/admin/products/{product_id}/applications/{application_id}/clients/{client_id}/credentials/rotate`：创建新 generation，可选择同时撤销旧 proof。
+- `POST /api/v1/admin/products/{product_id}/applications/{application_id}/clients/{client_id}/credentials/{credential_id}/revoke`：撤销 proof，并按请求撤销关联客户端会话。
+- 明文 secret 只在创建/轮换成功响应出现一次，响应必须 `Cache-Control: no-store`；数据库、日志、Outbox、Audit 和普通查询只保存摘要或公钥。
+
 ## 解析 ApplicationContext
 
 - Application 方法：`ResolveApplicationContext(command)`
-- 输入：已验证 ProductContext、客户端凭据、版本、环境和服务端观察到的渠道证明
+- 输入：已验证 ProductContext、客户端凭据、版本、环境、nonce 和服务端观察到的渠道证明
 - 输出：ApplicationContext、端级认证/支付/发布策略引用
 - 错误：Application 不存在或停用、产品不匹配、环境不匹配、客户端未绑定、版本被阻止、渠道证明无效
 - 重试：只读解析可安全重试；失败需要限流和安全审计
-- 安全：忽略未经证明的 `application_id`、platform、channel、redirect URI 和 release track
+- 安全：忽略未经证明的 `application_id`、platform、channel、redirect URI 和 release track；`client_id + nonce_digest` 必须唯一，proof 时间窗和重放均由服务端拒绝
 
 ## 停用 Product Application
 
@@ -81,3 +89,6 @@ ApplicationContext 由服务端在客户端认证后生成，并绑定当前 Pro
 - Config：可以按可信 ApplicationContext 收窄配置，但不能重新解析产品或租户。
 - SDK/Client UI：只读取服务端返回的上下文摘要，不持有 Provider 密钥。
 
+## 当前实现边界
+
+G1-03 已实现创建/list、redirect policy、suspend、client binding、凭据注册/轮换/撤销组合入口和 ApplicationContext 解析。管理 Handler 使用 `adminrequest.Guard`，安全配置与凭据使用高风险 permission；严格路径、单 JSON、1 MiB、幂等键和稳定错误已测试。Provider AppID、支付方式、发布制品和 ApplicationPolicy 收窄属于后续模块，尚未实现。

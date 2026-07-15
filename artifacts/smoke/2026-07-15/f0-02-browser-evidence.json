@@ -1,0 +1,114 @@
+{
+  "work_id": "F0-02",
+  "test_id": "ST-026",
+  "verified_at": "2026-07-15",
+  "status": "passed_after_remediation",
+  "uncovered_findings": [
+    "stale_session_response_can_overwrite_refreshed_csrf",
+    "bearer_logout_did_not_bind_transport_and_token_type",
+    "mixed_cookie_families_could_partially_logout"
+  ],
+  "remediation": {
+    "stale_session_response_rejected_by_monotonic_session_version": true,
+    "bearer_logout_binds_server_transport_and_access_token_type": true,
+    "cookie_logout_requires_matching_access_and_refresh_family": true,
+    "consumed_refresh_replay_revokes_family_before_logout": true,
+    "initial_evidence_invalidation_retained": true
+  },
+  "browser": {
+    "surface": "Codex In-app Browser",
+    "origin": "https://127.0.0.1:5174",
+    "policy_block_resolved": true
+  },
+  "runtime": {
+    "database": "platform_local",
+    "short_access_ttl_seconds": 5,
+    "restored_access_ttl_seconds": 900,
+    "backend_ready_after_restore": true
+  },
+  "checks": {
+    "cookie_login_and_session": true,
+    "cookie_response_metadata": {
+      "access": {
+        "name_prefix": "__Host-",
+        "path": "/",
+        "secure": true,
+        "http_only": true,
+        "same_site_strict": true,
+        "domain_absent": true
+      },
+      "refresh": {
+        "name_prefix": "__Secure-",
+        "path": "/api/v1/admin/auth",
+        "secure": true,
+        "http_only": true,
+        "same_site_strict": true,
+        "domain_absent": true
+      },
+      "raw_values_persisted": false
+    },
+    "cross_tab_refresh": {
+      "refresh_requests": 1,
+      "refresh_200": 1,
+      "refresh_401": 0,
+      "product_requests": 4,
+      "product_initial_401": 2,
+      "product_replay_400": 2
+    },
+    "session_version": {
+      "baseline": 5,
+      "final": 7,
+      "monotonic": true,
+      "late_lower_version_ignored": true
+    },
+    "cross_tab_network_sequences": {
+      "tab_a": [
+        "POST products 401",
+        "GET session 401",
+        "POST refresh 200",
+        "POST products replay 400"
+      ],
+      "tab_b": [
+        "POST products 401",
+        "GET session 200",
+        "POST products replay 400"
+      ]
+    },
+    "cross_tab_csrf_nonempty_and_equal": true,
+    "storage_coordination": {
+      "application_storage_key": "platform_admin_session_epoch_v1",
+      "value_is_opaque_epoch": true,
+      "token_csrf_identity_or_permission_persistence_found_in_source": false,
+      "evidence": "source inventory + 30 Vitest cases + real two-tab recovery"
+    },
+    "client_managed_403": {
+      "status": 403,
+      "refresh_requests": 0,
+      "csrf_retained": true,
+      "protected_route_retained": true
+    },
+    "logout_transient_failure": {
+      "protected_route_retained": true,
+      "retry_error_visible": true,
+      "retry_after_backend_restore_succeeded": true,
+      "auth_cookies_empty_after_successful_logout": true,
+      "final_platform_admin_cookie_names": [],
+      "other_tab_next_request_status": 401,
+      "other_tab_returned_to_login": true
+    },
+    "responsive": {
+      "desktop_width": 1440,
+      "desktop_horizontal_overflow": false,
+      "mobile_width": 390,
+      "mobile_horizontal_overflow": false
+    }
+  },
+  "screenshots": [
+    "artifacts/smoke/2026-07-15/f0-02-login-desktop-redacted.png",
+    "artifacts/smoke/2026-07-15/f0-02-login-mobile-redacted.png",
+    "artifacts/smoke/2026-07-15/f0-02-overview-desktop-browser.png",
+    "artifacts/smoke/2026-07-15/f0-02-overview-mobile-browser.png",
+    "artifacts/smoke/2026-07-15/f0-02-logout-retry-browser.png"
+  ],
+  "secrets_recorded": false
+}

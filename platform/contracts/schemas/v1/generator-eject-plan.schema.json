@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generator-eject-plan.schema.json",
+  "title": "Generator Eject Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "previous_lock_checksum", "target_snapshot_checksum", "files", "executable", "plan_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "plan_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "previous_lock_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "previous_ownership", "new_ownership", "baseline_sha256", "current_sha256", "modified_from_baseline"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+          "previous_ownership": { "type": "string", "enum": ["generated", "integration"] },
+          "new_ownership": { "type": "string", "const": "forked" },
+          "baseline_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "current_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "modified_from_baseline": { "type": "boolean" }
+        }
+      }
+    },
+    "executable": { "type": "boolean", "const": true },
+    "plan_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  }
+}

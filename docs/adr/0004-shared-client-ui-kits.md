@@ -1,6 +1,8 @@
 # ADR-0004：建立多端用户前台组件层
 
-Status: accepted
+> **SUPERSEDED / 仅供历史追溯。当前实现必须先读 ADR-0010。**
+
+Status: superseded by ADR-0010
 
 Date: 2026-07-13
 
@@ -12,7 +14,7 @@ Date: 2026-07-13
 
 - 在管理后台之外建立 `platform/client-ui/`。
 - Web、桌面 WebView、小程序和手机端可以分别实现，但共用 `client-ui-contract.md`、状态枚举和设计 Token。
-- 产品通过配置品牌和启用能力，不复制组件源码。
+- 产品通过配置品牌和启用能力使用统一组件；源码交付、Generated Source 和 eject 规则现按 ADR-0010 执行。
 - 组件只调用统一 SDK 或公开 API Client，不直接访问底层服务。
 
 ## Consequences
@@ -20,6 +22,10 @@ Date: 2026-07-13
 - 登录、会员购买和用量界面可以统一升级。
 - 不同端仍需要少量渠道适配和交互验证。
 - 组件契约必须先于各端实现稳定。
+
+## Superseded note
+
+原来禁止产品获得组件源码的绝对限制已被 ADR-0010 替代。保留共享核心和统一状态机的原则不变，但正式支持 Hosted UI、版本化组件依赖与 Generated Source 三种交付方式，并通过源码所有权和锁定清单控制升级。
 
 ## Alternatives considered
 
@@ -30,4 +36,3 @@ Date: 2026-07-13
 
 - `platform/contracts/client-ui-contract.md`
 - `platform/client-ui/README.md`
-

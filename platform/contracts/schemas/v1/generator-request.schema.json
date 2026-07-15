@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generator-request.schema.json",
+  "title": "Generator Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "operation", "workspace_ref", "plan_checksum", "target_snapshot_checksum", "generator", "inputs", "artifact_context", "desired_outputs", "existing_files", "protected_paths", "secret_refs", "staging_path", "rollback_point_path", "conflict_policy", "determinism"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "operation": { "type": "string", "enum": ["generate", "upgrade", "rollback", "validate", "eject"] },
+    "workspace_ref": { "$ref": "common.schema.json#/$defs/identifier" },
+    "plan_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "generator": {
+      "type": "object", "additionalProperties": false, "required": ["generator_id", "version", "checksum"],
+      "properties": { "generator_id": { "$ref": "common.schema.json#/$defs/identifier" }, "version": { "$ref": "common.schema.json#/$defs/semver" }, "checksum": { "$ref": "common.schema.json#/$defs/sha256" } }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blueprint_path", "plan_path"],
+      "properties": {
+        "blueprint_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "plan_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "previous_manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "previous_lock_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+      }
+    },
+    "artifact_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assembly_id", "lock_id", "rollback_id", "run_id", "product", "blueprint", "catalog_checksum", "evidence", "created_at", "paths"],
+      "properties": {
+        "assembly_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "lock_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "rollback_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "product": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["product_id", "official_tenant_id", "applications"],
+          "properties": {
+            "product_id": { "$ref": "common.schema.json#/$defs/identifier" },
+            "official_tenant_id": { "$ref": "common.schema.json#/$defs/identifier" },
+            "applications": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["plan_application_id", "application_id"],
+                "properties": {
+                  "plan_application_id": { "$ref": "common.schema.json#/$defs/identifier" },
+                  "application_id": { "$ref": "common.schema.json#/$defs/identifier" }
+                }
+              }
+            }
+          }
+        },
+        "blueprint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["blueprint_id", "version", "checksum"],
+          "properties": {
+            "blueprint_id": { "$ref": "common.schema.json#/$defs/blueprintId" },
+            "version": { "type": "integer", "minimum": 1 },
+            "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+          }
+        },
+        "catalog_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["evidence_id", "type", "status", "path", "sha256"],
+            "properties": {
+              "evidence_id": { "$ref": "common.schema.json#/$defs/identifier" },
+              "type": { "type": "string", "enum": ["contract_report", "test_report", "smoke_report", "isolation_report", "artifact"] },
+              "status": { "type": "string", "enum": ["passed", "failed", "not_applicable"] },
+              "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+              "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+            }
+          }
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_staging_path", "assembly_manifest_path", "generated_lock_path", "rollback_point_path", "commit_journal_path", "result_path", "diagnostic_directory"],
+          "properties": {
+            "artifact_staging_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "assembly_manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "generated_lock_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "rollback_point_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "commit_journal_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "result_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "diagnostic_directory": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+          }
+        }
+      }
+    },
+    "desired_outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "ownership", "source_id", "source_version", "source_path", "source_sha256", "render_strategy", "content_type"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+          "ownership": { "type": "string", "enum": ["generated", "integration"] },
+          "source_id": { "$ref": "common.schema.json#/$defs/identifier" },
+          "source_version": { "$ref": "common.schema.json#/$defs/semver" },
+          "source_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+          "source_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "render_strategy": { "$ref": "common.schema.json#/$defs/renderStrategy" },
+          "content_type": { "$ref": "common.schema.json#/$defs/contentType" },
+          "merge": { "$ref": "common.schema.json#/$defs/integrationMerge" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "ownership": { "const": "integration" } }, "required": ["ownership"] },
+            "then": { "required": ["merge"], "properties": { "render_strategy": { "const": "generated_region" }, "content_type": { "const": "text" } } }
+          },
+          {
+            "if": { "properties": { "ownership": { "const": "generated" } }, "required": ["ownership"] },
+            "then": { "not": { "required": ["merge"] } }
+          }
+        ]
+      }
+    },
+    "existing_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "ownership", "sha256"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+          "ownership": { "type": "string", "enum": ["generated", "integration", "custom", "forked"] },
+          "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+        }
+      }
+    },
+    "protected_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "secret_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/secretRef" } },
+    "staging_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "rollback_point_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "eject_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "conflict_policy": { "type": "string", "const": "stop" },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone", "locale", "sort_order"],
+      "properties": {
+        "timezone": { "type": "string", "const": "UTC" },
+        "locale": { "type": "string", "const": "C" },
+        "sort_order": { "type": "string", "const": "bytewise" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "enum": ["upgrade", "rollback", "eject"] } }, "required": ["operation"] },
+      "then": { "properties": { "inputs": { "required": ["blueprint_path", "plan_path", "previous_manifest_path", "previous_lock_path"] } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "eject" } }, "required": ["operation"] },
+      "then": { "required": ["eject_paths"] }
+    },
+    {
+      "if": { "properties": { "operation": { "enum": ["generate", "upgrade", "rollback", "validate"] } }, "required": ["operation"] },
+      "then": { "not": { "required": ["eject_paths"] } }
+    }
+  ]
+}

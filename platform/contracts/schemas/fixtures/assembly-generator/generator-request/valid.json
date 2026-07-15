@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "request.demo",
+  "operation": "generate",
+  "workspace_ref": "workspace.demo",
+  "plan_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "target_snapshot_checksum": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+  "generator": { "generator_id": "generator.typescript", "version": "1.0.0", "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+  "inputs": { "blueprint_path": "contracts/product-blueprint.json", "plan_path": "contracts/assembly-plan.json" },
+  "artifact_context": {
+    "assembly_id": "assembly.demo",
+    "lock_id": "lock.demo",
+    "rollback_id": "rollback.request-demo",
+    "run_id": "run.demo",
+    "product": { "product_id": "product.demo", "official_tenant_id": "tenant.official", "applications": [{ "plan_application_id": "application.web", "application_id": "app.web" }] },
+    "blueprint": { "blueprint_id": "bp_demo-product", "version": 1, "checksum": "sha256:5656565656565656565656565656565656565656565656565656565656565656" },
+    "catalog_checksum": "sha256:7878787878787878787878787878787878787878787878787878787878787878",
+    "evidence": [{ "evidence_id": "evidence.contract", "type": "contract_report", "status": "passed", "path": "reports/contract.json", "sha256": "sha256:9090909090909090909090909090909090909090909090909090909090909090" }],
+    "created_at": "2026-07-14T08:00:00Z",
+    "paths": {
+      "artifact_staging_path": ".runtime/assembly/request-demo",
+      "assembly_manifest_path": "artifacts/assembly/assembly-demo/assembly-manifest.json",
+      "generated_lock_path": "artifacts/assembly/assembly-demo/generated-project-lock.json",
+      "rollback_point_path": "artifacts/assembly/assembly-demo/rollback-point.json",
+      "commit_journal_path": "artifacts/assembly/assembly-demo/commit-journal.json",
+      "result_path": "artifacts/assembly/assembly-demo/generator-result.json",
+      "diagnostic_directory": "artifacts/assembly/assembly-demo/diagnostics"
+    }
+  },
+  "desired_outputs": [{ "path": "src/generated/account.ts", "ownership": "generated", "source_id": "package.account", "source_version": "1.0.0", "source_path": "content/account.ts.tmpl", "source_sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "render_strategy": "strict_template", "content_type": "text" }],
+  "existing_files": [{ "path": "src/custom/workbench.ts", "ownership": "custom", "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }],
+  "protected_paths": ["src/custom/workbench.ts"],
+  "secret_refs": [{ "provider": "vault.local", "key": "CLIENT_SECRET", "environment": "test" }],
+  "staging_path": "staging/generator-run",
+  "rollback_point_path": "artifacts/assembly/assembly-demo/rollback-point.json",
+  "conflict_policy": "stop",
+  "determinism": { "timezone": "UTC", "locale": "C", "sort_order": "bytewise" }
+}

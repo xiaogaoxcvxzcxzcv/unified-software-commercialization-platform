@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "run.demo",
+  "plan_id": "plan.demo",
+  "plan_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "idempotency_key_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "output_target_ref": "workspace.default",
+  "status": "completed",
+  "steps": [{ "step_id": "step.generate", "kind": "generate", "status": "completed", "attempt": 1, "compensation_status": "not_required", "started_at": "2026-07-13T12:00:00Z", "finished_at": "2026-07-13T12:00:01Z", "diagnostic_ids": [] }],
+  "current_step_id": null,
+  "diagnostic_ids": [],
+  "manifest_path": "artifacts/assembly-manifest.json",
+  "lock_path": "artifacts/generated-project-lock.json",
+  "recovery": { "retryable": false, "rollback_required": false },
+  "created_at": "2026-07-13T12:00:00Z",
+  "updated_at": "2026-07-13T12:00:02Z",
+  "completed_at": "2026-07-13T12:00:02Z"
+}

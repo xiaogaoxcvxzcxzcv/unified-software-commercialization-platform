@@ -1,4 +1,4 @@
-# 统一商业化平台领域语言
+# 可装配软件通用能力底座领域语言
 
 本文档固定跨模块高频术语。代码、契约、数据库、管理后台和 AI 生成内容必须使用同一含义，禁止因为中文都叫“功能、会员、额度”就混用。
 
@@ -7,6 +7,11 @@
 | 术语 | 稳定标识 | 权威模块 | 回答的问题 | 示例 |
 |---|---|---|---|---|
 | Platform Capability | `capability_id` | product | 某 Product 是否接入统一底座的一类能力 | `payment`、`ai_gateway`、`storage` |
+| Complete Capability Package | `package_id` + version | assembly / package catalog | 创建软件时可勾选的完整前后台交付单元是什么 | `package.account`、`package.commerce` |
+| Product Blueprint | `blueprint_id` + version | assembly | 新软件选择哪些端、能力包、UI、渠道和扩展 | Web + account + 标准 UI |
+| UI Template | `ui_template_id` + version | templates | 同一组能力采用哪套可运行前台框架、公共页面编排与交互呈现 | standard-web、compact-desktop |
+| Assembly Manifest | `assembly_id` + version | assembly | 实际启用、生成和验证了哪些版本 | 包、SDK、模板与产物清单 |
+| Generated Project Lock | `platform.lock` | generator / assembly | 哪些文件归生成器管理，怎样复现和升级 | 文件哈希、所有权和生成器版本 |
 | Product Feature | `feature_code` | 产品功能注册表，商业定义由 catalog 引用 | 软件向最终用户提供的哪个可售/可授权功能 | `batch_export`、`hd_render` |
 | Runtime Config | `config_key` | config | 软件运行时应使用什么内容、阈值或灰度设置 | `support_qr`、`new_editor_enabled` |
 | Entitlement | `entitlement_id` / grant | entitlement | 某用户在某 Product/Tenant 下实际获得了什么、有效到何时 | 年度会员、永久导出权限 |
@@ -14,7 +19,7 @@
 
 ## `capability_id`：平台能力
 
-`capability_id` 表示统一底座已经实现的一类服务，由 ProductCapabilitySet 按产品启用，例如 identity、payment、release、storage、ai_gateway。
+`capability_id` 表示统一底座的一项原子服务能力，由 ProductCapabilitySet 按产品启用，例如 identity、payment、release、storage、ai_gateway。它不是创建软件时直接展示的完整交付选项。
 
 规则：
 
@@ -23,6 +28,22 @@
 - 关闭 capability 不会自动删除历史订单、文件或用量。
 - capability 不代表某个用户已经购买会员，也不能替代 Entitlement。
 - capability 标识由平台治理，发布后不得随意改义；废弃必须走兼容和迁移流程。
+
+## `package_id`：完整能力包
+
+`package_id` 是创建软件时可勾选的产品单元。它聚合若干 `capability_id`、管理和用户 Feature Block、SDK/API、配置、源码、测试与说明。
+
+规则：
+
+- `package_id` 只有在指定目标端和交付形态达到 `available` 时才能被勾选。
+- 包的依赖和冲突由 Assembly 解析，不能让创建者手工拼凑底层 API。
+- 包版本发布后不能静默改写；升级必须产生计划、差异和回滚点。
+- 一个原子能力可以被多个包复用，但业务事实仍只有一个权威模块。
+- 包启用不等于某用户拥有权益；用户能否使用仍由 Entitlement 等业务事实决定。
+
+## 蓝图、模板与装配结果
+
+Product Blueprint 是期望，Assembly Manifest 是实际结果，Generated Project Lock 是源码所有权与可复现证据。UI Template 定义可运行前台 Shell、布局、导航、主题、公共 Feature Block 的页面编排和扩展槽，但不拥有登录、会员、支付等业务能力，也不改变业务状态机、安全和计费语义。软件独有的业务首页、目录页和工作台属于产品 custom 内容。四者不能互相替代，也不能塞进一个无版本的 Product JSON。
 
 错误示例：
 
@@ -117,4 +138,3 @@ Runtime Config
 - 不把 `plan` 写进全局 User；Plan/Offer 必须属于 Product 并形成订单快照。
 - 不用 `tenant_id` 表示 Application、最终用户组织或私有部署实例。
 - 不用 `license` 同时表示用户激活码和私有部署签名许可证，代码中应分别命名。
-

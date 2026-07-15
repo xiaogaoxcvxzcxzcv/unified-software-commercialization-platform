@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "plan_id": "eject.demo",
+  "previous_lock_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "target_snapshot_checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "files": [{
+    "path": "src/generated/account.ts",
+    "previous_ownership": "generated",
+    "new_ownership": "forked",
+    "baseline_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "current_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "modified_from_baseline": true
+  }],
+  "executable": true,
+  "plan_checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "assembly_id": "assembly.demo",
+  "run_id": "run.demo",
+  "product": { "product_id": "product.demo", "official_tenant_id": "tenant.official", "applications": [{ "plan_application_id": "application.web", "application_id": "app.web" }] },
+  "blueprint": { "blueprint_id": "bp_demo-product", "version": 1, "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "catalog_checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "packages": [{ "package_id": "package.account", "version": "1.0.0", "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }],
+  "templates": [{ "template_id": "standard-web", "version": "1.0.0", "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }],
+  "sdks": [{ "sdk_id": "sdk.typescript", "version": "1.0.0", "checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }],
+  "outputs": [{ "path": "src/generated/account.ts", "ownership": "generated", "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "source_id": "package.account", "source_version": "1.0.0", "source_path": "content/account.ts.tmpl", "source_sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "render_strategy": "strict_template", "content_type": "text" }],
+  "evidence": [{ "evidence_id": "evidence.contract", "type": "contract_report", "status": "passed", "path": "artifacts/contract-report.json", "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111" }],
+  "secret_refs": [{ "provider": "vault.local", "key": "CLIENT_SECRET", "environment": "test" }],
+  "created_at": "2026-07-13T12:00:00Z",
+  "manifest_checksum": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+}

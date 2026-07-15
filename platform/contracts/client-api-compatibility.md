@@ -1,6 +1,6 @@
 # Client API Compatibility Contract
 
-本契约约束统一后台 Client API 与统一 SDK 的长期兼容性。
+本契约约束共享平台公共 Client API 与统一 SDK 的长期兼容性。
 
 ## Version Scope
 
@@ -35,6 +35,8 @@
 
 废弃客户端接口时必须发布替代接口、迁移文档、受影响 SDK 与产品清单、停止支持日期和回滚方案。废弃期内保留监控，确认仍有调用时不得直接删除。
 
+安全例外：尚未通过正式验收、从未标记为 `available` 且允许绕过预登记客户端策略的 Admin Bearer 不享有不安全兼容窗口。启用受控客户端证明时必须撤销所有未绑定 client + credential 的历史 Bearer family，保持 Cookie API 兼容，并在废弃记录中说明迁移顺序和回归证据。
+
 ## Verification
 
 每次 Client API 或 SDK 变更必须执行：
@@ -43,4 +45,3 @@
 2. 所有仍受支持 SDK 版本的契约测试。
 3. 产品身份和租户隔离测试。
 4. 新产品接入不影响旧产品的回归测试 ST-015。
-

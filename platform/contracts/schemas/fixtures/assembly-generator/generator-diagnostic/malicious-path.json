@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0.0", "diagnostic_id": "diagnostic.path", "request_id": "request.demo",
+  "severity": "error", "category": "path", "code": "PATH_ESCAPE", "message": "Unsafe output path.",
+  "blocking": true, "retryable": false, "path": "C:\\Windows\\secret.txt", "related_paths": [],
+  "remediation": ["Use a safe relative path inside the authorized workspace."]
+}

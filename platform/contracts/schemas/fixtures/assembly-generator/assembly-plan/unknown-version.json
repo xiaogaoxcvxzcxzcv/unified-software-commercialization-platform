@@ -1,0 +1,16 @@
+{
+  "schema_version": "9.0.0",
+  "plan_id": "plan.demo",
+  "blueprint_id": "bp_demo-product",
+  "blueprint_version": 1,
+  "environment": "test",
+  "catalog_snapshot": { "revision": "catalog-abcdef123456", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "packages": [{ "package_id": "package.account", "version": "1.0.0", "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+  "applications": [{ "application_id": "demo-product.web", "target": "web", "channel": "official", "environment": "test", "delivery_mode": "generated_source", "output_path": "apps/web", "template": { "template_id": "standard-web", "version": "1.0.0", "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } }],
+  "extensions": [],
+  "generator": { "generator_id": "platform.generator", "version": "1.0.0", "checksum": "sha256:1212121212121212121212121212121212121212121212121212121212121212" },
+  "sdks": [], "dependencies": [], "conflicts": [], "risks": [], "required_providers": [], "required_secret_refs": [], "expected_outputs": ["src/generated/account.ts"],
+  "confirmation": { "required": false, "blocking_conflict_count": 0, "risk_count": 0, "statements": [], "summary_checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+  "executable": true,
+  "plan_checksum": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

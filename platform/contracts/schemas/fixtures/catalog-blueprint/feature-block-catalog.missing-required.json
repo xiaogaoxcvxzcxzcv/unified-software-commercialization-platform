@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "catalog_version": "1.0.0",
+  "blocks": [
+    { "block_id": "auth.login", "surface": "client", "readiness": "ready" }
+  ]
+}

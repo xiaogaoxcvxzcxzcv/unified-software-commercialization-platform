@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "request.demo",
+  "workspace_ref": "workspace.demo",
+  "target_snapshot_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "committed",
+  "changes": [],
+  "rollback_attempted": false,
+  "rollback_completed": false
+}

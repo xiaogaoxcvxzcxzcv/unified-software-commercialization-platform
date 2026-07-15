@@ -11,28 +11,124 @@
     { "name": "Tenant" }, { "name": "Identity" }, { "name": "Entitlement" },
     { "name": "Device" }, { "name": "License" }, { "name": "Catalog" },
     { "name": "Order" }, { "name": "Payment" }, { "name": "AIGateway" }, { "name": "Usage" },
-    { "name": "AccessControl" }, { "name": "Audit" }
+    { "name": "AccessControl" }, { "name": "Audit" }, { "name": "Assembly" }
   ],
   "paths": {
-    "/health": {
+    "/health/live": {
       "get": {
-        "tags": ["System"], "operationId": "getHealth", "summary": "Read process health",
+        "tags": ["System"], "operationId": "getLiveness", "summary": "Read process liveness",
         "security": [], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
-        "responses": { "200": { "$ref": "#/components/responses/Health" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HealthLive" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": ["System"], "operationId": "getReadiness", "summary": "Read dependency readiness",
+        "security": [], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/HealthReady" }, "503": { "$ref": "#/components/responses/HealthReady" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/blueprints": {
+      "post": {
+        "tags": ["Assembly"], "operationId": "createProductBlueprint", "summary": "Create a versioned pre-product software blueprint", "description": "The blueprint precedes Product creation and is authorized in platform scope. The document selects every target Application, exact available package/template versions, delivery modes, secret references and controlled output root; it cannot submit catalog readiness or secret values.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "../schemas/v1/product-blueprint.schema.json" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/AssemblyBlueprint" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/blueprints/{blueprint_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/BlueprintId" }],
+      "get": {
+        "tags": ["Assembly"], "operationId": "getProductBlueprint", "summary": "Read the current version of a pre-product blueprint",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/AssemblyBlueprint" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/blueprints/{blueprint_id}/plan": {
+      "parameters": [{ "$ref": "#/components/parameters/BlueprintId" }],
+      "post": {
+        "tags": ["Assembly"], "operationId": "createAssemblyPlan", "summary": "Resolve an immutable multi-Application assembly plan", "description": "The server resolves and pins the exact catalog snapshot, packages, every Application's target/template/delivery mode, SDKs, dependencies, risks and expected outputs. Clients cannot submit a plan document.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAssemblyPlanRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/AssemblyPlan" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/blueprints/{blueprint_id}/assemble": {
+      "parameters": [{ "$ref": "#/components/parameters/BlueprintId" }],
+      "post": {
+        "tags": ["Assembly"], "operationId": "startAssembly", "summary": "Confirm a locked plan and start idempotent software assembly", "description": "High-risk platform-scope operation. The server verifies the plan version, plan checksum and exact confirmation summary before starting. output_target_ref is a server-controlled workspace reference, never a client filesystem path.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StartAssemblyRequest" } } } },
+        "responses": { "202": { "$ref": "#/components/responses/AssemblyRun" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/assembly-plans/{plan_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/AssemblyPlanId" }],
+      "get": {
+        "tags": ["Assembly"], "operationId": "getAssemblyPlan", "summary": "Read a locked assembly plan and confirmation state",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/AssemblyPlan" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/assembly-runs/{run_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/AssemblyRunId" }],
+      "get": {
+        "tags": ["Assembly"], "operationId": "getAssemblyRun", "summary": "Read resumable assembly execution status and artifact references",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/AssemblyRun" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/assembly-manifests/{assembly_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/AssemblyId" }],
+      "get": {
+        "tags": ["Assembly"], "operationId": "getAssemblyManifest", "summary": "Read the immutable manifest produced by a completed assembly run", "description": "Platform-scope recovery read. The canonical document contains only locked artifact metadata and secret references, never secret values.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/AssemblyManifest" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/generated-project-locks/{lock_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/GeneratedProjectLockId" }],
+      "get": {
+        "tags": ["Assembly"], "operationId": "getGeneratedProjectLock", "summary": "Read the immutable generated-project ownership and checksum lock", "description": "Platform-scope recovery read used for deterministic regeneration, conflict detection and rollback planning.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/GeneratedProjectLock" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/products": {
+      "get": {
+        "tags": ["Product"], "operationId": "listProducts", "summary": "List products visible to the administrator",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ProductList" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
       "post": {
         "tags": ["Product"], "operationId": "createProduct", "summary": "Create a product and its official tenant",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/Product" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
+    "/api/v1/admin/products/{product_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "get": {
+        "tags": ["Product"], "operationId": "getProduct", "summary": "Read one authorized product",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ProductSummary" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/api/v1/client/session": {
       "post": {
-        "tags": ["Product"], "operationId": "createClientSession", "summary": "Authenticate a registered client and resolve trusted Product/Application context",
+        "tags": ["Product"], "operationId": "createClientSession", "summary": "Authenticate a registered client and resolve trusted Product/Application/Tenant context",
         "security": [], "x-idempotency-exemption": "Client proof and request nonce provide replay control; successful retries may return an equivalent short-lived session.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateClientSessionRequest" } } } },
@@ -43,18 +139,24 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
       "put": {
         "tags": ["Product"], "operationId": "replaceProductCapabilities", "summary": "Replace the versioned capability set for an authorized product",
-        "security": [{ "AdminBearer": [] }], "x-idempotency-exemption": "PUT is naturally idempotent and uses the expected_version precondition.",
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }], "x-idempotency-exemption": "PUT is naturally idempotent and uses the expected_version precondition.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReplaceCapabilitiesRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/CapabilitySet" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/products/{product_id}/applications": {
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "get": {
+        "tags": ["ProductApplication"], "operationId": "listProductApplications", "summary": "List technical applications under an authorized product",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ApplicationList" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
       "post": {
         "tags": ["ProductApplication"], "operationId": "createProductApplication", "summary": "Create a technical application under a product",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateApplicationRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/Application" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -63,8 +165,8 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }],
       "put": {
         "tags": ["ProductApplication"], "operationId": "replaceApplicationRedirects", "summary": "Replace exact redirect, origin and deep-link allowlists",
-        "security": [{ "AdminBearer": [] }], "x-idempotency-exemption": "PUT replaces a complete versioned allowlist and is naturally idempotent.",
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }], "x-idempotency-exemption": "PUT replaces a complete versioned allowlist and is naturally idempotent.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RedirectPolicyRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/VersionedAdminResult" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -73,18 +175,54 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }],
       "post": {
         "tags": ["ProductApplication"], "operationId": "suspendProductApplication", "summary": "Suspend an application without deleting history",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuspendRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/applications/{application_id}/clients": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }],
+      "post": {
+        "tags": ["ProductApplication"], "operationId": "registerApplicationClient", "summary": "Register a client identity and deliver its initial proof once",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterApplicationClientRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/ClientCredential" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/applications/{application_id}/clients/{client_id}/credentials/rotate": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }, { "$ref": "#/components/parameters/ClientId" }],
+      "post": {
+        "tags": ["ProductApplication"], "operationId": "rotateApplicationClientCredential", "summary": "Rotate a client proof and deliver the new secret once",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RotateClientCredentialRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/ClientCredential" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/applications/{application_id}/clients/{client_id}/credentials/{credential_id}/revoke": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/ApplicationId" }, { "$ref": "#/components/parameters/ClientId" }, { "$ref": "#/components/parameters/CredentialId" }],
+      "post": {
+        "tags": ["ProductApplication"], "operationId": "revokeApplicationClientCredential", "summary": "Revoke a client proof and its active client sessions",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeClientCredentialRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/products/{product_id}/tenants": {
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "get": {
+        "tags": ["Tenant"], "operationId": "listProductTenants", "summary": "List official and agent tenants under an authorized product",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/TenantList" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
       "post": {
         "tags": ["Tenant"], "operationId": "createAgentTenant", "summary": "Create an agent tenant under an authorized product",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTenantRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/Tenant" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -93,8 +231,8 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }],
       "post": {
         "tags": ["Tenant"], "operationId": "bindTenantAdmin", "summary": "Bind a global user as an administrator in one tenant scope",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindTenantAdminRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -163,6 +301,41 @@
         "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
+    "/api/v1/admin/auth/login": {
+      "post": {
+        "tags": ["Identity"], "operationId": "loginAdmin", "summary": "Authenticate an administrator and create a server-side management session", "description": "Cookie is the browser default. Bearer additionally requires a valid pre-registered controlled_client proof; the global emergency switch alone never authorizes issuance.",
+        "security": [], "x-idempotency-exemption": "Authentication attempts are rate-limited security events and are not business mutations.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminLoginRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/auth/session": {
+      "get": {
+        "tags": ["Identity"], "operationId": "getCurrentAdminSession", "summary": "Resolve the current administrator identity and fresh authorization snapshot",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/AdminSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/auth/refresh": {
+      "post": {
+        "tags": ["Identity"], "operationId": "refreshAdminSession", "summary": "Rotate the one-time administrator refresh token family",
+        "description": "Cookie mode is the access-expiry recovery path: it reads only the HttpOnly SameSite refresh cookie and requires exact Origin, but not an in-memory CSRF token. Bearer mode requires refresh_token and the exact controlled client + credential proof bound at login. The current authorization snapshot is resolved before consuming the old token, while the final rotation still revalidates token state under a transaction lock. Any reuse of an old refresh token revokes the whole family.",
+        "security": [{ "AdminRefreshCookie": [] }, {}], "x-idempotency-exemption": "Refresh-token rotation has dedicated narrow concurrency and replay semantics.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminRefreshRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AdminSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/auth/logout": {
+      "post": {
+        "tags": ["Identity"], "operationId": "logoutAdmin", "summary": "Revoke the administrator token family and clear management cookies", "description": "Cookie mode validates an active access cookie with its CSRF token, or falls back to a valid refresh cookie from the same session/family only when access is expired or absent. Proof validation, family revocation, and the security outbox commit atomically. Transient lookup or outbox failures never bypass validation and remain retryable.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminRefreshCookie": [] }, { "AdminBearer": [] }], "x-idempotency-exemption": "Revoking an already-revoked token family is a stable no-op.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "responses": { "204": { "$ref": "#/components/responses/AdminLogout" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/api/v1/entitlements/check": {
       "post": {
         "tags": ["Entitlement"], "operationId": "checkEntitlement", "summary": "Evaluate current product/tenant entitlement using server time",
@@ -175,8 +348,8 @@
     "/api/v1/admin/entitlements": {
       "post": {
         "tags": ["Entitlement"], "operationId": "grantEntitlement", "summary": "Grant entitlement from an audited source",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GrantEntitlementRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/EntitlementGrant" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -184,7 +357,7 @@
     "/api/v1/devices": {
       "get": {
         "tags": ["Device"], "operationId": "listDevices", "summary": "List redacted devices in the resolved scope",
-        "security": [{ "UserBearer": [] }, { "AdminBearer": [] }],
+        "security": [{ "UserBearer": [] }, { "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "status", "in": "query", "schema": { "type": "string" } }],
         "responses": { "200": { "$ref": "#/components/responses/DevicePage" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -212,8 +385,8 @@
       "parameters": [{ "$ref": "#/components/parameters/DeviceId" }],
       "post": {
         "tags": ["Device"], "operationId": "revokeDevice", "summary": "Revoke a device binding in the current scope",
-        "security": [{ "UserBearer": [] }, { "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "UserBearer": [] }, { "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -221,8 +394,8 @@
     "/api/v1/admin/license-batches": {
       "post": {
         "tags": ["License"], "operationId": "createLicenseBatch", "summary": "Generate a scoped activation-code batch",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateLicenseBatchRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/LicenseBatch" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -231,8 +404,8 @@
       "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
       "post": {
         "tags": ["License"], "operationId": "createLicenseBatchDelivery", "summary": "Create a short-lived one-time delivery artifact",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateDeliveryRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/LicenseDelivery" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -241,8 +414,8 @@
       "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
       "post": {
         "tags": ["License"], "operationId": "suspendLicenseBatch", "summary": "Suspend a batch without revoking historical grants",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuspendLicenseBatchRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -260,7 +433,7 @@
       "parameters": [{ "$ref": "#/components/parameters/RedemptionId" }],
       "get": {
         "tags": ["License"], "operationId": "getLicenseRedemption", "summary": "Read a redacted redemption result in the current scope",
-        "security": [{ "UserBearer": [] }, { "AdminBearer": [] }],
+        "security": [{ "UserBearer": [] }, { "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
         "responses": { "200": { "$ref": "#/components/responses/LicenseRedemption" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -277,8 +450,8 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
       "post": {
         "tags": ["Catalog"], "operationId": "createCatalogOffer", "summary": "Create an offer and draft version",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateOfferRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/CatalogOffer" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -287,8 +460,8 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/OfferId" }],
       "post": {
         "tags": ["Catalog"], "operationId": "publishCatalogOffer", "summary": "Publish immutable offer and price versions",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublishOfferRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/VersionedAdminResult" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -349,8 +522,8 @@
       "parameters": [{ "$ref": "#/components/parameters/PaymentIntentId" }],
       "post": {
         "tags": ["Payment"], "operationId": "createRefund", "summary": "Start an audited asynchronous refund",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRefundRequest" } } } },
         "responses": { "202": { "$ref": "#/components/responses/Refund" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -370,8 +543,8 @@
       "parameters": [{ "$ref": "#/components/parameters/LogicalModelCode" }],
       "put": {
         "tags": ["AIGateway"], "operationId": "putAiModelRoute", "summary": "Create an immutable logical-model route version",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PutAiModelRouteRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/AiModelRoute" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -379,8 +552,8 @@
     "/api/v1/admin/usage/prices": {
       "post": {
         "tags": ["Usage"], "operationId": "createUsagePriceVersion", "summary": "Create an immutable metering price version",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateUsagePriceRequest" } } } },
         "responses": { "201": { "$ref": "#/components/responses/UsagePrice" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -388,7 +561,7 @@
     "/api/v1/usage/records": {
       "get": {
         "tags": ["Usage"], "operationId": "listUsageRecords", "summary": "List metered usage and safe billing details in the resolved scope",
-        "security": [{ "UserBearer": [] }, { "DeveloperKey": [] }, { "AdminBearer": [] }],
+        "security": [{ "UserBearer": [] }, { "DeveloperKey": [] }, { "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "occurred_from", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "occurred_to", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "logical_model_code", "in": "query", "schema": { "$ref": "#/components/schemas/Identifier" } }],
         "responses": { "200": { "$ref": "#/components/responses/UsagePage" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -397,8 +570,8 @@
       "parameters": [{ "$ref": "#/components/parameters/BindingId" }],
       "put": {
         "tags": ["AccessControl"], "operationId": "putAdminRoleBinding", "summary": "Create or replace a scoped administrator role binding",
-        "security": [{ "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleBindingRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -406,7 +579,7 @@
     "/api/v1/admin/audit/events": {
       "get": {
         "tags": ["Audit"], "operationId": "listAuditEvents", "summary": "Search redacted audit events inside the authorized scope",
-        "security": [{ "AdminBearer": [] }],
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "occurred_from", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "occurred_to", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "actor_id", "in": "query", "schema": { "$ref": "#/components/schemas/Identifier" } }, { "name": "action", "in": "query", "schema": { "type": "string", "maxLength": 128 } }, { "name": "result", "in": "query", "schema": { "type": "string" } }, { "name": "trace_id", "in": "query", "schema": { "type": "string", "maxLength": 128 } }],
         "responses": { "200": { "$ref": "#/components/responses/AuditPage" }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -414,19 +587,24 @@
   },
   "components": {
     "securitySchemes": {
-      "ClientSessionBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Short-lived client session containing server-resolved ProductContext and ApplicationContext." },
+      "ClientSessionBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Short-lived client session containing server-resolved ProductContext, ApplicationContext and TenantContext." },
       "UserBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "User session bound to trusted Product/Application and server-resolved Tenant context." },
-      "AdminBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Administrator session; every target product/tenant is re-authorized by Access Control." }
-      ,"DeveloperKey": { "type": "apiKey", "in": "header", "name": "Authorization", "description": "Restricted developer key. The key resolves Product/Tenant/scope server-side and cannot select arbitrary contexts." }
+      "AdminAccessCookie": { "type": "apiKey", "in": "cookie", "name": "__Host-platform_admin_access", "description": "Default browser administrator access. Server sets Secure, HttpOnly, SameSite=Strict, Path=/ and no Domain. Unsafe methods also require exact Origin and X-CSRF-Token." },
+      "AdminRefreshCookie": { "type": "apiKey", "in": "cookie", "name": "__Secure-platform_admin_refresh", "description": "Rotating browser refresh proof. Server sets Secure, HttpOnly, SameSite=Strict, Path=/api/v1/admin/auth and no Domain; accepted only by admin refresh/logout." },
+      "AdminBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Optional non-browser administrator transport explicitly issued to controlled CLI/automation; every target product/tenant is re-authorized by Access Control." },
+      "DeveloperKey": { "type": "http", "scheme": "bearer", "bearerFormat": "developer-key", "description": "Restricted developer key. The key resolves Product/Tenant/scope server-side and cannot select arbitrary contexts." }
     },
     "parameters": {
       "RequestId": { "name": "X-Request-Id", "in": "header", "required": false, "description": "Optional caller correlation ID; not an authorization or idempotency fact.", "schema": { "type": "string", "minLength": 8, "maxLength": 128 } },
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Opaque operation-scoped idempotency key. Reuse with a different payload returns conflict.", "schema": { "type": "string", "minLength": 16, "maxLength": 128 } },
+      "AdminCsrfToken": { "name": "X-CSRF-Token", "in": "header", "required": false, "description": "Required with exact Origin for unsafe requests authenticated by an administrator access Cookie, except refresh which recovers after access expiry using exact Origin plus SameSite refresh Cookie. Bound to the server session and rotated with it. Omit for Admin Bearer.", "schema": { "type": "string", "minLength": 32, "maxLength": 256 } },
       "Cursor": { "name": "cursor", "in": "query", "schema": { "type": "string", "maxLength": 512 } },
       "PageSize": { "name": "page_size", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
       "ProductId": { "name": "product_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
       "TenantId": { "name": "tenant_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
       "ApplicationId": { "name": "application_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "ClientId": { "name": "client_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "CredentialId": { "name": "credential_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "DeviceId": { "name": "device_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "BatchId": { "name": "batch_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "RedemptionId": { "name": "redemption_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
@@ -434,9 +612,14 @@
       "OrderId": { "name": "order_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "PaymentIntentId": { "name": "payment_intent_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "BindingId": { "name": "binding_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "BlueprintId": { "name": "blueprint_id", "in": "path", "required": true, "description": "Pre-product blueprint identifier. It is a resource locator, never a Product authorization fact.", "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "AssemblyPlanId": { "name": "plan_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "AssemblyRunId": { "name": "run_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "AssemblyId": { "name": "assembly_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "GeneratedProjectLockId": { "name": "lock_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "ExternalIdentityId": { "name": "external_identity_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
-      "ExternalProvider": { "name": "provider", "in": "path", "required": true, "schema": { "type": "string", "enum": ["wechat", "oidc", "other"] } }
-      ,"LogicalModelCode": { "name": "logical_model_code", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }
+      "ExternalProvider": { "name": "provider", "in": "path", "required": true, "schema": { "type": "string", "enum": ["wechat", "oidc", "other"] } },
+      "LogicalModelCode": { "name": "logical_model_code", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }
     },
     "headers": {
       "RequestId": { "description": "Server request/correlation ID.", "schema": { "type": "string" } }
@@ -444,17 +627,30 @@
     "responses": {
       "Error": { "description": "Stable safe error", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "NoContent": { "description": "Completed", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "X-Audit-Id": { "description": "Audit event identifier when applicable.", "schema": { "type": "string" } } } },
-      "Health": { "description": "Process is serving", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } },
+      "HealthLive": { "description": "Process is serving HTTP", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLive" } } } },
+      "HealthReady": { "description": "Dependency readiness; status code is 503 when any required dependency is unavailable", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthReady" } } } },
       "Product": { "$ref": "#/components/responses/JsonProduct" },
       "JsonProduct": { "description": "Product", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
-      "ClientSession": { "description": "Trusted client session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientSession" } } } },
+      "ProductSummary": { "description": "Product summary", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductSummary" } } } },
+      "ProductList": { "description": "Authorized products", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductSummary" } } }, "additionalProperties": false } } } },
+      "ClientSession": { "description": "Trusted client session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientSession" } } } },
       "CapabilitySet": { "description": "Versioned capability set", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapabilitySet" } } } },
       "Application": { "description": "Product application", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductApplication" } } } },
+      "ApplicationList": { "description": "Product applications", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductApplicationSummary" } } }, "additionalProperties": false } } } },
+      "ClientCredential": { "description": "Client registration or rotated proof. `secret` is returned once and never appears in later reads.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientCredentialResult" } } } },
       "Tenant": { "description": "Agent tenant", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } },
+      "TenantList": { "description": "Official and agent tenants", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/TenantSummary" } } }, "additionalProperties": false } } } },
+      "AssemblyBlueprint": { "description": "Versioned pre-product blueprint and its canonical machine document", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssemblyBlueprint" } } } },
+      "AssemblyPlan": { "description": "Immutable server-resolved assembly plan. The document locks all selected Applications and their exact templates/delivery modes.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssemblyPlan" } } } },
+      "AssemblyRun": { "description": "Resumable assembly execution state and controlled artifact references", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssemblyRun" } } } },
+      "AssemblyManifest": { "description": "Immutable completed assembly manifest with canonical document and independently stored checksums", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssemblyManifest" } } } },
+      "GeneratedProjectLock": { "description": "Immutable generated-project lock with source ownership and baseline checksums", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeneratedProjectLock" } } } },
       "AdminMutation": { "description": "Audited mutation result", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminMutationResult" } } } },
       "VersionedAdminResult": { "description": "Versioned audited result", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VersionedAdminResult" } } } },
       "UserSession": { "description": "User session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSession" } } } },
       "TokenPair": { "description": "Rotated token pair", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPair" } } } },
+      "AdminSession": { "description": "Administrator identity, current server authorization snapshot and session expiry. Cookie transport sets both management cookies; bearer transport returns token_pair. Responses must use Cache-Control: no-store.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Set-Cookie": { "description": "Cookie transport may emit separate access and rotating refresh Set-Cookie headers with the attributes fixed by the Identity contract.", "schema": { "type": "string" } }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminSession" } } } },
+      "AdminLogout": { "description": "Administrator token family revoked. Cookie transport expires both cookies using their original Path and security attributes.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "X-Audit-Id": { "description": "Session-revocation audit event identifier.", "schema": { "type": "string" } }, "Set-Cookie": { "description": "Separate expired access and refresh cookies.", "schema": { "type": "string" } }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } } },
       "ExternalLoginFlow": { "description": "One-time external flow", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalLoginFlow" } } } },
       "ExternalExchange": { "description": "Platform session or explicit conflict", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalExchangeResult" } } } },
       "ExternalIdentity": { "description": "Redacted linked identity", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalIdentity" } } } },
@@ -481,26 +677,47 @@
     },
     "schemas": {
       "Identifier": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+      "StableCode": { "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$" },
+      "Sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
       "Currency": { "type": "string", "pattern": "^[A-Z]{3}$", "examples": ["CNY"] },
       "Timestamp": { "type": "string", "format": "date-time" },
       "Environment": { "type": "string", "enum": ["local", "test", "production"] },
       "Platform": { "type": "string", "enum": ["windows", "macos", "linux", "web", "h5", "android", "ios", "wechat_miniprogram", "other"] },
-      "Health": { "type": "object", "required": ["status", "time"], "properties": { "status": { "type": "string", "const": "ok" }, "time": { "$ref": "#/components/schemas/Timestamp" } } },
+      "HealthLive": { "type": "object", "required": ["status", "version"], "properties": { "status": { "type": "string", "const": "ok" }, "version": { "type": "string" } }, "additionalProperties": false },
+      "HealthReady": { "type": "object", "required": ["status", "checks"], "properties": { "status": { "type": "string", "enum": ["ready", "not_ready"] }, "checks": { "type": "object", "additionalProperties": { "type": "string", "enum": ["ok", "unavailable"] } } }, "additionalProperties": false },
       "ErrorEnvelope": { "type": "object", "required": ["type", "title", "status", "code", "request_id", "retryable"], "properties": { "type": { "type": "string", "format": "uri-reference" }, "title": { "type": "string" }, "status": { "type": "integer", "minimum": 400, "maximum": 599 }, "code": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" }, "detail": { "type": "string" }, "request_id": { "type": "string" }, "retryable": { "type": "boolean" }, "retry_after_seconds": { "type": "integer", "minimum": 0 }, "field_errors": { "type": "array", "items": { "type": "object", "required": ["field", "code"], "properties": { "field": { "type": "string" }, "code": { "type": "string" }, "message": { "type": "string" } } } } } },
+      "CreateAssemblyPlanRequest": { "type": "object", "required": ["blueprint_version", "environment"], "properties": { "blueprint_version": { "type": "integer", "minimum": 1 }, "environment": { "type": "string", "enum": ["development", "test", "staging", "production"] } }, "additionalProperties": false },
+      "AssemblyConfirmation": { "type": "object", "required": ["accepted", "summary_checksum"], "properties": { "accepted": { "type": "boolean", "const": true }, "summary_checksum": { "$ref": "#/components/schemas/Sha256" } }, "additionalProperties": false },
+      "StartAssemblyRequest": { "type": "object", "required": ["plan_id", "expected_plan_version", "plan_checksum", "confirmation", "output_target_ref"], "properties": { "plan_id": { "$ref": "#/components/schemas/Identifier" }, "expected_plan_version": { "type": "integer", "minimum": 1 }, "plan_checksum": { "$ref": "#/components/schemas/Sha256" }, "confirmation": { "$ref": "#/components/schemas/AssemblyConfirmation" }, "output_target_ref": { "$ref": "#/components/schemas/Identifier", "description": "Opaque server-controlled workspace reference; absolute, relative and platform filesystem paths are not accepted." } }, "additionalProperties": false },
+      "AssemblyBlueprint": { "type": "object", "required": ["blueprint_id", "version", "schema_version", "document", "checksum", "created_at", "updated_at", "audit_id"], "properties": { "blueprint_id": { "$ref": "#/components/schemas/Identifier" }, "version": { "type": "integer", "minimum": 1 }, "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" }, "document": { "$ref": "../schemas/v1/product-blueprint.schema.json" }, "checksum": { "$ref": "#/components/schemas/Sha256" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "AssemblyPlan": { "type": "object", "required": ["plan_id", "version", "blueprint_id", "blueprint_version", "schema_version", "environment", "document", "checksum", "executable", "confirmed", "created_at", "updated_at", "audit_id"], "properties": { "plan_id": { "$ref": "#/components/schemas/Identifier" }, "version": { "type": "integer", "minimum": 1 }, "blueprint_id": { "$ref": "#/components/schemas/Identifier" }, "blueprint_version": { "type": "integer", "minimum": 1 }, "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" }, "environment": { "type": "string", "enum": ["development", "test", "staging", "production"] }, "document": { "$ref": "../schemas/v1/assembly-plan.schema.json" }, "checksum": { "$ref": "#/components/schemas/Sha256" }, "executable": { "type": "boolean" }, "confirmed": { "type": "boolean" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "AssemblyRun": { "type": "object", "required": ["run_id", "plan_id", "plan_version", "plan_checksum", "output_target_ref", "status", "document", "created_at", "updated_at", "audit_id"], "properties": { "run_id": { "$ref": "#/components/schemas/Identifier" }, "plan_id": { "$ref": "#/components/schemas/Identifier" }, "plan_version": { "type": "integer", "minimum": 1 }, "plan_checksum": { "$ref": "#/components/schemas/Sha256" }, "output_target_ref": { "$ref": "#/components/schemas/Identifier", "description": "Opaque server-controlled workspace reference selected for this run." }, "status": { "type": "string", "enum": ["planned", "provisioning", "generating", "validating", "completed", "failed", "rolling_back", "rolled_back"] }, "document": { "$ref": "../schemas/v1/assembly-run.schema.json" }, "manifest_path": { "type": "string", "description": "Controlled relative artifact reference returned after successful commit." }, "lock_path": { "type": "string", "description": "Controlled relative lock reference returned after successful commit." }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" }, "completed_at": { "type": "string", "format": "date-time" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "AssemblyManifest": { "type": "object", "required": ["assembly_id", "product_id", "run_id", "schema_version", "document", "document_checksum", "checksum", "created_at"], "properties": { "assembly_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "run_id": { "$ref": "#/components/schemas/Identifier" }, "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" }, "document": { "$ref": "../schemas/v1/assembly-manifest.schema.json" }, "document_checksum": { "$ref": "#/components/schemas/Sha256" }, "checksum": { "$ref": "#/components/schemas/Sha256", "description": "Verified embedded manifest_checksum." }, "created_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "GeneratedProjectLock": { "type": "object", "required": ["lock_id", "product_id", "run_id", "assembly_id", "schema_version", "document", "document_checksum", "checksum", "created_at"], "properties": { "lock_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "run_id": { "$ref": "#/components/schemas/Identifier" }, "assembly_id": { "$ref": "#/components/schemas/Identifier" }, "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" }, "document": { "$ref": "../schemas/v1/generated-project-lock.schema.json" }, "document_checksum": { "$ref": "#/components/schemas/Sha256" }, "checksum": { "$ref": "#/components/schemas/Sha256", "description": "Verified embedded lock_checksum." }, "created_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "ProductContext": { "type": "object", "required": ["product_id", "product_code", "environment"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "product_code": { "$ref": "#/components/schemas/Identifier" }, "environment": { "$ref": "#/components/schemas/Environment" } }, "additionalProperties": false },
       "ApplicationContext": { "type": "object", "required": ["product_id", "environment", "application_id", "application_code", "platform", "distribution_channel", "client_id", "client_version", "release_track", "context_version"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "environment": { "$ref": "#/components/schemas/Environment" }, "application_id": { "$ref": "#/components/schemas/Identifier" }, "application_code": { "$ref": "#/components/schemas/Identifier" }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/Identifier" }, "client_id": { "$ref": "#/components/schemas/Identifier" }, "client_version": { "type": "string" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "context_version": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
-      "CreateProductRequest": { "type": "object", "required": ["code", "name", "status"], "properties": { "code": { "$ref": "#/components/schemas/Identifier" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "status": { "type": "string", "enum": ["active", "suspended"] } }, "additionalProperties": false },
-      "Product": { "type": "object", "required": ["product_id", "code", "name", "status", "created_at"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "code": { "$ref": "#/components/schemas/Identifier" }, "name": { "type": "string" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "official_tenant_id": { "$ref": "#/components/schemas/Identifier" }, "created_at": { "$ref": "#/components/schemas/Timestamp" } } },
-      "CreateClientSessionRequest": { "type": "object", "required": ["client_id", "client_proof", "client_version", "request_nonce"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "client_proof": { "type": "object", "description": "Versioned proof bound to the registered client; never a permanent embedded secret.", "required": ["type", "value"], "properties": { "type": { "type": "string" }, "value": { "type": "string", "minLength": 16 } } }, "client_version": { "type": "string", "minLength": 1, "maxLength": 64 }, "device_summary": { "type": "object", "additionalProperties": true }, "channel_proof": { "type": "object", "additionalProperties": true }, "request_nonce": { "type": "string", "minLength": 16, "maxLength": 256 } }, "additionalProperties": false },
-      "ClientSession": { "type": "object", "required": ["client_session_token", "expires_at", "product_context", "application_context"], "properties": { "client_session_token": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "product_context": { "$ref": "#/components/schemas/ProductContext" }, "application_context": { "$ref": "#/components/schemas/ApplicationContext" } } },
-      "ReplaceCapabilitiesRequest": { "type": "object", "required": ["expected_version", "capabilities"], "properties": { "expected_version": { "type": "integer", "minimum": 0 }, "capabilities": { "type": "array", "items": { "type": "object", "required": ["capability_id", "enabled"], "properties": { "capability_id": { "$ref": "#/components/schemas/Identifier" }, "enabled": { "type": "boolean" }, "policy": { "type": "object", "additionalProperties": true } } } } } },
-      "CapabilitySet": { "type": "object", "required": ["product_id", "version", "capabilities"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "version": { "type": "integer", "minimum": 1 }, "capabilities": { "type": "array", "items": { "type": "object" } }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
-      "CreateApplicationRequest": { "type": "object", "required": ["application_code", "name", "platform", "distribution_channel", "release_track", "status"], "properties": { "application_code": { "$ref": "#/components/schemas/Identifier" }, "name": { "type": "string", "maxLength": 120 }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/Identifier" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "status": { "type": "string", "enum": ["active", "suspended"] } }, "additionalProperties": false },
-      "ProductApplication": { "type": "object", "required": ["application_id", "product_id", "application_code", "platform", "status", "created_at", "audit_id"], "properties": { "application_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "application_code": { "$ref": "#/components/schemas/Identifier" }, "platform": { "$ref": "#/components/schemas/Platform" }, "status": { "type": "string" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "TenantContext": { "type": "object", "required": ["product_id", "tenant_id", "tenant_type", "tenant_status", "resolved_by", "context_version"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_type": { "type": "string", "enum": ["official", "agent"] }, "tenant_status": { "type": "string", "enum": ["active", "suspended"] }, "resolved_by": { "type": "string", "enum": ["official_channel", "distribution", "license", "membership", "admin"] }, "context_version": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+      "CreateProductRequest": { "type": "object", "required": ["code", "name", "status"], "properties": { "code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "status": { "type": "string", "enum": ["active", "suspended"] } }, "additionalProperties": false },
+      "Product": { "type": "object", "required": ["product_id", "code", "name", "status", "provisioning_state", "official_tenant_id", "context_version", "created_at", "updated_at", "audit_id"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "provisioning_state": { "type": "string", "const": "ready" }, "official_tenant_id": { "$ref": "#/components/schemas/Identifier" }, "context_version": { "type": "integer", "minimum": 1 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "ProductSummary": { "type": "object", "required": ["product_id", "code", "name", "status", "provisioning_state", "context_version", "created_at", "updated_at"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "provisioning_state": { "type": "string", "enum": ["pending", "ready", "failed"] }, "official_tenant_id": { "type": ["string", "null"], "maxLength": 128 }, "context_version": { "type": "integer", "minimum": 1 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "ProofEnvelope": { "type": "object", "required": ["schema_version", "type", "value", "timestamp"], "properties": { "schema_version": { "type": "integer", "const": 1 }, "type": { "type": "string", "enum": ["hmac_sha256_v1", "ed25519_signature_v1"] }, "value": { "type": "string", "minLength": 32, "maxLength": 1024, "writeOnly": true }, "timestamp": { "type": "string", "format": "date-time" } }, "additionalProperties": false },
+      "BoundProofSummary": { "type": "object", "required": ["schema_version", "digest"], "properties": { "schema_version": { "type": "integer", "const": 1 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$", "maxLength": 71 } }, "additionalProperties": false },
+      "CreateClientSessionRequest": { "type": "object", "required": ["client_id", "credential_id", "client_proof", "client_version", "request_nonce"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "credential_id": { "$ref": "#/components/schemas/Identifier" }, "client_proof": { "$ref": "#/components/schemas/ProofEnvelope" }, "client_version": { "type": "string", "minLength": 1, "maxLength": 64 }, "device_summary": { "$ref": "#/components/schemas/BoundProofSummary" }, "channel_proof": { "$ref": "#/components/schemas/BoundProofSummary" }, "request_nonce": { "type": "string", "minLength": 16, "maxLength": 256 } }, "additionalProperties": false },
+      "ClientSession": { "type": "object", "required": ["client_session_token", "expires_at", "product_context", "application_context", "tenant_context"], "properties": { "client_session_token": { "type": "string", "minLength": 32, "maxLength": 512 }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "product_context": { "$ref": "#/components/schemas/ProductContext" }, "application_context": { "$ref": "#/components/schemas/ApplicationContext" }, "tenant_context": { "$ref": "#/components/schemas/TenantContext" } }, "additionalProperties": false },
+      "ReplaceCapabilitiesRequest": { "type": "object", "required": ["expected_version", "change_plan"], "properties": { "expected_version": { "type": "integer", "minimum": 0 }, "change_plan": { "type": "object", "required": ["assembly_plan_id", "catalog_revision", "catalog_snapshot_sha256"], "properties": { "assembly_plan_id": { "$ref": "#/components/schemas/Identifier" }, "catalog_revision": { "$ref": "#/components/schemas/StableCode" }, "catalog_snapshot_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false } }, "additionalProperties": false },
+      "CapabilitySet": { "type": "object", "required": ["product_id", "version", "capabilities", "source_plan_id", "catalog_revision", "catalog_snapshot_sha256", "audit_id"], "properties": { "product_id": { "$ref": "#/components/schemas/Identifier" }, "version": { "type": "integer", "minimum": 1 }, "capabilities": { "type": "array", "items": { "type": "object", "required": ["capability_id", "enabled", "source_package_id", "source_package_version"], "properties": { "capability_id": { "$ref": "#/components/schemas/StableCode" }, "enabled": { "type": "boolean" }, "policy": { "type": "object", "maxProperties": 64, "additionalProperties": true }, "source_package_id": { "type": "string", "pattern": "^package\\.[a-z][a-z0-9-]*$" }, "source_package_version": { "type": "string" } }, "additionalProperties": false } }, "source_plan_id": { "$ref": "#/components/schemas/Identifier" }, "catalog_revision": { "$ref": "#/components/schemas/StableCode" }, "catalog_snapshot_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "CreateApplicationRequest": { "type": "object", "required": ["application_code", "name", "platform", "distribution_channel", "release_track", "status"], "properties": { "application_code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/StableCode" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "status": { "type": "string", "enum": ["active", "suspended"] } }, "additionalProperties": false },
+      "ProductApplication": { "type": "object", "required": ["application_id", "product_id", "application_code", "name", "platform", "distribution_channel", "release_track", "status", "created_at", "audit_id"], "properties": { "application_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "application_code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string" }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/StableCode" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "status": { "type": "string", "enum": ["active", "suspended"] }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "ProductApplicationSummary": { "type": "object", "required": ["application_id", "product_id", "application_code", "name", "platform", "distribution_channel", "release_track", "status", "context_version", "created_at", "updated_at"], "properties": { "application_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "application_code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string" }, "platform": { "$ref": "#/components/schemas/Platform" }, "distribution_channel": { "$ref": "#/components/schemas/StableCode" }, "release_track": { "type": "string", "enum": ["stable", "beta", "internal", "custom"] }, "status": { "type": "string", "enum": ["active", "suspended"] }, "context_version": { "type": "integer", "minimum": 1 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "RegisterApplicationClientRequest": { "type": "object", "required": ["environment", "proof_type", "expires_at"], "properties": { "environment": { "$ref": "#/components/schemas/Environment" }, "proof_type": { "type": "string", "enum": ["hmac_sha256_v1", "ed25519_signature_v1"] }, "public_key": { "type": "string", "minLength": 32, "maxLength": 4096, "writeOnly": true }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "RotateClientCredentialRequest": { "type": "object", "required": ["expected_generation", "proof_type", "expires_at", "revoke_previous"], "properties": { "expected_generation": { "type": "integer", "minimum": 1 }, "proof_type": { "type": "string", "enum": ["hmac_sha256_v1", "ed25519_signature_v1"] }, "public_key": { "type": "string", "minLength": 32, "maxLength": 4096, "writeOnly": true }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "revoke_previous": { "type": "boolean", "const": true } }, "additionalProperties": false },
+      "RevokeClientCredentialRequest": { "type": "object", "required": ["reason", "revoke_sessions"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "revoke_sessions": { "type": "boolean" } }, "additionalProperties": false },
+      "ClientCredentialResult": { "type": "object", "required": ["client_id", "credential_id", "product_id", "application_id", "environment", "proof_type", "generation", "expires_at", "audit_id"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "credential_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "application_id": { "$ref": "#/components/schemas/Identifier" }, "environment": { "$ref": "#/components/schemas/Environment" }, "proof_type": { "type": "string", "enum": ["hmac_sha256_v1", "ed25519_signature_v1"] }, "generation": { "type": "integer", "minimum": 1 }, "secret": { "type": "string", "minLength": 32, "maxLength": 512, "writeOnly": true }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
       "RedirectPolicyRequest": { "type": "object", "required": ["web_redirect_uris", "allowed_origins", "deep_links"], "properties": { "web_redirect_uris": { "type": "array", "items": { "type": "string", "format": "uri" }, "uniqueItems": true }, "allowed_origins": { "type": "array", "items": { "type": "string", "format": "uri" }, "uniqueItems": true }, "deep_links": { "type": "array", "items": { "type": "object", "required": ["scheme", "path_pattern"], "properties": { "scheme": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*$" }, "path_pattern": { "type": "string" } } } } }, "additionalProperties": false },
       "SuspendRequest": { "type": "object", "required": ["reason", "session_policy"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "session_policy": { "type": "string", "enum": ["keep_existing", "revoke_existing"] } }, "additionalProperties": false },
-      "CreateTenantRequest": { "type": "object", "required": ["name", "tenant_code", "status"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "tenant_code": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "external_agent_ref": { "type": "string", "maxLength": 128 } }, "additionalProperties": false },
+      "CreateTenantRequest": { "type": "object", "required": ["name", "tenant_code", "status"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "tenant_code": { "$ref": "#/components/schemas/StableCode" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "external_agent_ref": { "type": "string", "maxLength": 128 } }, "additionalProperties": false },
       "Tenant": { "type": "object", "required": ["tenant_id", "product_id", "tenant_type", "status", "audit_id"], "properties": { "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_type": { "type": "string", "const": "agent" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
+      "TenantSummary": { "type": "object", "required": ["tenant_id", "product_id", "tenant_code", "name", "tenant_type", "status", "context_version", "created_at", "updated_at"], "properties": { "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string" }, "tenant_type": { "type": "string", "enum": ["official", "agent"] }, "status": { "type": "string", "enum": ["active", "suspended"] }, "external_agent_ref": { "type": ["string", "null"], "maxLength": 128 }, "context_version": { "type": "integer", "minimum": 1 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "BindTenantAdminRequest": { "type": "object", "required": ["user_id", "role_code"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "role_code": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
       "LoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "device_risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
       "TokenPair": { "type": "object", "required": ["access_token", "refresh_token", "expires_at"], "properties": { "access_token": { "type": "string" }, "refresh_token": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
@@ -512,6 +729,14 @@
       "LinkExternalIdentityRequest": { "type": "object", "required": ["external_proof_id"], "properties": { "external_proof_id": { "$ref": "#/components/schemas/Identifier" }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
       "ExternalIdentity": { "type": "object", "required": ["external_identity_id", "provider", "status", "linked_at", "audit_id"], "properties": { "external_identity_id": { "$ref": "#/components/schemas/Identifier" }, "provider": { "type": "string" }, "masked_subject": { "type": "string" }, "status": { "type": "string", "enum": ["active", "revoked"] }, "linked_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
       "RefreshRequest": { "type": "object", "required": ["refresh_token"], "properties": { "refresh_token": { "type": "string", "minLength": 16, "writeOnly": true } }, "additionalProperties": false },
+      "AdminControlledClientProof": { "type": "object", "required": ["client_id", "credential_id", "proof_type", "proof"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "credential_id": { "$ref": "#/components/schemas/Identifier" }, "proof_type": { "type": "string", "const": "shared_secret_v1" }, "proof": { "type": "string", "minLength": 43, "maxLength": 512, "writeOnly": true, "description": "At least 256 bits of random secret material, delivered once and never returned or logged." } }, "additionalProperties": false },
+      "AdminLoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "transport": { "type": "string", "enum": ["cookie", "bearer"], "default": "cookie", "description": "Browsers use cookie. Bearer is only a request intent and also requires controlled_client." }, "controlled_client": { "$ref": "#/components/schemas/AdminControlledClientProof" }, "risk_summary": { "type": "object", "additionalProperties": true } }, "allOf": [{ "if": { "required": ["transport"], "properties": { "transport": { "const": "bearer" } } }, "then": { "required": ["controlled_client"] }, "else": { "properties": { "controlled_client": false } } }], "additionalProperties": false },
+      "AdminRefreshRequest": { "type": "object", "properties": { "transport": { "type": "string", "enum": ["cookie", "bearer"], "default": "cookie" }, "refresh_token": { "type": "string", "minLength": 32, "writeOnly": true, "description": "Required only for bearer transport; cookie transport rejects body token material." }, "controlled_client": { "$ref": "#/components/schemas/AdminControlledClientProof" } }, "allOf": [{ "if": { "required": ["transport"], "properties": { "transport": { "const": "bearer" } } }, "then": { "required": ["refresh_token", "controlled_client"] }, "else": { "properties": { "refresh_token": false, "controlled_client": false } } }], "additionalProperties": false },
+      "AdminTokenPair": { "type": "object", "required": ["access_token", "refresh_token", "access_expires_at", "refresh_expires_at"], "properties": { "access_token": { "type": "string", "minLength": 32, "writeOnly": true }, "refresh_token": { "type": "string", "minLength": 32, "writeOnly": true }, "access_expires_at": { "$ref": "#/components/schemas/Timestamp" }, "refresh_expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "AdminIdentitySummary": { "type": "object", "required": ["admin_user_id", "display_name", "account_status", "auth_time"], "properties": { "admin_user_id": { "$ref": "#/components/schemas/Identifier" }, "display_name": { "type": "string", "maxLength": 128 }, "account_status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "auth_time": { "$ref": "#/components/schemas/Timestamp" }, "authentication_method": { "type": "string", "enum": ["password", "oidc", "recovery"] } }, "additionalProperties": false },
+      "AdminScope": { "type": "object", "required": ["scope_type"], "properties": { "scope_type": { "type": "string", "enum": ["platform", "product", "tenant"] }, "scope_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 }, "product_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 }, "tenant_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 } }, "additionalProperties": false },
+      "AdminAuthorizationSnapshot": { "type": "object", "required": ["authorization_version", "permissions", "scopes"], "properties": { "authorization_version": { "type": "integer", "minimum": 1 }, "permissions": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" } }, "scopes": { "type": "array", "items": { "$ref": "#/components/schemas/AdminScope" } }, "reauthentication_required": { "type": "boolean", "default": false } }, "additionalProperties": false },
+      "AdminSession": { "type": "object", "required": ["session_id", "session_version", "transport", "admin", "authorization", "access_expires_at", "refresh_expires_at", "csrf_token"], "properties": { "session_id": { "$ref": "#/components/schemas/Identifier" }, "session_version": { "type": "integer", "minimum": 1, "description": "Monotonically increases after each successful refresh; clients must ignore responses older than the newest version already observed." }, "transport": { "type": "string", "enum": ["cookie", "bearer"] }, "controlled_client_id": { "type": ["string", "null"], "description": "Present only for bearer sessions; never includes a secret or digest." }, "admin": { "$ref": "#/components/schemas/AdminIdentitySummary" }, "authorization": { "$ref": "#/components/schemas/AdminAuthorizationSnapshot" }, "access_expires_at": { "$ref": "#/components/schemas/Timestamp" }, "refresh_expires_at": { "$ref": "#/components/schemas/Timestamp" }, "csrf_token": { "type": ["string", "null"], "minLength": 32, "description": "Returned for cookie transport and kept only in frontend memory; null for bearer transport." }, "token_pair": { "$ref": "#/components/schemas/AdminTokenPair" } }, "additionalProperties": false },
       "EntitlementCheckRequest": { "type": "object", "required": ["requested_features"], "properties": { "requested_features": { "type": "array", "items": { "$ref": "#/components/schemas/Identifier" }, "uniqueItems": true }, "device_id": { "$ref": "#/components/schemas/Identifier" }, "client_time": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "EntitlementDecision": { "type": "object", "required": ["allowed", "features", "reason_code"], "properties": { "allowed": { "type": "boolean" }, "plan_code": { "type": ["string", "null"] }, "features": { "type": "array", "items": { "$ref": "#/components/schemas/Identifier" } }, "valid_until": { "type": ["string", "null"], "format": "date-time" }, "offline_grace_until": { "type": ["string", "null"], "format": "date-time" }, "reason_code": { "type": "string" }, "signed_decision": { "type": "string", "description": "Optional signed offline-cache payload." } } },
       "GrantEntitlementRequest": { "type": "object", "required": ["user_id", "product_id", "tenant_id", "policy", "validity", "source_type", "source_id"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "policy": { "type": "object", "additionalProperties": true }, "validity": { "type": "object", "additionalProperties": true }, "source_type": { "$ref": "#/components/schemas/Identifier" }, "source_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },

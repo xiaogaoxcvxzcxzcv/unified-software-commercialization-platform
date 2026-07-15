@@ -2,11 +2,12 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminClient } from "../api/adminClient";
+import { authClient } from "../api/authClient";
 import { App } from "../app/App";
 import { Modal } from "../components/Modal";
-import type { EntitlementRecord, Product } from "../types";
+import type { AdminSession, EntitlementRecord, Product, TenantRecord } from "../types";
 
 const videoProduct: Product = {
   id: "prod-video",
@@ -20,9 +21,50 @@ const videoProduct: Product = {
   accent: "#0f9f8f",
 };
 
+const testProducts: Product[] = [
+  videoProduct,
+  { ...videoProduct, id: "prod-copy", code: "copy-studio", name: "智能文案工坊", enabledCapabilities: ["统一账号", "权益", "代理租户"], accent: "#3b82f6" },
+  { ...videoProduct, id: "prod-assets", code: "asset-desk", name: "素材管理助手", status: "paused", enabledCapabilities: ["统一账号", "云存储"], accent: "#7c3aed" },
+];
+
+const testTenants: TenantRecord[] = [
+  { id: "T-OFFICIAL", productId: "prod-video", name: "官方直营", code: "official", type: "official", admins: 3, users: 1094, status: "active" },
+  { id: "T-SOUTH", productId: "prod-video", name: "华南代理", code: "south-cn", type: "agent", admins: 2, users: 126, status: "active" },
+  { id: "T-EAST", productId: "prod-video", name: "华东代理", code: "east-cn", type: "agent", admins: 1, users: 66, status: "active" },
+  { id: "T-COPY", productId: "prod-copy", name: "官方直营", code: "official", type: "official", admins: 2, users: 458, status: "active" },
+  { id: "T-ASSETS", productId: "prod-assets", name: "官方直营", code: "official", type: "official", admins: 1, users: 204, status: "active" },
+];
+
+const adminSession: AdminSession = {
+  session_id: "session-admin-flows",
+  session_version: 1,
+  transport: "cookie",
+  admin: {
+    admin_user_id: "U-ADMIN",
+    display_name: "测试管理员",
+    account_status: "active",
+    auth_time: "2026-07-13T12:00:00Z",
+    authentication_method: "password",
+  },
+  authorization: {
+    authorization_version: 1,
+    permissions: ["product.read", "user.read", "entitlement.write"],
+    scopes: [{ scope_type: "platform", scope_id: null, product_id: null, tenant_id: null }],
+  },
+  access_expires_at: "2026-07-13T12:15:00Z",
+  refresh_expires_at: "2026-07-20T12:00:00Z",
+  csrf_token: "csrf-token-for-admin-flows-1234567890",
+};
+
 function renderApp(path: string) {
   return render(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>);
 }
+
+beforeEach(() => {
+  vi.spyOn(authClient, "getSession").mockResolvedValue(adminSession);
+  vi.spyOn(adminClient, "listProducts").mockResolvedValue(testProducts);
+  vi.spyOn(adminClient, "listTenants").mockImplementation(async (productId) => testTenants.filter((item) => item.productId === productId));
+});
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -34,7 +76,8 @@ describe("管理后台关键上下文流程", () => {
 
     await user.selectOptions(screen.getByLabelText("当前软件"), "prod-copy");
 
-    await screen.findByRole("heading", { name: "智能文案工坊" });
+    await screen.findByRole("heading", { name: "智能文案工坊" }, { timeout: 5_000 });
+    expect(screen.getByRole("heading", { name: "用户与权益趋势" })).toBeInTheDocument();
     expect(screen.getByLabelText("当前软件")).toHaveValue("prod-copy");
   });
 
@@ -64,6 +107,7 @@ describe("管理后台关键上下文流程", () => {
     await screen.findByRole("heading", { name: "产品设置" });
     const nameInput = screen.getByLabelText("软件名称");
 
+    await waitFor(() => expect(nameInput).toHaveValue("视频生产大脑"));
     await user.clear(nameInput);
     await user.type(nameInput, "视频工作台");
     await user.click(screen.getByRole("button", { name: "保存信息" }));
@@ -136,7 +180,7 @@ describe("弹层与导航可访问性", () => {
     renderApp("/overview");
     await screen.findByRole("heading", { name: "平台总览" });
     const notifications = screen.getByRole("button", { name: "系统通知" });
-    const profile = screen.getByRole("button", { name: /admin/ });
+    const profile = screen.getByRole("button", { name: "测试管理员，平台管理员" });
 
     await user.click(notifications);
     expect(screen.getByRole("dialog", { name: "系统通知" })).toBeInTheDocument();

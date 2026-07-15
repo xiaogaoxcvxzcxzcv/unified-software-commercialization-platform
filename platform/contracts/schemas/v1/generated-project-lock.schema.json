@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generated-project-lock.schema.json",
+  "title": "Generated Project Lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lock_id", "assembly_manifest_checksum", "blueprint_checksum", "catalog_checksum", "target_snapshot_checksum", "rollback_point_path", "generator", "packages", "templates", "sdks", "files", "created_at", "lock_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "lock_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "assembly_manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "blueprint_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "catalog_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "rollback_point_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "generator": {
+      "type": "object", "additionalProperties": false, "required": ["generator_id", "version", "checksum"],
+      "properties": { "generator_id": { "$ref": "common.schema.json#/$defs/identifier" }, "version": { "$ref": "common.schema.json#/$defs/semver" }, "checksum": { "$ref": "common.schema.json#/$defs/sha256" } }
+    },
+    "packages": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/dependency" } },
+    "templates": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/dependency" } },
+    "sdks": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/dependency" } },
+    "files": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/lockedFile" } },
+    "created_at": { "type": "string", "format": "date-time" },
+    "lock_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "checksum"],
+      "properties": { "id": { "$ref": "common.schema.json#/$defs/identifier" }, "version": { "$ref": "common.schema.json#/$defs/semver" }, "checksum": { "$ref": "common.schema.json#/$defs/sha256" } }
+    },
+    "lockedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "ownership", "sha256", "update_policy"],
+      "properties": {
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "ownership": { "type": "string", "enum": ["generated", "integration", "custom", "forked"] },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "generated_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "source_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "source_version": { "$ref": "common.schema.json#/$defs/semver" },
+        "source_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "source_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "render_strategy": { "$ref": "common.schema.json#/$defs/renderStrategy" },
+        "content_type": { "$ref": "common.schema.json#/$defs/contentType" },
+        "merge": { "$ref": "common.schema.json#/$defs/integrationMerge" },
+        "update_policy": { "type": "string", "enum": ["replace_generated", "merge_integration", "preserve_custom", "diff_only"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "ownership": { "const": "generated" } }, "required": ["ownership"] }, "then": { "properties": { "update_policy": { "const": "replace_generated" } }, "required": ["generated_sha256", "source_id", "source_version", "source_path", "source_sha256", "render_strategy", "content_type"], "not": { "required": ["merge"] } } },
+        { "if": { "properties": { "ownership": { "const": "integration" } }, "required": ["ownership"] }, "then": { "properties": { "update_policy": { "const": "merge_integration" }, "render_strategy": { "const": "generated_region" }, "content_type": { "const": "text" } }, "required": ["generated_sha256", "source_id", "source_version", "source_path", "source_sha256", "render_strategy", "content_type", "merge"] } },
+        { "if": { "properties": { "ownership": { "const": "custom" } }, "required": ["ownership"] }, "then": { "properties": { "update_policy": { "const": "preserve_custom" } }, "not": { "required": ["generated_sha256"] } } },
+        { "if": { "properties": { "ownership": { "const": "forked" } }, "required": ["ownership"] }, "then": { "properties": { "update_policy": { "const": "diff_only" } } } }
+      ]
+    }
+  }
+}

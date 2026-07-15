@@ -1,6 +1,5 @@
 import {
   IconActivityHeartbeat,
-  IconAdjustments,
   IconApps,
   IconBell,
   IconBuildingStore,
@@ -11,6 +10,7 @@ import {
   IconHome,
   IconKey,
   IconLayoutDashboard,
+  IconLogout,
   IconMenu2,
   IconReceipt,
   IconRefresh,
@@ -20,7 +20,9 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { getAuthErrorMessage } from "../api/authClient";
 import { useAppContext } from "../app/AppContext";
+import { useAuth } from "../app/AuthContext";
 
 const globalMenu = [
   { path: "/overview", label: "平台概览", icon: IconLayoutDashboard },
@@ -42,16 +44,26 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
     products, currentProduct, tenants, currentTenant, tenantsLoading, tenantsError,
     selectProduct, selectTenant, refreshProducts, refreshTenants,
   } = useAppContext();
+  const { session, logout } = useAuth();
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [contextRefreshing, setContextRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState("");
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const adminName = session?.admin.display_name || "管理员";
+  const adminInitials = Array.from(adminName.trim()).slice(0, 2).join("").toUpperCase() || "管";
+  const adminRole = session?.authorization.scopes.some((scope) => scope.scope_type === "platform")
+    ? "平台管理员"
+    : session?.authorization.scopes.some((scope) => scope.scope_type === "product")
+      ? "产品管理员"
+      : "代理管理员";
   const menu = useMemo(() => currentProduct
     ? productMenu.filter((item) => !item.capability || currentProduct.enabledCapabilities.includes(item.capability))
       .map((item) => ({ ...item, path: `/products/${currentProduct.id}/${item.suffix}` }))
@@ -65,6 +77,8 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (profileOpen) profileRef.current?.querySelector<HTMLButtonElement>(".profile")?.focus();
+      if (notificationsOpen) notificationRef.current?.querySelector<HTMLButtonElement>(".icon-button")?.focus();
       setProfileOpen(false);
       setNotificationsOpen(false);
       setMobileSidebarOpen(false);
@@ -113,6 +127,20 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
     setContextRefreshing(false);
   };
 
+  const handleLogout = async () => {
+    if (logoutPending) return;
+    setLogoutPending(true);
+    setLogoutError(null);
+    try {
+      await logout();
+      setProfileOpen(false);
+    } catch (reason) {
+      setLogoutError(getAuthErrorMessage(reason));
+    } finally {
+      setLogoutPending(false);
+    }
+  };
+
   return (
     <div className={`app-shell ${desktopCollapsed ? "is-collapsed" : ""} ${mobileSidebarOpen ? "mobile-sidebar-open" : ""}`}>
       <aside id="primary-sidebar" className="sidebar" aria-label="主菜单">
@@ -157,8 +185,8 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
               {notificationsOpen && <div id="notification-popover" className="notification-menu" role="dialog" aria-labelledby="notification-title"><strong id="notification-title">系统通知</strong><p>当前没有需要处理的告警。</p></div>}
             </div>
             <div className="profile-wrap" ref={profileRef}>
-              <button className="profile" type="button" aria-haspopup="menu" aria-expanded={profileOpen} aria-controls="profile-menu" onClick={() => { setNotificationsOpen(false); setProfileOpen((value) => !value); }}><span>AD</span><div><strong>admin</strong><small>超级管理员</small></div><IconChevronDown size={16} /></button>
-              {profileOpen && <div id="profile-menu" className="profile-menu" role="menu"><button role="menuitem" type="button" onClick={() => { setProfileOpen(false); handleNavigate(currentProduct ? `/products/${currentProduct.id}/settings` : "/products"); }}><IconAdjustments size={17} />账号设置</button><button role="menuitem" type="button" onClick={() => { setProfileOpen(false); handleNavigate(currentProduct ? `/products/${currentProduct.id}/audit` : "/system/health"); }}><IconReceipt size={17} />操作记录</button></div>}
+              <button className="profile" type="button" aria-label={`${adminName}，${adminRole}`} aria-haspopup="menu" aria-expanded={profileOpen} aria-controls="profile-menu" onClick={() => { setNotificationsOpen(false); setLogoutError(null); setProfileOpen((value) => !value); }}><span>{adminInitials}</span><div><strong>{adminName}</strong><small>{adminRole}</small></div><IconChevronDown size={16} /></button>
+              {profileOpen && <div id="profile-menu" className="profile-menu" role="menu"><button role="menuitem" type="button" onClick={() => { setProfileOpen(false); handleNavigate(currentProduct ? `/products/${currentProduct.id}/audit` : "/system/health"); }}><IconReceipt size={17} />操作记录</button><button role="menuitem" type="button" disabled={logoutPending} onClick={() => void handleLogout()}><IconLogout size={17} />{logoutPending ? "正在退出..." : "退出登录"}</button>{logoutError && <p className="profile-menu-error" role="alert">{logoutError}</p>}</div>}
             </div>
           </div>
         </header>

@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0", "request_id": "request.overwrite", "operation": "upgrade", "workspace_ref": "workspace.demo",
+  "plan_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "generator": { "generator_id": "generator.typescript", "version": "1.0.0", "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+  "inputs": { "blueprint_path": "contracts/product-blueprint.json", "plan_path": "contracts/assembly-plan.json", "previous_lock_path": "artifacts/generated-project-lock.json" },
+  "desired_outputs": [{ "path": "src/custom/workbench.ts", "ownership": "custom", "source_id": "package.account" }],
+  "existing_files": [{ "path": "src/custom/workbench.ts", "ownership": "custom", "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }],
+  "protected_paths": ["src/custom/workbench.ts"], "secret_refs": [], "staging_path": "staging/generator-run", "conflict_policy": "stop",
+  "determinism": { "timezone": "UTC", "locale": "C", "sort_order": "bytewise" }
+}

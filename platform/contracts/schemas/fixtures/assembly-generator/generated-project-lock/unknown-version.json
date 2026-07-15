@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.1.0", "lock_id": "lock.demo",
+  "assembly_manifest_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "blueprint_checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "catalog_checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "generator": { "generator_id": "generator.typescript", "version": "1.0.0", "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+  "packages": [], "templates": [], "sdks": [],
+  "files": [{ "path": "src/generated/account.ts", "ownership": "generated", "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "generated_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "update_policy": "replace_generated" }],
+  "created_at": "2026-07-13T12:00:00Z", "lock_checksum": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+}

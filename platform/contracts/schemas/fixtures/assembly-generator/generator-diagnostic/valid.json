@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "diagnostic_id": "diagnostic.custom-conflict",
+  "request_id": "request.conflict",
+  "severity": "error",
+  "category": "ownership",
+  "code": "CUSTOM_OWNERSHIP_CONFLICT",
+  "message": "Generation stopped because the target file is owned by product custom code.",
+  "blocking": true,
+  "retryable": false,
+  "path": "src/custom/workbench.ts",
+  "related_paths": ["src/custom/workbench.ts"],
+  "expected_ownership": "generated",
+  "actual_ownership": "custom",
+  "expected_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "actual_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "remediation": ["Choose a generated-owned path or eject the shared implementation before retrying."]
+}

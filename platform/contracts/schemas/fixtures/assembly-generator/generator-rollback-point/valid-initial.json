@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0.0",
+  "rollback_id": "rollback.initial",
+  "workspace_ref": "workspace.demo",
+  "target_snapshot_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "previous_state": "absent",
+  "files": [{ "path": "src/generated/account.ts", "ownership": "generated", "action": "created" }],
+  "rollback_checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

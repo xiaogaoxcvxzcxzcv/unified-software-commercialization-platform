@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generator-commit-journal.schema.json",
+  "title": "Generator Commit Journal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "workspace_ref", "target_snapshot_checksum", "state", "changes", "rollback_attempted", "rollback_completed", "journal_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "workspace_ref": { "$ref": "common.schema.json#/$defs/identifier" },
+    "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "state": { "type": "string", "enum": ["prepared", "committed", "rolled_back", "rollback_failed"] },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "ownership", "action", "after_sha256"],
+        "properties": {
+          "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+          "ownership": { "type": "string", "enum": ["generated", "integration"] },
+          "action": { "type": "string", "enum": ["created", "updated", "unchanged"] },
+          "before_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "after_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "backup_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+        },
+        "allOf": [
+          { "if": { "properties": { "action": { "const": "updated" } }, "required": ["action"] }, "then": { "required": ["before_sha256", "backup_path"] } },
+          { "if": { "properties": { "action": { "enum": ["created", "unchanged"] } }, "required": ["action"] }, "then": { "not": { "required": ["backup_path"] } } }
+        ]
+      }
+    },
+    "rollback_attempted": { "type": "boolean" },
+    "rollback_completed": { "type": "boolean" },
+    "journal_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "allOf": [
+    { "if": { "properties": { "state": { "enum": ["prepared", "committed"] } }, "required": ["state"] }, "then": { "properties": { "rollback_attempted": { "const": false }, "rollback_completed": { "const": false } } } },
+    { "if": { "properties": { "state": { "const": "rolled_back" } }, "required": ["state"] }, "then": { "properties": { "rollback_attempted": { "const": true }, "rollback_completed": { "const": true } } } },
+    { "if": { "properties": { "state": { "const": "rollback_failed" } }, "required": ["state"] }, "then": { "properties": { "rollback_attempted": { "const": true }, "rollback_completed": { "const": false } } } }
+  ]
+}

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"platform.local/commercialization/backend/internal/platform/config"
+	"platform.local/capability-platform/backend/internal/platform/config"
 )
 
 type Postgres struct {

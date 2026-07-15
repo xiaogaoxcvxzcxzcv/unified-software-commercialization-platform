@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-07-15T09:16:59.1868401Z",
+  "mode": "Full",
+  "require_postgres": true,
+  "git_commit": "8d93f99ebb113d9993e0ca987ac963177d8989a3",
+  "passed": true,
+  "steps": [
+    { "name": "Git whitespace check", "status": "passed", "duration_ms": 51, "message": "" },
+    { "name": "Strict UTF-8", "status": "passed", "duration_ms": 5082, "message": "" },
+    { "name": "Migration naming and pairing", "status": "passed", "duration_ms": 31, "message": "" },
+    { "name": "Local documentation links", "status": "passed", "duration_ms": 2646, "message": "" },
+    { "name": "Secret pattern scan", "status": "passed", "duration_ms": 2350, "message": "" },
+    { "name": "OpenAPI contract", "status": "passed", "duration_ms": 48, "message": "" },
+    { "name": "PostgreSQL test environment", "status": "passed", "duration_ms": 3, "message": "" },
+    { "name": "Machine contract schemas", "status": "passed", "duration_ms": 18589, "message": "" },
+    { "name": "Machine capability and template catalogs", "status": "passed", "duration_ms": 1823, "message": "" },
+    { "name": "Go test", "status": "passed", "duration_ms": 44664, "message": "" },
+    { "name": "Go vet", "status": "passed", "duration_ms": 4711, "message": "" },
+    { "name": "Client SDK tests", "status": "passed", "duration_ms": 1119, "message": "" },
+    { "name": "Client SDK build", "status": "passed", "duration_ms": 1114, "message": "" },
+    { "name": "Client UI tests", "status": "passed", "duration_ms": 2738, "message": "" },
+    { "name": "Client UI build", "status": "passed", "duration_ms": 1531, "message": "" },
+    { "name": "Standard-A template smoke", "status": "passed", "duration_ms": 55888, "message": "" },
+    { "name": "Admin Vitest", "status": "passed", "duration_ms": 7022, "message": "" },
+    { "name": "Admin production build", "status": "passed", "duration_ms": 10732, "message": "" }
+  ]
+}

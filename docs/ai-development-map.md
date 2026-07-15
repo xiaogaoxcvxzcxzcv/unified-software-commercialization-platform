@@ -2,17 +2,23 @@
 
 ## 项目目标
 
-建设一个供桌面、网页、手机与微信小程序共用的商业化平台，统一提供产品、账号、权益、设备、激活码、订单、支付、AI Gateway、版本、远程配置、文件和用量计费能力，同时确保不同软件的数据和权限不会混淆。
+建设可装配的软件通用能力底座：创建新软件时选择目标端、完整能力包和用户前台 UI 模板，平台装配共享后端、唯一统一管理后台、可维护用户前台源码、SDK、配置、测试与说明；开发者只继续开发软件独有业务。
+
+减少重复开发是第一目标。统一管理后台、共享后端、Client UI、SDK 和源码生成都是实现这个目标的交付面，任何一面都不能单独代表完整产品。最高产品真相见 `product-scope.md`，完整包门槛见 `complete-capability-package-standard.md`。
+
+用户前台模板交付可运行 Shell、布局、导航、主题、所选公共 Feature Block 的页面编排和 custom 扩展槽。登录、个人中心、会员等公共页面随对应 `available` 能力包装配；软件自己的业务首页、目录页、工作台和核心内容不做统一模板，由开发人员在 custom 区域实现并接入。
 
 ## 当前状态
 
-- 当前阶段：工程地基、核心契约封口与第一版管理后台实现。
+- 当前阶段：F0-02 已在补救复验后重新达到 `verified`；F0-03 的本地、push、pull_request、脱敏报告与 required check `BLOCKED -> CLEAN` 动态证据均通过，`main` 必须经 PR 且 strict `quality-gate` 成功。当前唯一关口进入 G1-07 第一套 Web/桌面模板视觉收口；完整能力包尚未开始。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程和内存演示 Client；它用于验证信息架构、产品/租户上下文与交互，不是生产数据源。
-- product、product-application、tenant、identity、entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment、access-control、audit 已有模块契约；release、config、storage、notification、analytics 仍待按阶段补齐。
+- Assembly 后端执行闭包、TypeScript SDK/Client UI 基座和 `standard-a` 实验模板候选已实现；软件创建向导、业务 Feature Block 和首个真实样板软件尚未实现。普通生产能力包/模板/工具目录为空，扩展目录未实现并失败关闭，当前不能声称“勾选能力即可得到完整前后台”。
+- product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
 - 后端、OpenAPI、SDK、Hosted UI 和真实 Provider 接入以代码、自动化测试及冒烟记录为完成依据，不能以菜单或文档存在代替实现。
 - 产品范围和优先级以 `docs/product-scope.md` 为准。
+- 能力包是否可勾选只看 `docs/capability-package-catalog.md` 的 `available` 状态，不能根据菜单、原子能力索引或模块文件存在判断。
 - 当前真实完成度以 `docs/implementation-status.md` 为准，禁止把契约或演示页面误报为生产完成。
 - 旧 AI 工具箱用于需求和交互参考；Sub2API 仅用于支付流程参考。
 - “我的一人公司源码”学习包及 2026-07-13 完整部署包用于参考多租户、微信、会员、订单、兑换码、分销和后台页面；两份源码的对比审计见 `docs/reference-analysis/one-person-company-source-audit.md`。
@@ -37,8 +43,12 @@
 platform/
   backend/                 Go API 与后台任务
   admin-web/               React 管理后台
+  capability-packages/     普通 available 完整能力包机器目录
   client-ui/               多端登录、个人中心、会员购买、支付和用量组件
   sdk/                     各语言客户端 SDK
+  templates/               版本化 UI 模板与目标端项目模板
+  experimental/            服务端受控 verified 候选目录
+  backend/internal/modules/assembly/generation/  蓝图解析后的源码和配置生成器
   contracts/               OpenAPI、事件和文件契约
   deploy/                  Docker 与环境模板
 docs/
@@ -46,6 +56,10 @@ docs/
   features/                模块说明与契约
   reference-analysis/      旧项目只读审计和借鉴边界
   product-scope.md         产品范围、优先级和非目标
+  complete-capability-package-standard.md  完整能力包门槛
+  capability-package-catalog.md            创建软件可选包目录
+  product-blueprint-and-generation.md      蓝图、装配、生成与升级
+  product-extension-standard.md            软件独有扩展边界
   capability-index.md      全局能力索引
   feature-block-catalog.md UI 复用块目录
   smoke-tests.md           黄金流程
@@ -89,14 +103,16 @@ HTTP / Job / Event Consumer
 | access-control | 管理员 permission + scope 授权 | 用户登录、业务事实 |
 | commerce | 购买与退款的跨模块流程进度 | 商品、订单、支付或权益事实 |
 | deployment | 私有部署实例、签名许可证和升级兼容 | 云平台租户、用户激活码 |
-| sdk | 为桌面软件封装公开 API 与本地安全缓存 | 保存服务端密钥或自行授予权益 |
+| assembly | 蓝图、能力依赖、装配计划、交付清单、生成与升级协调 | 登录、支付、权益等业务事实 |
+| templates / generator | 版本化 UI/项目模板及受控源码生成 | 覆盖 custom 代码、决定业务权限 |
+| sdk | 为多端软件封装公开 API 与本地安全缓存 | 保存服务端密钥或自行授予权益 |
 
 ## 产品与代理租户隔离规则
 
 - Product 是平台主轴，Tenant 是 Product 内部的代理功能；禁止创建脱离 Product 的 Tenant。
 - Product Application 是 Product 内部的技术端和分发渠道，不是新 Product 或 Tenant；所有端共享产品权益，登录、支付、回跳和发布策略按 ApplicationContext 适配。
 - 每个产品创建时自动建立一个 `official` 租户；代理使用 `agent` 租户。
-- 公共能力集中实现，通过产品能力配置按软件启用，不向各软件复制后台代码。
+- 公共后端和统一管理后台集中实现，通过完整能力包装配按软件启用；用户前台组合、接入壳和适配源码可以按蓝图生成，但不得复制并分叉公共业务状态机。
 - 套餐、权益、设备绑定、订单、配置、文件与用量必须关联 `product_id + tenant_id`；产品版本本身只需 `product_id`。
 - `product_id` 必须来自服务端认证后的客户端身份或管理员上下文。
 - `tenant_id` 必须由服务端根据官方渠道、代理分发关系、激活码或已认证绑定解析。
@@ -126,15 +142,29 @@ HTTP / Job / Event Consumer
 - 生产发布必须执行数据库备份、迁移预检、冒烟测试和回滚准备。
 - 更新包必须记录 SHA-256；正式桌面软件需要代码签名。
 
-## 第一阶段范围
+## 第一条工程主链
 
-先实现 product、tenant、identity、entitlement、device、license、产品能力配置、管理后台基础框架、用户前台契约和一个客户端 SDK。AI Gateway、用量计费、订单和支付在上述核心上下文稳定后按独立闭环进入后续阶段。
+```text
+Product Blueprint
+-> 解析 available 能力包及依赖
+-> 选择目标端、UI Template 和交付形态
+-> Assembly Plan
+-> 创建 Product / official Tenant / Application / 测试凭据
+-> 启用共享后端和统一管理后台 Feature Block
+-> 生成用户前台组合、接入壳、配置和 lock
+-> 启动真实样板软件
+-> 运行账号 + 权益黄金链、隔离和旧产品回归
+```
 
-基础代理租户隔离从第一阶段进入数据模型；佣金、提现、白标域名、租户独立支付、优惠券和发票属于后续能力。
+第一条主链只完成 `package.account`、`package.entitlement` 和 Web/桌面标准 UI。Device/License、Commerce、AI、存储和运营能力随后按同一完整包标准逐个加入。基础代理租户隔离保留在数据模型，但代理经营界面不是第一条主链的中心。
+
+G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已提供只在实验目录可见的 `standard-a` 候选，仍缺浏览器视觉证据；G1-07.1、G1-08、G1-10 和 G1-11 分别负责受信工具、创建向导/软件管理工作区、lifecycle API 和可信扩展目录。Product Blueprint 至少选择一个真实能力包，原 G1-09 基础样板不再独立执行，第一次真实装配进入 G2C。
 
 ## 红线
 
 - 不因 AI 生成速度快而并行堆叠未定契约的模块。
+- 不把后台菜单、能力开关、模块占位、接口契约或演示页面当成可勾选能力包。
+- 不让生成器覆盖产品 custom 代码；不在缺少 Manifest 和 lock 时重新生成。
 - 不从旧项目复制单文件后端或旧数据库结构作为新核心。
 - 不允许客户端决定价格、支付状态、到期时间或管理员权限。
 - 不用 Redis 替代 PostgreSQL 保存最终业务事实。

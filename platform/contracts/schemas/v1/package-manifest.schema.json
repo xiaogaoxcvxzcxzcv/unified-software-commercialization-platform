@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/package-manifest.schema.json",
+  "title": "Complete Capability Package Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "package_id", "version", "name", "user_value",
+    "availability", "dependencies", "conflicts", "supported_targets",
+    "supported_delivery_modes", "required_permissions", "backend_capabilities",
+    "migrations", "events", "audit_actions", "admin_blocks", "client_blocks",
+    "hosted_routes", "ui_template_compatibility", "public_api_operations",
+    "sdk_modules", "sdk_methods", "stable_errors", "config_schema_path",
+    "secret_refs", "provider_requirements", "generated_outputs", "source_locations",
+    "extension_points", "test_paths", "smoke_tests", "documentation_paths",
+    "upgrade_policy", "rollback_policy", "data_retention", "content_files",
+    "content_tree_sha256", "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "package_id": { "$ref": "common.schema.json#/$defs/packageId" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "user_value": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "availability": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/availability" } },
+    "dependencies": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
+    "conflicts": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
+    "supported_targets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/target" } },
+    "supported_delivery_modes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/deliveryMode" } },
+    "required_permissions": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/permissionCode" } },
+    "backend_capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "migrations": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "events": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "audit_actions": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "admin_blocks": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/blockId" } },
+    "client_blocks": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/blockId" } },
+    "hosted_routes": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "ui_template_compatibility": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/templateRequirement" } },
+    "public_api_operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/operationId" } },
+    "sdk_modules": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "sdk_methods": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/operationId" } },
+    "stable_errors": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/errorCode" } },
+    "config_schema_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "secret_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/secretRef" } },
+    "provider_requirements": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "generated_outputs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/generatedOutput" } },
+    "source_locations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "extension_points": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "test_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "smoke_tests": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "documentation_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "upgrade_policy": { "$ref": "#/$defs/changePolicy" },
+    "rollback_policy": { "$ref": "#/$defs/changePolicy" },
+    "data_retention": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/dataRetention" } },
+    "content_files": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/contentFile" } },
+    "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "availability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "delivery_mode", "environments", "visibility", "readiness", "evidence_refs"],
+      "properties": {
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" },
+        "environments": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/environment" } },
+        "visibility": { "$ref": "common.schema.json#/$defs/catalogVisibility" },
+        "readiness": { "$ref": "common.schema.json#/$defs/packageReadiness" },
+        "evidence_refs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "visibility": { "const": "ordinary" } }, "required": ["visibility"] },
+          "then": { "properties": { "readiness": { "const": "available" } } }
+        },
+        {
+          "if": { "properties": { "visibility": { "const": "experimental" } }, "required": ["visibility"] },
+          "then": { "properties": { "readiness": { "const": "verified" } } }
+        }
+      ]
+    },
+    "generatedOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "ownership", "source_path", "source_sha256", "render_strategy", "content_type"],
+      "properties": {
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "ownership": { "type": "string", "enum": ["generated", "integration"] },
+        "source_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "source_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "render_strategy": { "$ref": "common.schema.json#/$defs/renderStrategy" },
+        "content_type": { "$ref": "common.schema.json#/$defs/contentType" },
+        "merge": { "$ref": "common.schema.json#/$defs/integrationMerge" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ownership": { "const": "integration" } }, "required": ["ownership"] },
+          "then": { "required": ["merge"], "properties": { "render_strategy": { "const": "generated_region" }, "content_type": { "const": "text" } } }
+        },
+        {
+          "if": { "properties": { "ownership": { "const": "generated" } }, "required": ["ownership"] },
+          "then": { "not": { "required": ["merge"] } }
+        },
+        {
+          "if": { "properties": { "content_type": { "const": "binary" } }, "required": ["content_type"] },
+          "then": { "properties": { "render_strategy": { "const": "copy" } } }
+        }
+      ]
+    },
+    "templateRequirement": {
+      "type": "object", "additionalProperties": false, "required": ["template_id", "version_range"],
+      "properties": { "template_id": { "$ref": "common.schema.json#/$defs/templateId" }, "version_range": { "$ref": "common.schema.json#/$defs/semverRange" } }
+    },
+    "changePolicy": {
+      "type": "object", "additionalProperties": false, "required": ["strategy", "guide_path"],
+      "properties": { "strategy": { "type": "string", "enum": ["automatic", "compatible", "migration_required", "compensating", "manual", "unsupported"] }, "guide_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" } }
+    },
+    "dataRetention": {
+      "type": "object", "additionalProperties": false, "required": ["data_set", "policy", "guide_path"],
+      "properties": { "data_set": { "$ref": "common.schema.json#/$defs/identifier" }, "policy": { "type": "string", "minLength": 1, "maxLength": 256 }, "guide_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" } }
+    }
+  }
+}

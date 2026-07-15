@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/product-blueprint.schema.json",
+  "title": "Product Blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "blueprint_id",
+    "version",
+    "product",
+    "packages",
+    "applications",
+    "provider_refs",
+    "extensions",
+    "generator",
+    "sdk",
+    "output_root"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "blueprint_id": { "$ref": "common.schema.json#/$defs/blueprintId" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "product": { "$ref": "#/$defs/product" },
+    "packages": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/packageSelection" }
+    },
+    "applications": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/applicationSelection" }
+    },
+    "provider_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/providerRef" }
+    },
+    "extensions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/extension" }
+    },
+    "generator": { "$ref": "#/$defs/versionedTool" },
+    "sdk": { "$ref": "#/$defs/versionedTool" },
+    "output_root": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+  },
+  "$defs": {
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "name"],
+      "properties": {
+        "code": { "$ref": "common.schema.json#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "brand_name": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "packageSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "version"],
+      "properties": {
+        "package_id": { "$ref": "common.schema.json#/$defs/packageId" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" }
+      }
+    },
+    "applicationSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application_id", "target", "channel", "environment", "ui", "output_path"],
+      "properties": {
+        "application_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "channel": { "$ref": "common.schema.json#/$defs/identifier" },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "test", "staging", "production"]
+        },
+        "ui": { "$ref": "#/$defs/uiSelection" },
+        "output_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+      }
+    },
+    "uiSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template_id", "version", "delivery_mode"],
+      "properties": {
+        "template_id": { "$ref": "common.schema.json#/$defs/templateId" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" }
+      }
+    },
+    "providerRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "environment", "config_ref", "secret_refs"],
+      "properties": {
+        "provider": { "$ref": "common.schema.json#/$defs/identifier" },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "test", "staging", "production"]
+        },
+        "config_ref": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "secret_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/secretRef" }
+        }
+      }
+    },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extension_id", "version", "manifest_path"],
+      "properties": {
+        "extension_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+      }
+    },
+    "versionedTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" }
+      }
+    }
+  }
+}

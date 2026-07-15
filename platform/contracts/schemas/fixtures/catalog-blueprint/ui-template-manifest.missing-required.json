@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "version": "1.0.0",
+  "name": "Standard Workbench",
+  "catalog": { "visibility": "ordinary", "readiness": "available" },
+  "supported_targets": ["web"],
+  "supported_delivery_modes": ["generated_source"],
+  "supported_blocks": ["auth.login"],
+  "package_compatibility": [
+    { "package_id": "package.account", "version_range": "^1.0.0" }
+  ],
+  "entrypoints": [
+    { "target": "web", "delivery_mode": "generated_source", "path": "src/generated/index.tsx" }
+  ],
+  "source_root": "platform/templates/web-react/standard-a",
+  "preview_assets": [],
+  "content_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

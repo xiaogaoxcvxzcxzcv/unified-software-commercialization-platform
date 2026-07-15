@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/assembly-plan.schema.json",
+  "title": "Assembly Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "blueprint_id", "blueprint_version", "environment", "catalog_snapshot", "packages", "applications", "extensions", "generator", "sdks", "capabilities", "dependencies", "conflicts", "risks", "providers", "required_providers", "required_secret_refs", "expected_outputs", "confirmation", "executable", "plan_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "plan_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "blueprint_id": { "$ref": "common.schema.json#/$defs/blueprintId" },
+    "blueprint_version": { "type": "integer", "minimum": 1 },
+    "environment": { "type": "string", "enum": ["development", "test", "staging", "production"] },
+    "catalog_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "checksum"],
+      "properties": {
+        "revision": { "$ref": "common.schema.json#/$defs/identifier" },
+        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "packages": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resolvedPackage" }
+    },
+    "applications": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resolvedApplication" }
+    },
+    "extensions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resolvedExtension" }
+    },
+    "generator": { "$ref": "#/$defs/resolvedGenerator" },
+    "sdks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resolvedSdk" }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resolvedCapability" }
+    },
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resolvedDependency" }
+    },
+    "conflicts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/conflict" }
+    },
+    "risks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/risk" }
+    },
+    "providers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resolvedProvider" }
+    },
+    "required_providers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/identifier" }
+    },
+    "required_secret_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/secretRef" }
+    },
+    "expected_outputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/expectedOutput" }
+    },
+    "confirmation": { "$ref": "#/$defs/confirmation" },
+    "executable": { "type": "boolean" },
+    "plan_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "resolvedPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "version", "checksum"],
+      "properties": {
+        "package_id": { "$ref": "common.schema.json#/$defs/packageId" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "resolvedApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application_id", "target", "channel", "environment", "delivery_mode", "output_path", "template"],
+      "properties": {
+        "application_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "channel": { "$ref": "common.schema.json#/$defs/identifier" },
+        "environment": { "type": "string", "enum": ["development", "test", "staging", "production"] },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" },
+        "output_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "template": { "$ref": "#/$defs/resolvedTemplate" }
+      }
+    },
+    "resolvedTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template_id", "version", "checksum"],
+      "properties": {
+        "template_id": { "$ref": "common.schema.json#/$defs/templateId" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "resolvedSdk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sdk_id", "version", "checksum"],
+      "properties": {
+        "sdk_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "resolvedGenerator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator_id", "version", "checksum"],
+      "properties": {
+        "generator_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "resolvedCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "enabled", "policy", "source_package_id", "source_package_version"],
+      "properties": {
+        "capability_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "enabled": { "type": "boolean" },
+        "policy": { "type": "object" },
+        "source_package_id": { "$ref": "common.schema.json#/$defs/packageId" },
+        "source_package_version": { "$ref": "common.schema.json#/$defs/semver" }
+      }
+    },
+    "resolvedProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "environment", "config_ref", "secret_refs"],
+      "properties": {
+        "provider": { "$ref": "common.schema.json#/$defs/identifier" },
+        "environment": { "type": "string", "enum": ["development", "test", "staging", "production"] },
+        "config_ref": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "secret_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/secretRef" } }
+      }
+    },
+    "expectedOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "ownership", "source_id", "source_version", "source_path", "source_sha256", "render_strategy", "content_type"],
+      "properties": {
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "ownership": { "type": "string", "enum": ["generated", "integration"] },
+        "source_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "source_version": { "$ref": "common.schema.json#/$defs/semver" },
+        "source_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "source_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "render_strategy": { "$ref": "common.schema.json#/$defs/renderStrategy" },
+        "content_type": { "$ref": "common.schema.json#/$defs/contentType" },
+        "merge": { "$ref": "common.schema.json#/$defs/integrationMerge" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ownership": { "const": "integration" } }, "required": ["ownership"] },
+          "then": { "required": ["merge"], "properties": { "render_strategy": { "const": "generated_region" }, "content_type": { "const": "text" } } }
+        },
+        {
+          "if": { "properties": { "ownership": { "const": "generated" } }, "required": ["ownership"] },
+          "then": { "not": { "required": ["merge"] } }
+        }
+      ]
+    },
+    "resolvedExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extension_id", "version", "manifest_path", "checksum"],
+      "properties": {
+        "extension_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "resolvedDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_by", "package_id", "version_range", "resolved_version", "reason"],
+      "properties": {
+        "required_by": { "$ref": "common.schema.json#/$defs/packageId" },
+        "package_id": { "$ref": "common.schema.json#/$defs/packageId" },
+        "version_range": { "$ref": "common.schema.json#/$defs/semverRange" },
+        "resolved_version": { "$ref": "common.schema.json#/$defs/semver" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflict_id", "type", "subjects", "blocking", "summary"],
+      "properties": {
+        "conflict_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "type": { "type": "string", "enum": ["package_version", "target", "template", "provider", "path_ownership", "checksum"] },
+        "subjects": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+        "blocking": { "type": "boolean" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_id", "level", "category", "summary", "requires_confirmation"],
+      "properties": {
+        "risk_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "level": { "type": "string", "enum": ["low", "medium", "high"] },
+        "category": { "type": "string", "enum": ["security", "data", "compatibility", "provider", "generation", "rollback"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "requires_confirmation": { "type": "boolean" }
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "blocking_conflict_count", "risk_count", "statements", "summary_checksum"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "blocking_conflict_count": { "type": "integer", "minimum": 0 },
+        "risk_count": { "type": "integer", "minimum": 0 },
+        "statements": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
+        "summary_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

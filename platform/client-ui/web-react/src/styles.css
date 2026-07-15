@@ -1,0 +1,41 @@
+.client-ui-root {
+  color: var(--client-text);
+  background: var(--client-canvas);
+  font-family: var(--client-font);
+  letter-spacing: 0;
+}
+
+.client-button {
+  min-height: 40px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--client-brand);
+  border-radius: var(--client-radius);
+  color: #ffffff;
+  background: var(--client-brand);
+  font: inherit;
+  cursor: pointer;
+}
+
+.client-button:disabled { cursor: not-allowed; opacity: .58; }
+.client-button:focus-visible, .client-field input:focus-visible { outline: 3px solid color-mix(in srgb, var(--client-focus) 32%, transparent); outline-offset: 2px; }
+
+.client-field { display: grid; gap: 6px; min-width: 0; }
+.client-field label { font-size: 14px; font-weight: 650; }
+.client-field input { min-height: 40px; min-width: 0; padding: 8px 10px; border: 1px solid var(--client-border); border-radius: var(--client-radius); color: var(--client-text); background: var(--client-surface); font: inherit; }
+.client-field input[aria-invalid="true"] { border-color: var(--client-danger); }
+.client-field [role="alert"] { color: var(--client-danger); font-size: 13px; overflow-wrap: anywhere; }
+
+.client-notice, .client-state { min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--client-border); border-radius: var(--client-radius); background: var(--client-surface); overflow-wrap: anywhere; }
+.client-notice-success { border-color: var(--client-success); color: var(--client-success); }
+.client-notice-danger { border-color: var(--client-danger); color: var(--client-danger); }
+
+.client-spinner { width: 16px; height: 16px; flex: 0 0 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: client-spin .75s linear infinite; }
+.client-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+@keyframes client-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .client-spinner { animation-duration: 1.5s; } }

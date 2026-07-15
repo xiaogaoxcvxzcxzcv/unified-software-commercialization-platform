@@ -1,0 +1,434 @@
+package httptransport
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"platform.local/capability-platform/backend/internal/platform/adminrequest"
+	"platform.local/capability-platform/backend/internal/platform/requestid"
+)
+
+const testChecksum = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+type serviceStub struct {
+	blueprint        Blueprint
+	blueprintErr     error
+	createBlueprint  CreateBlueprintCommand
+	getBlueprint     GetBlueprintCommand
+	createCalls      int
+	getCalls         int
+	plan             Plan
+	planErr          error
+	createPlan       CreatePlanCommand
+	getPlan          GetPlanCommand
+	createPlanCalls  int
+	getPlanCalls     int
+	run              Run
+	runErr           error
+	start            StartAssemblyCommand
+	getRun           GetRunCommand
+	startCalls       int
+	getRunCalls      int
+	manifest         Manifest
+	manifestErr      error
+	getManifest      GetManifestCommand
+	getManifestCalls int
+	lock             GeneratedProjectLock
+	lockErr          error
+	getLock          GetLockCommand
+	getLockCalls     int
+}
+
+func (s *serviceStub) CreateBlueprint(_ context.Context, command CreateBlueprintCommand) (Blueprint, error) {
+	s.createCalls++
+	s.createBlueprint = command
+	return s.blueprint, s.blueprintErr
+}
+
+func (s *serviceStub) GetBlueprint(_ context.Context, command GetBlueprintCommand) (Blueprint, error) {
+	s.getCalls++
+	s.getBlueprint = command
+	return s.blueprint, s.blueprintErr
+}
+
+func (s *serviceStub) CreatePlan(_ context.Context, command CreatePlanCommand) (Plan, error) {
+	s.createPlanCalls++
+	s.createPlan = command
+	return s.plan, s.planErr
+}
+
+func (s *serviceStub) GetPlan(_ context.Context, command GetPlanCommand) (Plan, error) {
+	s.getPlanCalls++
+	s.getPlan = command
+	return s.plan, s.planErr
+}
+
+func (s *serviceStub) StartAssembly(_ context.Context, command StartAssemblyCommand) (Run, error) {
+	s.startCalls++
+	s.start = command
+	return s.run, s.runErr
+}
+
+func (s *serviceStub) GetRun(_ context.Context, command GetRunCommand) (Run, error) {
+	s.getRunCalls++
+	s.getRun = command
+	return s.run, s.runErr
+}
+
+func (s *serviceStub) GetManifest(_ context.Context, command GetManifestCommand) (Manifest, error) {
+	s.getManifestCalls++
+	s.getManifest = command
+	return s.manifest, s.manifestErr
+}
+
+func (s *serviceStub) GetLock(_ context.Context, command GetLockCommand) (GeneratedProjectLock, error) {
+	s.getLockCalls++
+	s.getLock = command
+	return s.lock, s.lockErr
+}
+
+type authenticatorStub struct {
+	principal adminrequest.Principal
+	err       error
+	proof     bool
+	calls     int
+}
+
+func (s *authenticatorStub) Authenticate(_ context.Context, _ *http.Request, proof bool) (adminrequest.Principal, error) {
+	s.calls++
+	s.proof = proof
+	return s.principal, s.err
+}
+
+type authorizerStub struct {
+	decision   adminrequest.Decision
+	err        error
+	principal  adminrequest.Principal
+	permission string
+	target     adminrequest.TargetScope
+	calls      int
+}
+
+func (s *authorizerStub) Authorize(_ context.Context, principal adminrequest.Principal, permission string, target adminrequest.TargetScope) (adminrequest.Decision, error) {
+	s.calls++
+	s.principal = principal
+	s.permission = permission
+	s.target = target
+	return s.decision, s.err
+}
+
+func TestHandlerCreatesPreProductBlueprintInPlatformScope(t *testing.T) {
+	service := &serviceStub{blueprint: validBlueprintResult("bp-video")}
+	handler, auth, authorization := allowedHandler(service)
+	headers := writeHeaders("blueprint-create-0001")
+	body := `{"schema_version":"1.0.0","blueprint_id":"bp-video","version":"1.0.0","product":{"code":"video","name":"Video"},"packages":[],"applications":[],"provider_refs":[],"extensions":[],"generator":{"id":"platform.generator","version":"1.0.0"},"sdk":{"id":"platform.sdk","version":"1.0.0"},"output_root":"generated/video"}`
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints", body, headers)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	command := service.createBlueprint
+	if service.createCalls != 1 || command.ActorID != "admin-1" || command.TraceID != "request-assembly-0001" || command.IdempotencyKey != "blueprint-create-0001" || !json.Valid(command.Document) {
+		t.Fatalf("calls=%d command=%+v", service.createCalls, command)
+	}
+	if !auth.proof || authorization.permission != blueprintManagePermission || authorization.target.Type != "platform" || authorization.target.ProductID != "" {
+		t.Fatalf("proof=%v permission=%q target=%+v", auth.proof, authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerCreatesServerGeneratedPlanWithoutClientPlanDocument(t *testing.T) {
+	service := &serviceStub{plan: validPlanResult("plan-1", "bp-video")}
+	handler, _, authorization := allowedHandler(service)
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints/bp-video/plan", `{"blueprint_version":3,"environment":"test"}`, writeHeaders("assembly-plan-key-0001"))
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	command := service.createPlan
+	if service.createPlanCalls != 1 || command.BlueprintID != "bp-video" || command.BlueprintVersion != 3 || command.Environment != "test" || command.ActorID != "admin-1" || command.TraceID != "request-assembly-0001" {
+		t.Fatalf("calls=%d command=%+v", service.createPlanCalls, command)
+	}
+	if authorization.permission != assemblyPlanPermission || authorization.target.Type != "platform" {
+		t.Fatalf("permission=%q target=%+v", authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerStartsConfirmedAssemblyAsHighRisk(t *testing.T) {
+	service := &serviceStub{run: validRunResult("run-1", "plan-1")}
+	handler, auth, authorization := allowedHandler(service)
+	body := `{"plan_id":"plan-1","expected_plan_version":2,"plan_checksum":"` + testChecksum + `","confirmation":{"accepted":true,"summary_checksum":"` + testChecksum + `"},"output_target_ref":"workspace.video"}`
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints/bp-video/assemble", body, writeHeaders("assembly-start-key-0001"))
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"output_target_ref":"workspace.video"`) {
+		t.Fatalf("response does not expose locked output target: %s", recorder.Body.String())
+	}
+	command := service.start
+	if service.startCalls != 1 || command.BlueprintID != "bp-video" || command.PlanID != "plan-1" || command.ExpectedPlanVersion != 2 || command.PlanChecksum != testChecksum || command.ConfirmationChecksum != testChecksum || command.OutputTargetRef != "workspace.video" || command.ActorID != "admin-1" {
+		t.Fatalf("calls=%d command=%+v", service.startCalls, command)
+	}
+	if !auth.proof || authorization.permission != assemblyExecutePermission || authorization.target.Type != "platform" {
+		t.Fatalf("proof=%v permission=%q target=%+v", auth.proof, authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerRequiresReauthenticationForAssemblyExecution(t *testing.T) {
+	service := &serviceStub{}
+	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
+	authorization := &authorizerStub{decision: adminrequest.Decision{Allowed: true, ReauthenticationRequired: true}}
+	handler := New(service, adminrequest.New(auth, authorization, nil))
+	body := `{"plan_id":"plan-1","expected_plan_version":2,"plan_checksum":"` + testChecksum + `","confirmation":{"accepted":true,"summary_checksum":"` + testChecksum + `"},"output_target_ref":"workspace.video"}`
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints/bp-video/assemble", body, writeHeaders("assembly-start-key-0001"))
+	assertProblem(t, recorder, http.StatusForbidden, "admin_auth.reauthentication_required")
+	if service.startCalls != 0 || !auth.proof {
+		t.Fatalf("calls=%d proof=%v", service.startCalls, auth.proof)
+	}
+}
+
+func TestHandlerReadsBlueprintPlanRunManifestAndLockStatus(t *testing.T) {
+	service := &serviceStub{
+		blueprint: validBlueprintResult("bp-video"),
+		plan:      validPlanResult("plan-1", "bp-video"),
+		run:       validRunResult("run-1", "plan-1"),
+		manifest:  validManifestResult("assembly-1", "run-1"),
+		lock:      validLockResult("lock-1", "assembly-1", "run-1"),
+	}
+	handler, auth, authorization := allowedHandler(service)
+	for _, target := range []string{
+		"https://api.example.test/api/v1/admin/blueprints/bp-video",
+		"https://api.example.test/api/v1/admin/assembly-plans/plan-1",
+		"https://api.example.test/api/v1/admin/assembly-runs/run-1",
+		"https://api.example.test/api/v1/admin/assembly-manifests/assembly-1",
+		"https://api.example.test/api/v1/admin/generated-project-locks/lock-1",
+	} {
+		recorder := perform(handler, http.MethodGet, target, "", nil)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("target=%s status=%d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+	if service.getBlueprint.BlueprintID != "bp-video" || service.getPlan.PlanID != "plan-1" || service.getRun.RunID != "run-1" || service.getManifest.AssemblyID != "assembly-1" || service.getLock.LockID != "lock-1" {
+		t.Fatalf("blueprint=%+v plan=%+v run=%+v manifest=%+v lock=%+v", service.getBlueprint, service.getPlan, service.getRun, service.getManifest, service.getLock)
+	}
+	if auth.proof || authorization.permission != assemblyReadPermission || authorization.target.Type != "platform" {
+		t.Fatalf("proof=%v permission=%q target=%+v", auth.proof, authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerReturnsManifestAndLockRecoveryMetadata(t *testing.T) {
+	service := &serviceStub{
+		manifest: validManifestResult("assembly-1", "run-1"),
+		lock:     validLockResult("lock-1", "assembly-1", "run-1"),
+	}
+	handler, _, _ := allowedHandler(service)
+	tests := []struct {
+		target, idField, id string
+	}{
+		{"https://api.example.test/api/v1/admin/assembly-manifests/assembly-1", "assembly_id", "assembly-1"},
+		{"https://api.example.test/api/v1/admin/generated-project-locks/lock-1", "lock_id", "lock-1"},
+	}
+	for _, test := range tests {
+		recorder := perform(handler, http.MethodGet, test.target, "", nil)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("target=%s status=%d body=%s", test.target, recorder.Code, recorder.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body[test.idField] != test.id || body["product_id"] != "prod-video" || body["run_id"] != "run-1" || body["document_checksum"] != testChecksum || body["checksum"] != testChecksum || body["created_at"] == "" {
+			t.Fatalf("response=%v", body)
+		}
+		if _, ok := body["document"].(map[string]any); !ok {
+			t.Fatalf("document is not an object: %T", body["document"])
+		}
+	}
+}
+
+func TestHandlerRejectsClientPlanDocumentAndUnconfirmedExecution(t *testing.T) {
+	service := &serviceStub{plan: validPlanResult("plan-1", "bp-video"), run: validRunResult("run-1", "plan-1")}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints/bp-video/plan", `{"blueprint_version":1,"environment":"test","document":{"executable":true}}`, writeHeaders("assembly-plan-key-0001"))
+	assertProblem(t, recorder, http.StatusBadRequest, "assembly.invalid_request")
+	if service.createPlanCalls != 0 {
+		t.Fatal("client-supplied plan reached service")
+	}
+	body := `{"plan_id":"plan-1","expected_plan_version":2,"plan_checksum":"` + testChecksum + `","confirmation":{"accepted":false,"summary_checksum":"` + testChecksum + `"},"output_target_ref":"workspace.video"}`
+	recorder = perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints/bp-video/assemble", body, writeHeaders("assembly-start-key-0001"))
+	assertProblem(t, recorder, http.StatusBadRequest, "assembly.invalid_request")
+	if service.startCalls != 0 {
+		t.Fatal("unconfirmed execution reached service")
+	}
+}
+
+func TestHandlerRejectsQueriesNonCanonicalPathsAndMethodsBeforeAuthorization(t *testing.T) {
+	service := &serviceStub{}
+	handler, auth, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/blueprints/bp-video?version=1", "", nil)
+	assertProblem(t, recorder, http.StatusBadRequest, "assembly.invalid_query")
+	if auth.calls != 0 {
+		t.Fatal("invalid query reached authentication")
+	}
+	for _, target := range []string{
+		"https://api.example.test/api/v1/admin/blueprints/",
+		"https://api.example.test/api/v1/admin/blueprints/%62p-video",
+		"https://api.example.test/api/v1/admin/blueprints/bp-video/plan/",
+		"https://api.example.test/api/v1/admin/assembly-runs/run-1/other",
+		"https://api.example.test/api/v1/admin/assembly-manifests/assembly-1/other",
+		"https://api.example.test/api/v1/admin/generated-project-locks/%6cock-1",
+	} {
+		recorder = perform(handler, http.MethodGet, target, "", nil)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("target=%q status=%d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+	recorder = perform(handler, http.MethodDelete, "https://api.example.test/api/v1/admin/blueprints/bp-video", "", nil)
+	if recorder.Code != http.StatusMethodNotAllowed || recorder.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("status=%d allow=%q", recorder.Code, recorder.Header().Get("Allow"))
+	}
+}
+
+func TestHandlerEnforcesStrictJSONMediaTypeSizeAndIdempotency(t *testing.T) {
+	service := &serviceStub{}
+	handler, _, _ := allowedHandler(service)
+	tests := []struct {
+		name    string
+		body    string
+		headers http.Header
+		status  int
+		code    string
+	}{
+		{name: "missing media type", body: `{}`, headers: http.Header{"Idempotency-Key": []string{"blueprint-create-0001"}}, status: http.StatusUnsupportedMediaType, code: "assembly.unsupported_media_type"},
+		{name: "two values", body: `{}` + ` {}`, headers: writeHeaders("blueprint-create-0001"), status: http.StatusBadRequest, code: "assembly.invalid_request"},
+		{name: "non object blueprint", body: `[]`, headers: writeHeaders("blueprint-create-0001"), status: http.StatusBadRequest, code: "assembly.invalid_request"},
+		{name: "too large", body: `{"value":"` + strings.Repeat("x", maxRequestBody) + `"}`, headers: writeHeaders("blueprint-create-0001"), status: http.StatusRequestEntityTooLarge, code: "assembly.request_too_large"},
+		{name: "missing idempotency", body: `{}`, headers: http.Header{"Content-Type": []string{"application/json"}}, status: http.StatusBadRequest, code: "assembly.invalid_idempotency_key"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints", test.body, test.headers)
+			assertProblem(t, recorder, test.status, test.code)
+		})
+	}
+}
+
+func TestHandlerRejectsMismatchedServiceResults(t *testing.T) {
+	service := &serviceStub{blueprint: validBlueprintResult("bp-other")}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/blueprints/bp-video", "", nil)
+	assertProblem(t, recorder, http.StatusInternalServerError, "internal_error")
+}
+
+func TestHandlerRejectsMismatchedManifestAndLockResults(t *testing.T) {
+	service := &serviceStub{
+		manifest: validManifestResult("assembly-other", "run-1"),
+		lock:     validLockResult("lock-other", "assembly-1", "run-1"),
+	}
+	handler, _, _ := allowedHandler(service)
+	for _, target := range []string{
+		"https://api.example.test/api/v1/admin/assembly-manifests/assembly-1",
+		"https://api.example.test/api/v1/admin/generated-project-locks/lock-1",
+	} {
+		recorder := perform(handler, http.MethodGet, target, "", nil)
+		assertProblem(t, recorder, http.StatusInternalServerError, "internal_error")
+	}
+}
+
+func TestHandlerMapsStableAssemblyErrors(t *testing.T) {
+	tests := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{ErrInvalidCommand, http.StatusBadRequest, "assembly.invalid_request"},
+		{ErrDocumentInvalid, http.StatusBadRequest, "assembly.invalid_request"},
+		{ErrNotFound, http.StatusNotFound, "assembly.not_found"},
+		{ErrConflict, http.StatusConflict, "assembly.conflict"},
+		{ErrVersionConflict, http.StatusConflict, "assembly.version_conflict"},
+		{ErrIdempotencyConflict, http.StatusConflict, "assembly.idempotency_conflict"},
+		{ErrOperationInProgress, http.StatusConflict, "assembly.operation_in_progress"},
+		{ErrPlanUnavailable, http.StatusServiceUnavailable, "assembly.planner_unavailable"},
+		{ErrPlanNotExecutable, http.StatusUnprocessableEntity, "assembly.plan_not_executable"},
+		{ErrPlanNotConfirmed, http.StatusUnprocessableEntity, "assembly.plan_not_confirmed"},
+		{errors.New("database unavailable"), http.StatusInternalServerError, "internal_error"},
+	}
+	for _, test := range tests {
+		service := &serviceStub{blueprintErr: test.err}
+		handler, _, _ := allowedHandler(service)
+		recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/blueprints/bp-video", "", nil)
+		assertProblem(t, recorder, test.status, test.code)
+	}
+}
+
+func allowedHandler(service *serviceStub) (*Handler, *authenticatorStub, *authorizerStub) {
+	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
+	authorization := &authorizerStub{decision: adminrequest.Decision{Allowed: true}}
+	return New(service, adminrequest.New(auth, authorization, nil)), auth, authorization
+}
+
+func validBlueprintResult(id string) Blueprint {
+	now := time.Date(2026, 7, 13, 20, 0, 0, 0, time.UTC)
+	return Blueprint{BlueprintID: id, Version: 1, SchemaVersion: "1.0.0", Document: json.RawMessage(`{"schema_version":"1.0.0"}`), Checksum: testChecksum, CreatedAt: now, UpdatedAt: now, AuditID: "audit-blueprint"}
+}
+
+func validPlanResult(id, blueprintID string) Plan {
+	now := time.Date(2026, 7, 13, 20, 1, 0, 0, time.UTC)
+	return Plan{PlanID: id, Version: 1, BlueprintID: blueprintID, BlueprintVersion: 1, SchemaVersion: "1.0.0", Environment: "test", Document: json.RawMessage(`{"schema_version":"1.0.0","applications":[]}`), Checksum: testChecksum, Executable: true, CreatedAt: now, UpdatedAt: now, AuditID: "audit-plan"}
+}
+
+func validRunResult(id, planID string) Run {
+	now := time.Date(2026, 7, 13, 20, 2, 0, 0, time.UTC)
+	return Run{RunID: id, PlanID: planID, PlanVersion: 2, PlanChecksum: testChecksum, OutputTargetRef: "workspace.video", Status: "planned", Document: json.RawMessage(`{"schema_version":"1.0.0","status":"planned"}`), CreatedAt: now, UpdatedAt: now, AuditID: "audit-run"}
+}
+
+func validManifestResult(id, runID string) Manifest {
+	now := time.Date(2026, 7, 14, 0, 10, 0, 0, time.UTC)
+	return Manifest{AssemblyID: id, ProductID: "prod-video", RunID: runID, SchemaVersion: "1.0.0",
+		Document:         json.RawMessage(`{"schema_version":"1.0.0","assembly_id":"assembly-1"}`),
+		DocumentChecksum: testChecksum, Checksum: testChecksum, CreatedAt: now}
+}
+
+func validLockResult(id, assemblyID, runID string) GeneratedProjectLock {
+	now := time.Date(2026, 7, 14, 0, 11, 0, 0, time.UTC)
+	return GeneratedProjectLock{LockID: id, ProductID: "prod-video", RunID: runID, AssemblyID: assemblyID,
+		SchemaVersion: "1.0.0", Document: json.RawMessage(`{"schema_version":"1.0.0","lock_id":"lock-1"}`),
+		DocumentChecksum: testChecksum, Checksum: testChecksum, CreatedAt: now}
+}
+
+func writeHeaders(idempotencyKey string) http.Header {
+	return http.Header{
+		"Content-Type":    []string{"application/json"},
+		"Idempotency-Key": []string{idempotencyKey},
+		requestid.Header:  []string{"request-assembly-0001"},
+	}
+}
+
+func perform(handler http.Handler, method, target, body string, headers http.Header) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	for name, values := range headers {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
+	}
+	recorder := httptest.NewRecorder()
+	requestid.Middleware(handler).ServeHTTP(recorder, request)
+	return recorder
+}
+
+func assertProblem(t *testing.T, recorder *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	if recorder.Code != status {
+		t.Fatalf("status=%d want=%d body=%s", recorder.Code, status, recorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != code || body["request_id"] == "" {
+		t.Fatalf("problem=%v", body)
+	}
+}

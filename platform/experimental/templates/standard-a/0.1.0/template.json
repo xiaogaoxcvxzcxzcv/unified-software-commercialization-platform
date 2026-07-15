@@ -1,0 +1,354 @@
+{
+  "availability": [
+    {
+      "delivery_mode": "generated_source",
+      "environments": [
+        "test"
+      ],
+      "evidence_refs": [
+        "artifacts/reviews/G1-07/standard-a-template.md"
+      ],
+      "readiness": "verified",
+      "target": "web",
+      "visibility": "experimental"
+    },
+    {
+      "delivery_mode": "generated_source",
+      "environments": [
+        "test"
+      ],
+      "evidence_refs": [
+        "artifacts/reviews/G1-07/standard-a-template.md"
+      ],
+      "readiness": "verified",
+      "target": "desktop_webview",
+      "visibility": "experimental"
+    }
+  ],
+  "content_files": [
+    {
+      "path": "README.md",
+      "sha256": "sha256:a61bd3156feec9f8dbe1c8fb10fcbeab2c2bb5bfc7d02818a26f110ba46d3591",
+      "kind": "file"
+    },
+    {
+      "path": "template/index.html",
+      "sha256": "sha256:97407b78ccca18c66918e4e5ba2b745c420da7c7f008e1d0398db658e09a9a29",
+      "kind": "file"
+    },
+    {
+      "path": "template/package.json",
+      "sha256": "sha256:e4737fae44c1c3aa1bcb63ac2d4ecfef299104f66a8d27b0fad7ae7daf3a039a",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/custom/routes/workbench.test.tsx",
+      "sha256": "sha256:8ad1cbaecd2ef2f82ca5b862a0152d52c0a71ea0b98e1fadb70642c158518786",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/custom/routes/workbench.tsx",
+      "sha256": "sha256:91e32369f6a774b8de408891bb8ce173e615a3eed463f2f568a10e099ea4685e",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/custom/workbench.css",
+      "sha256": "sha256:a6c93dad779992b7313c73de6fc608ab4c006efcc77337f4b4602ffa88eb93e3",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/generated/AppShell.test.tsx",
+      "sha256": "sha256:70fef7472c7fe2bef6c667c2d8c8f6d74d93f338fd40d442474767cc824ec290",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/generated/AppShell.tsx",
+      "sha256": "sha256:712195493bf9c5c7a7f767d85d37a64e6e7e80a8de3925a3a4983db6ba88ba20",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/generated/tabler-icons.d.ts",
+      "sha256": "sha256:c9133bc12313bbef89cda79cf40413d0b371c6563624a5dc3c89e947a021072f",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/generated/theme.css",
+      "sha256": "sha256:7cf400ca655ef953aff93efd6e7e80a9fcbdcf4772ffc2fa1b0e0df3c9818cb2",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/integration/routes.tsx",
+      "sha256": "sha256:4654546860d8179dbd1869b737d8077ca3eaf485932db590a0b71efcedac466b",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/main.tsx",
+      "sha256": "sha256:51c266644aa3a6a38127f41d8b53dc071c85abf8ca9a7021bbc0cb68025d8f04",
+      "kind": "file"
+    },
+    {
+      "path": "template/src/test/setup.ts",
+      "sha256": "sha256:f6dacd0c48caa5c15c870a23f157a9801eea0c792f9c6e4d9a29374fa10b3e39",
+      "kind": "file"
+    },
+    {
+      "path": "template/tsconfig.json",
+      "sha256": "sha256:4021f967b068f05fbdcf80d057b021919e8348d34f571bbeb80e727adba821c6",
+      "kind": "file"
+    },
+    {
+      "path": "template/vite.config.ts",
+      "sha256": "sha256:d2cc4838fb60494635c29fb7f064bb36d5478a89799a1d74409596af8992c23c",
+      "kind": "file"
+    }
+  ],
+  "content_tree_sha256": "sha256:3f446c9faaeaa97d66e7b63adb28a692956f9a0ac735f8ec26bf07200fd1863b",
+  "entrypoints": [
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "index.html",
+      "render_strategy": "copy",
+      "source_path": "template/index.html",
+      "source_sha256": "sha256:97407b78ccca18c66918e4e5ba2b745c420da7c7f008e1d0398db658e09a9a29",
+      "target": "web"
+    },
+    {
+      "content_type": "json",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "package.json",
+      "render_strategy": "copy",
+      "source_path": "template/package.json",
+      "source_sha256": "sha256:e4737fae44c1c3aa1bcb63ac2d4ecfef299104f66a8d27b0fad7ae7daf3a039a",
+      "target": "web"
+    },
+    {
+      "content_type": "json",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "tsconfig.json",
+      "render_strategy": "copy",
+      "source_path": "template/tsconfig.json",
+      "source_sha256": "sha256:4021f967b068f05fbdcf80d057b021919e8348d34f571bbeb80e727adba821c6",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "vite.config.ts",
+      "render_strategy": "copy",
+      "source_path": "template/vite.config.ts",
+      "source_sha256": "sha256:d2cc4838fb60494635c29fb7f064bb36d5478a89799a1d74409596af8992c23c",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/main.tsx",
+      "render_strategy": "strict_template",
+      "source_path": "template/src/main.tsx",
+      "source_sha256": "sha256:51c266644aa3a6a38127f41d8b53dc071c85abf8ca9a7021bbc0cb68025d8f04",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/AppShell.tsx",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/AppShell.tsx",
+      "source_sha256": "sha256:712195493bf9c5c7a7f767d85d37a64e6e7e80a8de3925a3a4983db6ba88ba20",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/tabler-icons.d.ts",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/tabler-icons.d.ts",
+      "source_sha256": "sha256:c9133bc12313bbef89cda79cf40413d0b371c6563624a5dc3c89e947a021072f",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/theme.css",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/theme.css",
+      "source_sha256": "sha256:7cf400ca655ef953aff93efd6e7e80a9fcbdcf4772ffc2fa1b0e0df3c9818cb2",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "merge": {
+        "comment_prefix": "//",
+        "region_id": "standard-a.routes",
+        "strategy": "generated_region_v1"
+      },
+      "ownership": "integration",
+      "path": "src/integration/routes.tsx",
+      "render_strategy": "generated_region",
+      "source_path": "template/src/integration/routes.tsx",
+      "source_sha256": "sha256:4654546860d8179dbd1869b737d8077ca3eaf485932db590a0b71efcedac466b",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/test/setup.ts",
+      "render_strategy": "copy",
+      "source_path": "template/src/test/setup.ts",
+      "source_sha256": "sha256:f6dacd0c48caa5c15c870a23f157a9801eea0c792f9c6e4d9a29374fa10b3e39",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/AppShell.test.tsx",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/AppShell.test.tsx",
+      "source_sha256": "sha256:70fef7472c7fe2bef6c667c2d8c8f6d74d93f338fd40d442474767cc824ec290",
+      "target": "web"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "index.html",
+      "render_strategy": "copy",
+      "source_path": "template/index.html",
+      "source_sha256": "sha256:97407b78ccca18c66918e4e5ba2b745c420da7c7f008e1d0398db658e09a9a29",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "json",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "package.json",
+      "render_strategy": "copy",
+      "source_path": "template/package.json",
+      "source_sha256": "sha256:e4737fae44c1c3aa1bcb63ac2d4ecfef299104f66a8d27b0fad7ae7daf3a039a",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "json",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "tsconfig.json",
+      "render_strategy": "copy",
+      "source_path": "template/tsconfig.json",
+      "source_sha256": "sha256:4021f967b068f05fbdcf80d057b021919e8348d34f571bbeb80e727adba821c6",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "vite.config.ts",
+      "render_strategy": "copy",
+      "source_path": "template/vite.config.ts",
+      "source_sha256": "sha256:d2cc4838fb60494635c29fb7f064bb36d5478a89799a1d74409596af8992c23c",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/main.tsx",
+      "render_strategy": "strict_template",
+      "source_path": "template/src/main.tsx",
+      "source_sha256": "sha256:51c266644aa3a6a38127f41d8b53dc071c85abf8ca9a7021bbc0cb68025d8f04",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/AppShell.tsx",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/AppShell.tsx",
+      "source_sha256": "sha256:712195493bf9c5c7a7f767d85d37a64e6e7e80a8de3925a3a4983db6ba88ba20",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/tabler-icons.d.ts",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/tabler-icons.d.ts",
+      "source_sha256": "sha256:c9133bc12313bbef89cda79cf40413d0b371c6563624a5dc3c89e947a021072f",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/theme.css",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/theme.css",
+      "source_sha256": "sha256:7cf400ca655ef953aff93efd6e7e80a9fcbdcf4772ffc2fa1b0e0df3c9818cb2",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "merge": {
+        "comment_prefix": "//",
+        "region_id": "standard-a.routes",
+        "strategy": "generated_region_v1"
+      },
+      "ownership": "integration",
+      "path": "src/integration/routes.tsx",
+      "render_strategy": "generated_region",
+      "source_path": "template/src/integration/routes.tsx",
+      "source_sha256": "sha256:4654546860d8179dbd1869b737d8077ca3eaf485932db590a0b71efcedac466b",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/test/setup.ts",
+      "render_strategy": "copy",
+      "source_path": "template/src/test/setup.ts",
+      "source_sha256": "sha256:f6dacd0c48caa5c15c870a23f157a9801eea0c792f9c6e4d9a29374fa10b3e39",
+      "target": "desktop_webview"
+    },
+    {
+      "content_type": "text",
+      "delivery_mode": "generated_source",
+      "ownership": "generated",
+      "path": "src/generated/AppShell.test.tsx",
+      "render_strategy": "copy",
+      "source_path": "template/src/generated/AppShell.test.tsx",
+      "source_sha256": "sha256:70fef7472c7fe2bef6c667c2d8c8f6d74d93f338fd40d442474767cc824ec290",
+      "target": "desktop_webview"
+    }
+  ],
+  "manifest_sha256": "sha256:c4fadbdc3f32c33de3a906be25707cfa8b17d955d959f71d5b03c697c6e2f518",
+  "name": "Standard A Workbench Shell",
+  "package_compatibility": [],
+  "preview_assets": [],
+  "schema_version": "1.0.0",
+  "source_root": "template",
+  "supported_blocks": [],
+  "supported_delivery_modes": [
+    "generated_source"
+  ],
+  "supported_targets": [
+    "web",
+    "desktop_webview"
+  ],
+  "template_id": "standard-a",
+  "version": "0.1.0"
+}

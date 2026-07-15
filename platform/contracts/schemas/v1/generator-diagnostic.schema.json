@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/generator-diagnostic.schema.json",
+  "title": "Generator Diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "diagnostic_id", "request_id", "severity", "category", "code", "message", "blocking", "retryable", "related_paths", "remediation"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "diagnostic_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+    "category": { "type": "string", "enum": ["path", "conflict", "template", "schema", "checksum", "ownership", "io", "security"] },
+    "code": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Z][A-Z0-9_]+$" },
+    "message": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "blocking": { "type": "boolean" },
+    "retryable": { "type": "boolean" },
+    "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+    "related_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "expected_ownership": { "type": "string", "enum": ["generated", "integration", "custom", "forked"] },
+    "actual_ownership": { "type": "string", "enum": ["generated", "integration", "custom", "forked"] },
+    "expected_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "actual_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "remediation": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+  }
+}

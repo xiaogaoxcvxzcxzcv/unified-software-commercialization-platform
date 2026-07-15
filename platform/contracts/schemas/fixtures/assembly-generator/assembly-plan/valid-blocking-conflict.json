@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "plan_id": "plan.conflict",
+  "blueprint_id": "bp_demo-product",
+  "blueprint_version": 2,
+  "environment": "test",
+  "catalog_snapshot": { "revision": "catalog-abcdef123456", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "packages": [{ "package_id": "package.account", "version": "1.0.0", "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+  "applications": [{ "application_id": "demo-product.web", "target": "web", "channel": "official", "environment": "test", "delivery_mode": "generated_source", "output_path": "apps/web", "template": { "template_id": "standard-web", "version": "1.0.0", "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } }],
+  "extensions": [],
+  "generator": { "generator_id": "platform.generator", "version": "1.0.0", "checksum": "sha256:1212121212121212121212121212121212121212121212121212121212121212" },
+  "sdks": [],
+  "capabilities": [{ "capability_id": "identity.user-session", "enabled": true, "policy": {}, "source_package_id": "package.account", "source_package_version": "1.0.0" }],
+  "dependencies": [],
+  "conflicts": [{ "conflict_id": "conflict.path", "type": "path_ownership", "subjects": ["extension.editor"], "blocking": true, "summary": "A requested generated output is owned by custom code." }],
+  "risks": [], "providers": [], "required_providers": [], "required_secret_refs": [],
+  "expected_outputs": [{ "path": "src/generated/account.ts", "ownership": "generated", "source_id": "package.account", "source_version": "1.0.0", "source_path": "content/account.ts.tmpl", "source_sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "render_strategy": "strict_template", "content_type": "text" }],
+  "confirmation": { "required": true, "blocking_conflict_count": 1, "risk_count": 0, "statements": ["Resolve the custom ownership conflict before execution."], "summary_checksum": "sha256:1ad37cc8f4e9a563b4282fb82fa30eb68ebae2c4adee6992da1ef8b59a09fa3d" },
+  "executable": false,
+  "plan_checksum": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}
