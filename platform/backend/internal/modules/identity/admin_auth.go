@@ -134,15 +134,15 @@ func (s *Service) CurrentAdminSession(ctx context.Context, accessToken string) (
 	}
 	snapshot, err := s.access.ResolveAdminAccessSnapshot(ctx, stored.UserID, stored.SessionID)
 	if err != nil {
-		return AdminSession{}, ErrSessionRevoked
+		if errors.Is(err, accesscontrol.ErrNoActiveScope) {
+			return AdminSession{}, ErrSessionRevoked
+		}
+		return AdminSession{}, err
 	}
 	_ = s.repository.TouchSession(ctx, stored.SessionID, now)
 	csrf := ""
 	if stored.Transport == TransportCookie {
 		csrf = s.csrfTokenFor(stored.SessionID, stored.SessionVersion)
-		if err := s.repository.RotateCSRF(ctx, stored.SessionID, s.hasher.Digest(csrf), now); err != nil {
-			return AdminSession{}, err
-		}
 	}
 	return buildAdminSession(stored, snapshot, csrf, "", ""), nil
 }
@@ -166,7 +166,10 @@ func (s *Service) CurrentAdminSessionWithCSRF(ctx context.Context, accessToken, 
 	}
 	snapshot, err := s.access.ResolveAdminAccessSnapshot(ctx, stored.UserID, stored.SessionID)
 	if err != nil {
-		return AdminSession{}, ErrSessionRevoked
+		if errors.Is(err, accesscontrol.ErrNoActiveScope) {
+			return AdminSession{}, ErrSessionRevoked
+		}
+		return AdminSession{}, err
 	}
 	_ = s.repository.TouchSession(ctx, stored.SessionID, now)
 	return buildAdminSession(stored, snapshot, csrfToken, "", ""), nil
@@ -196,6 +199,41 @@ func (s *Service) RefreshAdminSessionWithClient(ctx context.Context, command Ref
 		}
 		binding = &ControlledClientBinding{ClientID: controlledClient.ClientID, CredentialID: controlledClient.CredentialID}
 	}
+	refreshDigest := s.hasher.Digest(command.RefreshToken)
+	inspection, err := s.repository.InspectRefresh(ctx, refreshDigest, transport, binding, now)
+	if err != nil {
+		return AdminSession{}, err
+	}
+	eventSummary := map[string]any{"transport": transport}
+	if binding != nil {
+		eventSummary["controlled_client_ref"] = s.hasher.DigestHex(binding.ClientID)
+	}
+	refreshEvent, err := s.securityEvent("admin.auth.session_refreshed", "system", s.hasher.DigestHex(command.RefreshToken), "success", "", command.TraceID, "normal", now, eventSummary)
+	if err != nil {
+		return AdminSession{}, err
+	}
+	if inspection.Replayed {
+		_, replayErr := s.repository.RotateRefresh(ctx, refreshDigest, transport, binding, Rotation{Now: now, OutboxEvent: refreshEvent})
+		if replayErr != nil && !errors.Is(replayErr, ErrRefreshReplayed) {
+			return AdminSession{}, replayErr
+		}
+		return AdminSession{}, ErrRefreshReplayed
+	}
+	snapshot, err := s.access.ResolveAdminAccessSnapshot(ctx, inspection.Session.UserID, inspection.Session.SessionID)
+	if err != nil {
+		if !errors.Is(err, accesscontrol.ErrNoActiveScope) {
+			return AdminSession{}, err
+		}
+		revokedEvent, eventErr := s.securityEvent("admin.auth.session_revoked", inspection.Session.UserID, s.hasher.DigestHex(inspection.Session.SessionID), "success", "no_active_admin_scope", command.TraceID, "high", now, nil)
+		if eventErr != nil {
+			return AdminSession{}, eventErr
+		}
+		expectation := TokenExpectation{Transport: transport, TokenType: "refresh"}
+		if revokeErr := s.repository.RevokeByToken(ctx, refreshDigest, expectation, now, RevokeReasonNoAdminScope, revokedEvent); revokeErr != nil {
+			return AdminSession{}, revokeErr
+		}
+		return AdminSession{}, ErrSessionRevoked
+	}
 	accessID, err := s.secrets.ID("atok_")
 	if err != nil {
 		return AdminSession{}, err
@@ -215,47 +253,65 @@ func (s *Service) RefreshAdminSessionWithClient(ctx context.Context, command Ref
 	csrfToken := ""
 	var csrfDigest []byte
 	if transport == TransportCookie {
-		csrfToken, err = s.secrets.Token("csrf_")
-		if err != nil {
-			return AdminSession{}, err
-		}
+		csrfToken = s.csrfTokenFor(inspection.Session.SessionID, inspection.Session.SessionVersion+1)
 		csrfDigest = s.hasher.Digest(csrfToken)
 	}
 	accessExpires, refreshExpires := now.Add(s.policy.AccessTTL), now.Add(s.policy.RefreshTTL)
-	eventSummary := map[string]any{"transport": transport}
-	if binding != nil {
-		eventSummary["controlled_client_ref"] = s.hasher.DigestHex(binding.ClientID)
-	}
-	event, err := s.securityEvent("admin.auth.session_refreshed", "system", s.hasher.DigestHex(command.RefreshToken), "success", "", command.TraceID, "normal", now, eventSummary)
+	rotation := Rotation{AccessToken: TokenRecord{TokenID: accessID, TokenType: "access", Digest: s.hasher.Digest(accessToken), ExpiresAt: accessExpires}, RefreshToken: TokenRecord{TokenID: refreshID, TokenType: "refresh", Digest: s.hasher.Digest(newRefresh), ExpiresAt: refreshExpires}, CSRFDigest: csrfDigest, AccessExpires: accessExpires, RefreshExpires: refreshExpires, Now: now, OutboxEvent: refreshEvent}
+	stored, err := s.repository.RotateRefresh(ctx, refreshDigest, transport, binding, rotation)
 	if err != nil {
 		return AdminSession{}, err
 	}
-	rotation := Rotation{AccessToken: TokenRecord{TokenID: accessID, TokenType: "access", Digest: s.hasher.Digest(accessToken), ExpiresAt: accessExpires}, RefreshToken: TokenRecord{TokenID: refreshID, TokenType: "refresh", Digest: s.hasher.Digest(newRefresh), ExpiresAt: refreshExpires}, CSRFDigest: csrfDigest, AccessExpires: accessExpires, RefreshExpires: refreshExpires, Now: now, OutboxEvent: event}
-	stored, err := s.repository.RotateRefresh(ctx, s.hasher.Digest(command.RefreshToken), transport, binding, rotation)
-	if err != nil {
-		return AdminSession{}, err
-	}
-	snapshot, err := s.access.ResolveAdminAccessSnapshot(ctx, stored.UserID, stored.SessionID)
-	if err != nil {
-		return AdminSession{}, ErrSessionRevoked
+	if stored.SessionID != inspection.Session.SessionID || stored.UserID != inspection.Session.UserID {
+		return AdminSession{}, fmt.Errorf("refresh session identity changed during rotation")
 	}
 	return buildAdminSession(stored, snapshot, csrfToken, accessToken, newRefresh), nil
 }
 
-func (s *Service) LogoutAdmin(ctx context.Context, token, csrfToken, traceID string, cookieAccess bool) error {
+func (s *Service) LogoutAdmin(ctx context.Context, command LogoutCommand) error {
 	now := s.now().UTC()
-	digest := s.hasher.Digest(token)
-	if cookieAccess {
-		stored, err := s.repository.FindByAccessDigest(ctx, digest, now)
-		if err == nil && !hmac.Equal(stored.CSRFDigest, s.hasher.Digest(csrfToken)) {
-			return ErrCSRFFailed
-		}
+	transport := command.Transport
+	if transport == "" {
+		transport = TransportCookie
 	}
-	event, err := s.securityEvent("admin.auth.session_revoked", "system", s.hasher.DigestHex(token), "success", "logout", traceID, "normal", now, nil)
+	if transport == TransportBearer {
+		if command.AccessToken == "" {
+			return ErrSessionExpired
+		}
+		digest := s.hasher.Digest(command.AccessToken)
+		event, err := s.securityEvent("admin.auth.session_revoked", "system", s.hasher.DigestHex(command.AccessToken), "success", "logout", command.TraceID, "normal", now, nil)
+		if err != nil {
+			return err
+		}
+		expectation := TokenExpectation{Transport: TransportBearer, TokenType: "access"}
+		return s.repository.RevokeByToken(ctx, digest, expectation, now, RevokeReasonLogout, event)
+	}
+	if transport != TransportCookie {
+		return ErrSessionRevoked
+	}
+	if command.AccessToken == "" && command.RefreshToken == "" {
+		return nil
+	}
+
+	targetMaterial := command.AccessToken
+	if targetMaterial == "" {
+		targetMaterial = command.RefreshToken
+	}
+	event, err := s.securityEvent("admin.auth.session_revoked", "system", s.hasher.DigestHex(targetMaterial), "success", "logout", command.TraceID, "normal", now, nil)
 	if err != nil {
 		return err
 	}
-	return s.repository.RevokeByToken(ctx, digest, now, event)
+	proof := CookieLogoutProof{}
+	if command.AccessToken != "" {
+		proof.AccessDigest = s.hasher.Digest(command.AccessToken)
+	}
+	if command.RefreshToken != "" {
+		proof.RefreshDigest = s.hasher.Digest(command.RefreshToken)
+	}
+	if command.CSRFToken != "" {
+		proof.CSRFDigest = s.hasher.Digest(command.CSRFToken)
+	}
+	return s.repository.RevokeCookieSession(ctx, proof, now, event)
 }
 
 func (s *Service) BootstrapAdminIdentity(ctx context.Context, identifier, displayName string, password []byte) (string, error) {
@@ -340,7 +396,7 @@ func generateSessionSecrets(generator securevalue.Generator, transport Transport
 }
 
 func buildAdminSession(stored StoredSession, snapshot accesscontrol.Snapshot, csrf, access, refresh string) AdminSession {
-	result := AdminSession{SessionID: stored.SessionID, Transport: stored.Transport, Admin: AdminIdentitySummary{AdminUserID: stored.UserID, DisplayName: stored.DisplayName, AccountStatus: stored.AccountStatus, AuthTime: stored.AuthTime, AuthenticationMethod: stored.AuthenticationMethod}, Authorization: snapshot, AccessExpiresAt: stored.AccessExpiresAt, RefreshExpiresAt: stored.RefreshExpiresAt}
+	result := AdminSession{SessionID: stored.SessionID, SessionVersion: stored.SessionVersion, Transport: stored.Transport, Admin: AdminIdentitySummary{AdminUserID: stored.UserID, DisplayName: stored.DisplayName, AccountStatus: stored.AccountStatus, AuthTime: stored.AuthTime, AuthenticationMethod: stored.AuthenticationMethod}, Authorization: snapshot, AccessExpiresAt: stored.AccessExpiresAt, RefreshExpiresAt: stored.RefreshExpiresAt}
 	if stored.ControlledClientID != "" {
 		clientID := stored.ControlledClientID
 		result.ControlledClientID = &clientID

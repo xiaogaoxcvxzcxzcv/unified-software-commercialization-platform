@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -29,13 +30,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: bootstrap-admin --identifier <value> --display-name <value> --password-stdin")
 		os.Exit(2)
 	}
-	passwordBytes, err := io.ReadAll(io.LimitReader(os.Stdin, 4097))
-	if err != nil || len(passwordBytes) == 0 || len(passwordBytes) > 4096 {
+	passwordBytes, err := readBootstrapPassword(os.Stdin)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "failed to read password from standard input")
 		os.Exit(2)
-	}
-	for len(passwordBytes) > 0 && (passwordBytes[len(passwordBytes)-1] == '\r' || passwordBytes[len(passwordBytes)-1] == '\n') {
-		passwordBytes = passwordBytes[:len(passwordBytes)-1]
 	}
 	defer func() {
 		for i := range passwordBytes {
@@ -86,6 +84,21 @@ func main() {
 		fail("bootstrap audit failed", err)
 	}
 	fmt.Fprintf(os.Stdout, "administrator bootstrapped: %s\n", userID)
+}
+
+func readBootstrapPassword(reader io.Reader) ([]byte, error) {
+	password, err := io.ReadAll(io.LimitReader(reader, 4100))
+	if err != nil {
+		return nil, err
+	}
+	for len(password) > 0 && (password[len(password)-1] == '\r' || password[len(password)-1] == '\n') {
+		password = password[:len(password)-1]
+	}
+	password = bytes.TrimPrefix(password, []byte{0xef, 0xbb, 0xbf})
+	if len(password) == 0 || len(password) > 4096 {
+		return nil, fmt.Errorf("password must contain between 1 and 4096 bytes")
+	}
+	return password, nil
 }
 
 func fail(message string, err error) {

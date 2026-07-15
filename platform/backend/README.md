@@ -25,6 +25,25 @@ $env:PLATFORM_DATABASE_URL = 'postgres://platform@127.0.0.1:5432/platform?sslmod
 go run ./cmd/server
 ```
 
+管理员浏览器认证的本地联调使用仓库脚本恢复固定环境，不在命令行或文档中展开密码、pepper 或完整连接串：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\admin-local-runtime.ps1 restart
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\admin-local-runtime.ps1 status
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\admin-local-runtime.ps1 stop
+```
+
+脚本只读取 Git 忽略的 `.runtime/postgres/test-password.txt` 与 `.runtime/admin-token-pepper.txt`，只连接本机 `platform_local`，只允许停止工作区 `.runtime` 下且文件名以 `backend-` 开头的 8080 监听进程；每次启动都会从当前源码构建并等待 `/health/ready`。Assembly 的源码根和制品根固定进入互不重叠的 `.runtime/local-assembly-output` 与 `.runtime/local-assembly-artifacts`。
+
+真实浏览器 refresh 验收可临时缩短 access TTL；脚本只接受 1–900 秒，并把每个端口的非敏感设置记录到 Git 忽略的 `.runtime/backend-local-<port>-settings.json`。可执行文件、PID 和日志也按端口隔离。验收后不传该参数重新启动即可恢复 15 分钟默认值：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\admin-local-runtime.ps1 restart -AccessTTLSeconds 5
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\admin-local-runtime.ps1 restart
+```
+
+`bootstrap-admin --password-stdin` 按 UTF-8 字节读取密码，兼容 Windows PowerShell 5.1 原生命令管道添加的 UTF-8 BOM 和终端换行；普通前后空格仍属于密码内容，不会被静默裁剪。
+
 启动前先使用受控迁移工具按文件名顺序执行 `migrations/*.up.sql`。回滚前必须备份并评估数据影响；生产环境不得自动回滚。
 
 ```powershell

@@ -35,6 +35,29 @@ function Invoke-NativeCommand {
     }
 }
 
+function Set-GeneratedPackageDependencies {
+    param(
+        [string]$ProjectRoot,
+        [AllowNull()][string]$SdkPackagePath,
+        [AllowNull()][string]$UiPackagePath
+    )
+    $packagePath = Join-Path $ProjectRoot 'package.json'
+    $package = Get-Content -LiteralPath $packagePath -Encoding UTF8 -Raw | ConvertFrom-Json
+    if ($null -eq $package.dependencies) {
+        throw 'generated package.json must define dependencies'
+    }
+    if ([string]::IsNullOrWhiteSpace($SdkPackagePath) -or [string]::IsNullOrWhiteSpace($UiPackagePath)) {
+        $package.dependencies.PSObject.Properties.Remove('@capability-platform/client-sdk')
+        $package.dependencies.PSObject.Properties.Remove('@capability-platform/client-ui')
+    }
+    else {
+        $package.dependencies | Add-Member -NotePropertyName '@capability-platform/client-sdk' -NotePropertyValue ("file:{0}" -f $SdkPackagePath.Replace('\', '/')) -Force
+        $package.dependencies | Add-Member -NotePropertyName '@capability-platform/client-ui' -NotePropertyValue ("file:{0}" -f $UiPackagePath.Replace('\', '/')) -Force
+    }
+    $json = $package | ConvertTo-Json -Depth 20
+    [IO.File]::WriteAllText($packagePath, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+}
+
 function Test-PreviewStart {
     param([string]$ProjectRoot, [int]$Port)
     $arguments = @(
@@ -126,9 +149,16 @@ try {
         Copy-Item -LiteralPath (Join-Path $TemplateRoot 'src/custom/routes') -Destination $customTarget -Recurse
         Copy-Item -LiteralPath (Join-Path $TemplateRoot 'src/custom/workbench.css') -Destination $customTarget
 
+        # Resolve public dependencies first. npm 10 can otherwise report a
+        # compatible React peer as undefined while installing local tarballs
+        # into a fresh offline dependency tree on Linux.
+        Set-GeneratedPackageDependencies -ProjectRoot $projectRoot -SdkPackagePath $null -UiPackagePath $null
         Invoke-NativeCommand -Command $Npm -Arguments @(
-            'install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', $NpmCache,
-            $sdkPackage.FullName, $uiPackage.FullName
+            'install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', $NpmCache
+        ) -WorkingDirectory $projectRoot
+        Set-GeneratedPackageDependencies -ProjectRoot $projectRoot -SdkPackagePath $sdkPackage.FullName -UiPackagePath $uiPackage.FullName
+        Invoke-NativeCommand -Command $Npm -Arguments @(
+            'install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', $NpmCache
         ) -WorkingDirectory $projectRoot
         Invoke-NativeCommand -Command $Npm -Arguments @('test') -WorkingDirectory $projectRoot
         Invoke-NativeCommand -Command $Npm -Arguments @('run', 'build') -WorkingDirectory $projectRoot

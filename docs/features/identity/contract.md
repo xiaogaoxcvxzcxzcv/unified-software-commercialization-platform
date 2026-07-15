@@ -44,6 +44,7 @@ AdminIdentityContext
 - API：`GET /api/v1/admin/auth/session`
 - 身份：有效 admin access Cookie 或 opaque Admin Bearer
 - 输出：AdminIdentityContext 脱敏摘要、服务端当前 permission/scope 快照、access/refresh 到期时间、是否要求近期重新认证；Cookie 模式同时返回内存使用的 CSRF token
+- 版本：输出必须包含单调递增的 `session_version`。登录从 1 开始，每次 refresh 成功后递增；浏览器收到低于内存当前版本的迟到 session/refresh 响应时必须丢弃，不能覆盖新 CSRF、过期时间或身份快照
 - 错误：`admin_auth.session_expired`、`admin_auth.session_revoked`、`admin_auth.reauthentication_required`
 - 规则：该响应不是永久授权证明；每个管理 API 仍必须经 Access Control 检查目标 permission + scope
 
@@ -51,20 +52,28 @@ AdminIdentityContext
 
 - API：`POST /api/v1/admin/auth/refresh`
 - Cookie 模式：refresh token 只从 HttpOnly、SameSite=Strict Cookie 读取并要求精确 Origin；access 过期后内存 CSRF 可能已丢失，因此 refresh 不要求 `X-CSRF-Token`
+- Cookie 模式缺少 refresh Cookie 时返回 `401 admin_auth.session_expired`，表示当前浏览器未登录或会话已过期；不得把该状态返回为请求格式错误或服务不可用
 - Bearer 模式：refresh token 放在请求体，服务端只接受登录时明确创建的 bearer token family
 - Bearer 客户端：每次 refresh 必须重新提交 `controlled_client` 证明，且 `client_id + credential_id` 必须与原 token family 精确一致；换用同客户端的新凭据也不能刷新旧 family
 - 输出：轮换后的短期 access 与 refresh；Cookie 模式重新设置两个 Cookie，Bearer 模式返回新 opaque token pair
+- 授权顺序：服务端必须在消费旧 refresh、写入新 token 和成功 Outbox 之前，先用该 token 绑定的 `user_id + session_id` 解析当前 Access Control 快照。`ErrNoActiveScope` 是终态并撤销 family；数据库、Access Control 或其他瞬时错误直接返回且不得消费旧 refresh、创建新 token 或写成功事件。最终轮换仍必须在事务锁内重新校验 token、transport、受控客户端绑定、过期、撤销和并发重放。
 - 轮换：每个 refresh token 单次使用；前端 API Client 必须串行化同一会话的刷新；成功后旧 token 立即失效，不保存或返回可供并发重试复用的明文新 token
+- 管理 API 恢复：业务请求仅在收到 `401 admin_auth.session_expired` 时允许触发一次共享的 refresh；并发请求必须复用同一个 refresh，成功后各自最多重放一次，写请求必须使用轮换后返回的新 CSRF token。重放后仍失败时不得循环刷新。
+- 多标签页恢复：同一 Origin 的浏览器标签必须通过 Web Locks 等原生互斥能力协调 refresh；等待锁的标签在锁内先重新查询当前会话，若其他标签已恢复则不得再次消费 refresh。refresh 与同一 `session_version` 的当前会话查询必须得到相同的服务端派生 CSRF；标签之间只允许通过内存消息传递会话结果，持久化存储只能保存不含 token、CSRF、用户资料或权限的 opaque session epoch。检测到 epoch 变化的标签必须先恢复当前会话和内存 CSRF，再发送管理写请求。
+- 失败分类：`403`、`admin_auth.csrf_failed`、权限不足和其他业务拒绝不得触发 refresh 或把管理员降级为匿名；只有 refresh 过期、会话撤销、refresh 重放等终态认证错误才清除前端内存会话并通知受保护路由回到登录页。
 - 重放：旧 refresh 的任何再次使用均视为重放，立即撤销整个 token family 和派生 access，会话需要重新登录，并写高风险审计
 - 恢复：仅 refresh 过期、会话撤销或重放等终态错误清除浏览器会话 Cookie；数据库、Audit 或其他瞬时内部错误必须保留 Cookie并返回可重试错误，避免把依赖故障误判为用户退出
-- 错误：`admin_auth.refresh_expired`、`admin_auth.refresh_replayed`、`admin_auth.session_revoked`、`admin_auth.csrf_failed`
+- 错误：`admin_auth.session_expired`、`admin_auth.refresh_replayed`、`admin_auth.session_revoked`、`admin_auth.csrf_failed`
 - 事件：`identity.admin_session_refreshed.v1`、`identity.admin_refresh_replayed.v1`、`identity.admin_session_revoked.v1`
 
 ### 管理员退出
 
 - API：`POST /api/v1/admin/auth/logout`
 - 身份：当前 access Cookie/Bearer；access 已过期时可使用同一 token family 的有效 refresh 证明退出
-- Cookie 模式：有效 access 退出要求精确 Origin 与 `X-CSRF-Token`；仅持有 refresh 证明的 access 过期恢复退出要求精确 Origin + SameSite refresh Cookie，响应用相同 Path/属性清空 access 和 refresh Cookie
+- Cookie 模式：Handler 同时向应用服务提交浏览器实际携带的 access Cookie、refresh Cookie 和 `X-CSRF-Token`，不能在 HTTP 层先猜测采用哪一个证明。有效 access 退出要求精确 Origin 与匹配当前 session 的 CSRF；CSRF 缺失或错误不得回退 refresh。access 过期时只允许回退同一 session/token family 的有效 SameSite refresh Cookie；没有 access 但持有有效 refresh 时也可退出。数据库查询等瞬时错误不得被当作过期或撤销继续执行。
+- 原子性：Cookie 证明分类、CSRF 与同 family 校验、整族撤销和安全 Outbox 必须在同一个 Identity Repository 数据库事务内完成；Outbox 或数据库写入失败必须整体回滚，不能留下已撤销但未审计的会话。
+- Bearer 模式：只接受服务端记录为 `transport=bearer` 且 `token_type=access` 的当前 Bearer access 证明，不接受 Cookie access、任何 refresh token、Cookie refresh 回退或 CSRF 声明。
+- Cookie 证明一致性：请求同时携带 access 与 refresh Cookie 时，Repository 必须先锁定并确认两者都存在、token type 正确且属于同一 `session_id + token_family_id`，再判断 access/refresh 状态并撤销；不得先撤销其中一族后才发现另一证明不匹配。已消费 refresh 仍按重放处理并撤销整族。
 - 输出：204；已撤销会话重复退出仍为 204
 - 安全：撤销整个 token family，旧 access 和 refresh 都不能继续使用
 - 事件：`identity.admin_session_revoked.v1`
@@ -84,6 +93,7 @@ AdminIdentityContext
 - access token 短期有效；建议默认不超过 15 分钟。refresh token 绝对生命周期和空闲生命周期均由服务端策略限制并单次轮换。
 - opaque token 只作为随机持有证明，权限、scope、账号状态和撤销状态都由服务端解析，不信任客户端声明。
 - Cookie 模式除 refresh 外的所有非安全方法管理 API 必须验证精确 Origin 和 `X-CSRF-Token`；CSRF token 与 session/token family 绑定、轮换后更新，不写 Cookie、不进持久化浏览器存储。refresh 使用精确 Origin + SameSite refresh Cookie 恢复，并在成功后返回新 CSRF token。
+- 退出请求遇到网络、数据库、Audit 或其他瞬时错误时，前端必须保留当前内存 CSRF 与会话状态以允许安全重试；只有退出成功或服务端确认会话处于终态失效时才清除。
 - Bearer transport 只能由服务端为预登记且满足策略的受控 CLI/自动化客户端启用；不得仅因请求体声明 `transport=bearer`、全局开关或可伪造 `client_id` 就签发。`shared_secret_v1` secret 至少包含 256-bit 随机性，只在创建/轮换时交付一次，数据库仅保存使用独立 pepper 和 domain separation 的 HMAC 摘要。
 - 全局 Bearer 开关只是紧急关闭开关；关闭时拒绝全部 Bearer，开启时仍必须校验有效 client、credential 和 proof。client/credential 禁用、到期或撤销后，既有 Bearer access 与 refresh 都必须失效。
 - CORS 不允许通配 Origin 与凭据同时使用；管理响应使用 `Cache-Control: no-store`，不得把 token 放入 URL、日志、错误或浏览器持久化存储。

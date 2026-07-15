@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { authClient, getAuthErrorMessage, isAuthenticationFailure } from "../api/authClient";
+import { authClient, getAuthErrorMessage, isAuthenticationFailure, subscribeAdminSessionInvalidated } from "../api/authClient";
 import type { AdminSession } from "../types";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous" | "error";
@@ -68,6 +68,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStatus("error");
     }
   }, []);
+
+  useEffect(() => subscribeAdminSessionInvalidated(() => {
+    operationRef.current += 1;
+    setSession(null);
+    setError(null);
+    setStatus("anonymous");
+  }), []);
 
   useEffect(() => {
     if (initialLoadRef.current) return;

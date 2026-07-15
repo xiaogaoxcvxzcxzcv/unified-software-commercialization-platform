@@ -7,7 +7,24 @@
 
 # Generated and runtime data
 .runtime/
-artifacts/
+artifacts/*
+!artifacts/reviews/
+artifacts/reviews/*
+!artifacts/reviews/F0-02/
+artifacts/reviews/F0-02/*
+!artifacts/reviews/F0-02/admin-auth-e2e.md
+!artifacts/reviews/F0-02/quality-gate-full-postgres-remediation.json
+!artifacts/smoke/
+artifacts/smoke/*
+!artifacts/smoke/2026-07-15/
+artifacts/smoke/2026-07-15/*
+!artifacts/smoke/2026-07-15/ST-026-admin-auth.md
+!artifacts/smoke/2026-07-15/f0-02-browser-evidence.json
+!artifacts/smoke/2026-07-15/f0-02-login-desktop-redacted.png
+!artifacts/smoke/2026-07-15/f0-02-login-mobile-redacted.png
+!artifacts/smoke/2026-07-15/f0-02-overview-desktop-browser.png
+!artifacts/smoke/2026-07-15/f0-02-overview-mobile-browser.png
+!artifacts/smoke/2026-07-15/f0-02-logout-retry-browser.png
 dist/
 coverage/
 tmp/

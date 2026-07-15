@@ -31,9 +31,11 @@ idle | loading | ready | submitting | success | empty | failed | disabled
 ## 生成与扩展契约
 
 - UI Template 必须声明支持的目标端、Feature Block 和版本范围。
+- UI Template 必须提供可运行 Shell、布局、导航、主题、公共 Feature Block 页面编排和产品扩展槽；它不能仅以换色皮肤冒充完整模板。
+- 登录、注册、个人中心、会员等公共页面只在对应完整能力包已选择且模板声明支持时注册；模板不得自行伪造能力、业务状态或不可用入口。
 - Generated Source 必须区分 generated、integration 和 custom 所有权，并写入 Generated Project Lock。
 - 生成器不得覆盖 custom 文件；generated 文件被人工修改时必须停止、提示迁移或要求显式 eject。
-- 产品独有内容只能通过登记的 route、slot、event 和 Extension Manifest 接入。
+- 平台不生成统一业务首页、业务目录页、工作台或核心内容；产品独有内容只能通过登记的 route、navigation、slot、event 和 Extension Manifest 接入。
 - `eject` 后公共实现标记为 forked，不再接受自动覆盖，只提供差异和迁移说明。
 - delivery mode 和模板变化不能改变 API、字段、完成事件、支付金额、权益结论和错误语义。
 

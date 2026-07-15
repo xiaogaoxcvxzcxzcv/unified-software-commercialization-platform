@@ -28,7 +28,7 @@
   "content_files": [
     {
       "path": "README.md",
-      "sha256": "sha256:d72b5873fea1f01b499898aa631a580c259cb9ea96f2be76e8d906f0721ec00c",
+      "sha256": "sha256:a61bd3156feec9f8dbe1c8fb10fcbeab2c2bb5bfc7d02818a26f110ba46d3591",
       "kind": "file"
     },
     {
@@ -102,7 +102,7 @@
       "kind": "file"
     }
   ],
-  "content_tree_sha256": "sha256:7c9b2ebbf5c14531c952b855cd727a780484172d730b1802acef86a05325df8e",
+  "content_tree_sha256": "sha256:3f446c9faaeaa97d66e7b63adb28a692956f9a0ac735f8ec26bf07200fd1863b",
   "entrypoints": [
     {
       "content_type": "text",
@@ -335,7 +335,7 @@
       "target": "desktop_webview"
     }
   ],
-  "manifest_sha256": "sha256:1bdcdc9cc438e4da4768f7470de638be90300a86b215cb11755fdf165fdb46a6",
+  "manifest_sha256": "sha256:c4fadbdc3f32c33de3a906be25707cfa8b17d955d959f71d5b03c697c6e2f518",
   "name": "Standard A Workbench Shell",
   "package_compatibility": [],
   "preview_assets": [],

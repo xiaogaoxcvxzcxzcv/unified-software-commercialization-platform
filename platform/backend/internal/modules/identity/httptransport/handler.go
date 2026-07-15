@@ -26,7 +26,7 @@ type Service interface {
 	LoginAdmin(context.Context, identity.LoginCommand) (identity.AdminSession, error)
 	CurrentAdminSession(context.Context, string) (identity.AdminSession, error)
 	RefreshAdminSessionWithClient(context.Context, identity.RefreshCommand) (identity.AdminSession, error)
-	LogoutAdmin(context.Context, string, string, string, bool) error
+	LogoutAdmin(context.Context, identity.LogoutCommand) error
 }
 
 type Config struct {
@@ -174,8 +174,25 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		}
 		token = cookie.Value
 	} else {
-		var body refreshRequest
-		if !decodeJSON(w, r, &body) {
+		body := refreshRequest{Transport: identity.TransportCookie}
+		if r.Body != nil && r.ContentLength != 0 {
+			if !decodeJSON(w, r, &body) {
+				return
+			}
+			if body.Transport == "" {
+				body.Transport = identity.TransportCookie
+			}
+		}
+		if body.Transport == identity.TransportCookie {
+			if !h.requireOrigin(w, r) {
+				return
+			}
+			if body.RefreshToken != "" || body.ControlledClient != nil {
+				httpx.Error(w, r, http.StatusBadRequest, "invalid_request", "cookie refresh rejects body token material")
+				return
+			}
+			clearSessionCookies(w)
+			h.writeError(w, r, identity.ErrSessionExpired)
 			return
 		}
 		if body.Transport != identity.TransportBearer || body.RefreshToken == "" || !body.ControlledClient.valid() {
@@ -188,7 +205,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := h.service.RefreshAdminSessionWithClient(r.Context(), identity.RefreshCommand{RefreshToken: token, Transport: transport, ControlledClient: controlledClient, TraceID: requestid.FromContext(r.Context())})
 	if err != nil {
-		if isTerminalRefreshError(err) {
+		if isTerminalSessionError(err) {
 			clearSessionCookies(w)
 		}
 		h.writeError(w, r, err)
@@ -199,7 +216,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, session)
 }
 
-func isTerminalRefreshError(err error) bool {
+func isTerminalSessionError(err error) bool {
 	return errors.Is(err, identity.ErrSessionExpired) ||
 		errors.Is(err, identity.ErrSessionRevoked) ||
 		errors.Is(err, identity.ErrRefreshReplayed)
@@ -210,28 +227,28 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		httpx.MethodNotAllowed(w, r, http.MethodPost)
 		return
 	}
-	var token, csrf string
-	cookieAccess := false
-	if cookie, err := r.Cookie(accessCookieName); err == nil && cookie.Value != "" && r.Header.Get(csrfHeader) != "" {
-		if !h.requireOrigin(w, r) {
-			return
-		}
-		token = cookie.Value
-		csrf = r.Header.Get(csrfHeader)
-		cookieAccess = true
-	} else if cookie, err := r.Cookie(refreshCookieName); err == nil && cookie.Value != "" {
-		if !h.requireOrigin(w, r) {
-			return
-		}
-		token = cookie.Value
-	} else if value, ok := bearerProof(r); ok {
-		token = value
-	} else if cookie, err := r.Cookie(accessCookieName); err == nil && cookie.Value != "" {
-		h.writeError(w, r, identity.ErrCSRFFailed)
-		return
+	command := identity.LogoutCommand{TraceID: requestid.FromContext(r.Context())}
+	if cookie, err := r.Cookie(accessCookieName); err == nil && cookie.Value != "" {
+		command.AccessToken = cookie.Value
 	}
-	if token != "" {
-		if err := h.service.LogoutAdmin(r.Context(), token, csrf, requestid.FromContext(r.Context()), cookieAccess); err != nil {
+	if cookie, err := r.Cookie(refreshCookieName); err == nil && cookie.Value != "" {
+		command.RefreshToken = cookie.Value
+	}
+	if command.AccessToken != "" || command.RefreshToken != "" {
+		if !h.requireOrigin(w, r) {
+			return
+		}
+		command.Transport = identity.TransportCookie
+		command.CSRFToken = r.Header.Get(csrfHeader)
+	} else if value, ok := bearerProof(r); ok {
+		command.Transport = identity.TransportBearer
+		command.AccessToken = value
+	}
+	if command.AccessToken != "" || command.RefreshToken != "" {
+		if err := h.service.LogoutAdmin(r.Context(), command); err != nil {
+			if isTerminalSessionError(err) {
+				clearSessionCookies(w)
+			}
 			h.writeError(w, r, err)
 			return
 		}

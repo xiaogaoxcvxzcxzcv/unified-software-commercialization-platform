@@ -29,7 +29,7 @@ G1-05 已达到 `verified`。Go 生成器具备锁定源码读取、严格模板
 - Run 的 Plan、幂等摘要、`output_target_ref`、创建时间和步骤身份不可漂移，时间/attempt/步骤状态必须单调，completed/rolled_back 终态不可重写。
 - 向 Product 模块提供受信 Plan 能力集合校验，不跨表读取 Product、Application 或 Tenant 数据。
 
-G1-05 完成的是 Generator 与 Run 的后端执行闭包，不等于完整软件装配已经可交付。G1-06 已完成 SDK/Client UI 基座，G1-07 已实现 `standard-a` 实验候选但仍缺浏览器视觉证据；G1-08/G1-09 还需完成管理后台向导和真实空白软件验收。普通能力包、模板和受信工具目录仍为空，eject 当前只生成不可变计划而不直接改写源码，公开 upgrade-plan/eject/rollback 管理 API 与包含数据库迁移的完整升级仍属于后续工作。`staging` 环境在 Product/Application 环境模型扩展前失败关闭，不能静默映射为 production。
+G1-05 完成的是 Generator 与 Run 的后端执行闭包，不等于完整软件装配已经可交付。G1-06 已完成 SDK/Client UI 基座，G1-07 已实现 `standard-a` 实验候选但仍缺浏览器视觉证据；G1-07.1/G1-08/G1-10/G1-11 还需完成受信工具目录、管理后台向导与软件工作区、公开 lifecycle API 和可信 Extension Catalog。Product Blueprint 至少需要一个真实能力包，因此原 G1-09 基础样板不再独立执行，第一次真实样板装配进入 G2C。普通能力包、模板和受信工具目录仍为空，eject 当前只生成不可变计划而不直接改写源码。`staging` 环境在 Product/Application 环境模型扩展前失败关闭，不能静默映射为 production。
 
 ## 只读机器目录
 

@@ -1,7 +1,9 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,13 +110,13 @@ func (r *Repository) FindByAccessDigest(ctx context.Context, digest []byte, now 
 		return identity.StoredSession{}, err
 	}
 	if result.RevokedAt != nil || token.revokedAt != nil {
-		return identity.StoredSession{}, identity.ErrSessionRevoked
+		return result, identity.ErrSessionRevoked
 	}
 	if result.Transport == identity.TransportBearer && !controlledClientActive {
-		return identity.StoredSession{}, identity.ErrSessionRevoked
+		return result, identity.ErrSessionRevoked
 	}
 	if !result.AccessExpiresAt.After(now) || !token.expiresAt.After(now) {
-		return identity.StoredSession{}, identity.ErrSessionExpired
+		return result, identity.ErrSessionExpired
 	}
 	return result, nil
 }
@@ -124,15 +126,34 @@ func (r *Repository) TouchSession(ctx context.Context, sessionID string, now tim
 	return err
 }
 
-func (r *Repository) RotateCSRF(ctx context.Context, sessionID string, digest []byte, now time.Time) error {
-	result, err := r.pool.Exec(ctx, `UPDATE identity.admin_sessions SET csrf_digest=$2,last_seen_at=$3 WHERE session_id=$1 AND transport='cookie' AND revoked_at IS NULL`, sessionID, digest, now)
+func (r *Repository) InspectRefresh(ctx context.Context, digest []byte, transport identity.Transport, binding *identity.ControlledClientBinding, now time.Time) (identity.RefreshInspection, error) {
+	stored, tokenType, _, tokenState, controlledClientActive, err := scanTokenSession(r.pool.QueryRow(ctx, tokenSessionQuery+` WHERE t.token_digest=$1`, digest))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.RefreshInspection{}, identity.ErrSessionExpired
+	}
 	if err != nil {
-		return err
+		return identity.RefreshInspection{}, err
 	}
-	if result.RowsAffected() != 1 {
-		return identity.ErrSessionRevoked
+	if tokenType != "refresh" || stored.Transport != transport {
+		return identity.RefreshInspection{}, identity.ErrSessionRevoked
 	}
-	return nil
+	if transport == identity.TransportBearer {
+		if !controlledClientActive || binding == nil || stored.ControlledClientID != binding.ClientID || stored.ControlledCredentialID != binding.CredentialID {
+			return identity.RefreshInspection{}, identity.ErrSessionRevoked
+		}
+	} else if binding != nil {
+		return identity.RefreshInspection{}, identity.ErrSessionRevoked
+	}
+	if tokenState.consumedAt != nil {
+		return identity.RefreshInspection{Session: stored, Replayed: true}, nil
+	}
+	if stored.RevokedAt != nil || tokenState.revokedAt != nil {
+		return identity.RefreshInspection{}, identity.ErrSessionRevoked
+	}
+	if !tokenState.expiresAt.After(now) || !stored.RefreshExpiresAt.After(now) || !stored.AbsoluteExpiresAt.After(now) {
+		return identity.RefreshInspection{}, identity.ErrSessionExpired
+	}
+	return identity.RefreshInspection{Session: stored}, nil
 }
 
 func (r *Repository) RotateRefresh(ctx context.Context, digest []byte, transport identity.Transport, binding *identity.ControlledClientBinding, rotation identity.Rotation) (identity.StoredSession, error) {
@@ -222,28 +243,112 @@ func (r *Repository) RotateRefresh(ctx context.Context, digest []byte, transport
 	return stored, nil
 }
 
-func (r *Repository) RevokeByToken(ctx context.Context, digest []byte, now time.Time, event identity.OutboxEvent) error {
+func (r *Repository) RevokeByToken(ctx context.Context, digest []byte, expected identity.TokenExpectation, now time.Time, reason identity.SessionRevokeReason, event identity.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	stored, _, _, _, _, err := scanTokenSession(tx.QueryRow(ctx, tokenSessionQuery+` WHERE t.token_digest=$1 FOR UPDATE OF t,s`, digest))
+	stored, tokenType, _, _, _, err := scanTokenSession(tx.QueryRow(ctx, tokenSessionQuery+` WHERE t.token_digest=$1 FOR UPDATE OF t,s`, digest))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tx.Commit(ctx)
 	}
 	if err != nil {
 		return err
 	}
+	if stored.Transport != expected.Transport || tokenType != expected.TokenType {
+		return identity.ErrSessionRevoked
+	}
 	if stored.RevokedAt == nil {
-		if err := revokeFamily(ctx, tx, stored.TokenFamilyID, now, "logout"); err != nil {
+		if err := revokeFamily(ctx, tx, stored.TokenFamilyID, now, string(reason)); err != nil {
 			return err
 		}
 		event.Payload.ActorID = stored.UserID
-		if err := insertOutbox(ctx, tx, event); err != nil {
+		if err := insertOutboxStrict(ctx, tx, event); err != nil {
 			return err
 		}
 	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) RevokeCookieSession(ctx context.Context, proof identity.CookieLogoutProof, now time.Time, event identity.OutboxEvent) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	type requestedProof struct {
+		kind   string
+		digest []byte
+	}
+	requested := make([]requestedProof, 0, 2)
+	if len(proof.AccessDigest) != 0 {
+		requested = append(requested, requestedProof{kind: "access", digest: proof.AccessDigest})
+	}
+	if len(proof.RefreshDigest) != 0 {
+		requested = append(requested, requestedProof{kind: "refresh", digest: proof.RefreshDigest})
+	}
+	if len(requested) == 2 && bytes.Equal(requested[0].digest, requested[1].digest) {
+		return identity.ErrSessionRevoked
+	}
+	// All cookie logout transactions acquire proof locks in digest order. This
+	// keeps mixed or concurrently submitted cookie pairs from reversing locks.
+	if len(requested) == 2 && bytes.Compare(requested[0].digest, requested[1].digest) > 0 {
+		requested[0], requested[1] = requested[1], requested[0]
+	}
+
+	locked := make(map[string]lockedLogoutProof, len(requested))
+	for _, item := range requested {
+		stored, tokenType, _, token, _, scanErr := scanTokenSession(tx.QueryRow(ctx, tokenSessionQuery+` WHERE t.token_digest=$1 FOR UPDATE OF t,s`, item.digest))
+		if errors.Is(scanErr, pgx.ErrNoRows) {
+			locked[item.kind] = lockedLogoutProof{}
+			continue
+		}
+		if scanErr != nil {
+			return scanErr
+		}
+		if stored.Transport != identity.TransportCookie || tokenType != item.kind {
+			return identity.ErrSessionRevoked
+		}
+		locked[item.kind] = lockedLogoutProof{stored: stored, token: token, found: true}
+	}
+
+	access, accessRequested := locked["access"]
+	refresh, refreshRequested := locked["refresh"]
+	if accessRequested && refreshRequested {
+		if !access.found || !refresh.found {
+			return identity.ErrSessionRevoked
+		}
+		if access.stored.SessionID != refresh.stored.SessionID || access.stored.TokenFamilyID != refresh.stored.TokenFamilyID {
+			return identity.ErrSessionRevoked
+		}
+	}
+	if refreshRequested && refresh.found && refresh.token.consumedAt != nil && refresh.stored.RevokedAt == nil {
+		event.Payload.Action = "admin.auth.refresh_replayed"
+		event.Payload.Result = "failure"
+		event.Payload.ReasonCode = "refresh_replayed"
+		event.Payload.RiskLevel = "high"
+		if err := revokeLockedCookieFamily(ctx, tx, refresh.stored, now, identity.SessionRevokeReason("refresh_replayed"), event); err != nil {
+			return err
+		}
+		return identity.ErrRefreshReplayed
+	}
+	if accessRequested && access.found && access.activeAccess(now) {
+		if len(proof.CSRFDigest) == 0 || !hmac.Equal(access.stored.CSRFDigest, proof.CSRFDigest) {
+			return identity.ErrCSRFFailed
+		}
+		return revokeLockedCookieFamily(ctx, tx, access.stored, now, identity.RevokeReasonLogout, event)
+	}
+
+	if refreshRequested && refresh.found {
+		if refresh.activeRefresh(now) {
+			return revokeLockedCookieFamily(ctx, tx, refresh.stored, now, identity.RevokeReasonLogout, event)
+		}
+	}
+
+	// Unknown, expired, or already revoked proofs are an idempotent terminal
+	// logout. The handler may clear only the browser's local cookies.
 	return tx.Commit(ctx)
 }
 
@@ -460,6 +565,36 @@ func (r *Repository) MarkOutboxFailed(ctx context.Context, eventID, errorSummary
 type tokenState struct {
 	expiresAt             time.Time
 	consumedAt, revokedAt *time.Time
+}
+
+type lockedLogoutProof struct {
+	stored identity.StoredSession
+	token  tokenState
+	found  bool
+}
+
+func (p lockedLogoutProof) activeAccess(now time.Time) bool {
+	return p.found && p.stored.RevokedAt == nil && p.token.revokedAt == nil &&
+		p.stored.AccessExpiresAt.After(now) && p.stored.AbsoluteExpiresAt.After(now) && p.token.expiresAt.After(now)
+}
+
+func (p lockedLogoutProof) activeRefresh(now time.Time) bool {
+	return p.found && p.stored.RevokedAt == nil && p.token.revokedAt == nil && p.token.consumedAt == nil &&
+		p.stored.RefreshExpiresAt.After(now) && p.stored.AbsoluteExpiresAt.After(now) && p.token.expiresAt.After(now)
+}
+
+func revokeLockedCookieFamily(ctx context.Context, tx pgx.Tx, stored identity.StoredSession, now time.Time, reason identity.SessionRevokeReason, event identity.OutboxEvent) error {
+	if stored.RevokedAt != nil {
+		return tx.Commit(ctx)
+	}
+	if err := revokeFamily(ctx, tx, stored.TokenFamilyID, now, string(reason)); err != nil {
+		return err
+	}
+	event.Payload.ActorID = stored.UserID
+	if err := insertOutboxStrict(ctx, tx, event); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 const tokenSessionQuery = `SELECT s.session_id,s.user_id,u.display_name,u.account_status,s.token_family_id,s.transport,s.authentication_method,s.session_version,s.auth_time,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.csrf_digest,s.revoked_at,t.token_type,t.generation,t.expires_at,t.consumed_at,t.revoked_at,s.controlled_client_id,s.controlled_client_credential_id,CASE WHEN s.transport='cookie' THEN TRUE ELSE COALESCE(c.status='active' AND c.disabled_at IS NULL AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP) AND cr.revoked_at IS NULL AND cr.not_before <= CURRENT_TIMESTAMP AND (cr.expires_at IS NULL OR cr.expires_at > CURRENT_TIMESTAMP),FALSE) END FROM identity.admin_session_tokens t JOIN identity.admin_sessions s ON s.session_id=t.session_id JOIN identity.users u ON u.user_id=s.user_id LEFT JOIN identity.admin_auth_clients c ON c.client_id=s.controlled_client_id LEFT JOIN identity.admin_auth_client_credentials cr ON cr.client_id=s.controlled_client_id AND cr.credential_id=s.controlled_client_credential_id`

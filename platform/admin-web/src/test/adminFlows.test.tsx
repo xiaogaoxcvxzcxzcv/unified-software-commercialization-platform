@@ -37,6 +37,7 @@ const testTenants: TenantRecord[] = [
 
 const adminSession: AdminSession = {
   session_id: "session-admin-flows",
+  session_version: 1,
   transport: "cookie",
   admin: {
     admin_user_id: "U-ADMIN",

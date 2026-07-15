@@ -22,13 +22,24 @@ type repositoryFake struct {
 	created              NewSession
 	failures             int
 	stored               StoredSession
+	accessErr            error
+	inspectStored        StoredSession
+	inspectErr           error
+	refreshReplayed      bool
+	inspections          int
 	rotateErr            error
 	creates              int
 	rotations            int
 	revokes              int
+	revokeReason         SessionRevokeReason
+	revokeExpectation    TokenExpectation
+	cookieLogoutProof    CookieLogoutProof
+	cookieLogoutCalls    int
+	cookieLogoutErr      error
 	bootstraps           int
 	claimed              []ClaimedOutboxEvent
 	published            []string
+	failed               []string
 	controlledCredential ControlledClientCredential
 	controlledErr        error
 	controlledDigest     []byte
@@ -57,12 +68,16 @@ func (r *repositoryFake) CreateAdminSession(_ context.Context, value NewSession)
 	return nil
 }
 func (r *repositoryFake) FindByAccessDigest(context.Context, []byte, time.Time) (StoredSession, error) {
-	return r.stored, nil
+	return r.stored, r.accessErr
 }
 func (*repositoryFake) TouchSession(context.Context, string, time.Time) error { return nil }
-func (r *repositoryFake) RotateCSRF(_ context.Context, _ string, digest []byte, _ time.Time) error {
-	r.stored.CSRFDigest = digest
-	return nil
+func (r *repositoryFake) InspectRefresh(context.Context, []byte, Transport, *ControlledClientBinding, time.Time) (RefreshInspection, error) {
+	r.inspections++
+	stored := r.inspectStored
+	if stored.SessionID == "" {
+		stored = r.stored
+	}
+	return RefreshInspection{Session: stored, Replayed: r.refreshReplayed}, r.inspectErr
 }
 func (r *repositoryFake) RotateRefresh(_ context.Context, _ []byte, _ Transport, binding *ControlledClientBinding, _ Rotation) (StoredSession, error) {
 	r.rotations++
@@ -72,9 +87,16 @@ func (r *repositoryFake) RotateRefresh(_ context.Context, _ []byte, _ Transport,
 	}
 	return r.stored, r.rotateErr
 }
-func (r *repositoryFake) RevokeByToken(context.Context, []byte, time.Time, OutboxEvent) error {
+func (r *repositoryFake) RevokeByToken(_ context.Context, _ []byte, expectation TokenExpectation, _ time.Time, reason SessionRevokeReason, _ OutboxEvent) error {
 	r.revokes++
+	r.revokeExpectation = expectation
+	r.revokeReason = reason
 	return nil
+}
+func (r *repositoryFake) RevokeCookieSession(_ context.Context, proof CookieLogoutProof, _ time.Time, _ OutboxEvent) error {
+	r.cookieLogoutCalls++
+	r.cookieLogoutProof = proof
+	return r.cookieLogoutErr
 }
 func (r *repositoryFake) BootstrapIdentity(context.Context, BootstrapUser) (string, error) {
 	r.bootstraps++
@@ -108,7 +130,8 @@ func (r *repositoryFake) MarkOutboxPublished(_ context.Context, eventID string, 
 	r.published = append(r.published, eventID)
 	return nil
 }
-func (*repositoryFake) MarkOutboxFailed(context.Context, string, string, time.Time, bool) error {
+func (r *repositoryFake) MarkOutboxFailed(_ context.Context, eventID, _ string, _ time.Time, _ bool) error {
+	r.failed = append(r.failed, eventID)
 	return nil
 }
 
@@ -315,11 +338,154 @@ func TestNoAdminScopeUsesGenericInvalidCredentials(t *testing.T) {
 }
 
 func TestRefreshReplayIsPropagated(t *testing.T) {
-	repo := &repositoryFake{rotateErr: ErrRefreshReplayed}
+	repo := &repositoryFake{refreshReplayed: true, rotateErr: ErrRefreshReplayed}
 	service := newTestService(t, repo, accessFake{})
 	_, err := service.RefreshAdminSession(context.Background(), "adm_rt_old", TransportCookie, "trace")
 	if !errors.Is(err, ErrRefreshReplayed) {
 		t.Fatalf("expected replay error, got %v", err)
+	}
+}
+
+func TestRefreshAccessResolutionFailureDoesNotConsumeRefresh(t *testing.T) {
+	transientErr := errors.New("access control temporarily unavailable")
+	repo := &repositoryFake{stored: StoredSession{SessionID: "session-1", UserID: "usr-1", Transport: TransportCookie}}
+	service := newTestService(t, repo, accessFake{err: transientErr})
+
+	_, err := service.RefreshAdminSession(context.Background(), "adm_rt_old", TransportCookie, "trace")
+	if !errors.Is(err, transientErr) {
+		t.Fatalf("expected transient resolver error, got %v", err)
+	}
+	if repo.rotations != 0 || repo.revokes != 0 {
+		t.Fatalf("transient resolver error wrote refresh state: rotations=%d revokes=%d", repo.rotations, repo.revokes)
+	}
+}
+
+func TestRefreshWithoutActiveAdminScopeRevokesWithoutRotation(t *testing.T) {
+	repo := &repositoryFake{stored: StoredSession{SessionID: "session-1", UserID: "usr-1", Transport: TransportCookie}}
+	service := newTestService(t, repo, accessFake{err: accesscontrol.ErrNoActiveScope})
+
+	_, err := service.RefreshAdminSession(context.Background(), "adm_rt_old", TransportCookie, "trace")
+	if !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("expected revoked session, got %v", err)
+	}
+	if repo.revokes != 1 || repo.rotations != 0 {
+		t.Fatalf("unexpected refresh writes: rotations=%d revokes=%d", repo.rotations, repo.revokes)
+	}
+	if repo.revokeExpectation != (TokenExpectation{Transport: TransportCookie, TokenType: "refresh"}) {
+		t.Fatalf("unexpected refresh revoke expectation: %+v", repo.revokeExpectation)
+	}
+}
+
+func TestBearerRefreshWithoutActiveAdminScopeRevokesOnlyBearerRefresh(t *testing.T) {
+	repo := &repositoryFake{
+		stored: StoredSession{SessionID: "session-1", UserID: "usr-1", Transport: TransportBearer},
+		controlledCredential: ControlledClientCredential{ControlledClientBinding: ControlledClientBinding{
+			ClientID: "acli_controlled1", CredentialID: "acred_credential1",
+		}},
+	}
+	service := newBearerTestService(t, repo, accessFake{err: accesscontrol.ErrNoActiveScope})
+	proof := &ControlledClientProof{ClientID: "acli_controlled1", CredentialID: "acred_credential1", ProofType: "shared_secret_v1", Secret: "acsec_abcdefghijklmnopqrstuvwxyz0123456789"}
+
+	_, err := service.RefreshAdminSessionWithClient(context.Background(), RefreshCommand{
+		RefreshToken: "adm_rt_old", Transport: TransportBearer, ControlledClient: proof, TraceID: "trace",
+	})
+	if !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("expected revoked session, got %v", err)
+	}
+	if repo.revokeExpectation != (TokenExpectation{Transport: TransportBearer, TokenType: "refresh"}) {
+		t.Fatalf("unexpected bearer refresh revoke expectation: %+v", repo.revokeExpectation)
+	}
+}
+
+func TestBearerLogoutRevokesOnlyBearerAccess(t *testing.T) {
+	repo := &repositoryFake{}
+	service := newBearerTestService(t, repo, accessFake{})
+
+	if err := service.LogoutAdmin(context.Background(), LogoutCommand{Transport: TransportBearer, AccessToken: "adm_at_old", TraceID: "trace"}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.revokeExpectation != (TokenExpectation{Transport: TransportBearer, TokenType: "access"}) {
+		t.Fatalf("unexpected bearer logout revoke expectation: %+v", repo.revokeExpectation)
+	}
+}
+
+func TestCurrentAdminSessionPreservesTransientAccessResolutionError(t *testing.T) {
+	transientErr := errors.New("access control temporarily unavailable")
+	repo := &repositoryFake{stored: StoredSession{SessionID: "session-1", UserID: "usr-1", Transport: TransportCookie}}
+	service := newTestService(t, repo, accessFake{err: transientErr})
+
+	_, err := service.CurrentAdminSession(context.Background(), "adm_at_current")
+	if !errors.Is(err, transientErr) {
+		t.Fatalf("expected transient resolver error, got %v", err)
+	}
+}
+
+func TestCookieLogoutActiveAccessCannotBypassCSRFWithRefresh(t *testing.T) {
+	repo := &repositoryFake{cookieLogoutErr: ErrCSRFFailed}
+	service := newTestService(t, repo, accessFake{})
+
+	for _, csrf := range []string{"", "csrf-wrong"} {
+		t.Run(fmt.Sprintf("csrf_%q", csrf), func(t *testing.T) {
+			repo.cookieLogoutCalls = 0
+			err := service.LogoutAdmin(context.Background(), LogoutCommand{
+				Transport: TransportCookie, AccessToken: "adm_at_current", RefreshToken: "adm_rt_current", CSRFToken: csrf, TraceID: "trace",
+			})
+			if !errors.Is(err, ErrCSRFFailed) {
+				t.Fatalf("expected CSRF failure, got %v", err)
+			}
+			if repo.cookieLogoutCalls != 1 || repo.revokes != 0 {
+				t.Fatalf("cookie proof was not handled atomically: cookie_calls=%d token_revokes=%d", repo.cookieLogoutCalls, repo.revokes)
+			}
+			if !bytes.Equal(repo.cookieLogoutProof.AccessDigest, service.hasher.Digest("adm_at_current")) || !bytes.Equal(repo.cookieLogoutProof.RefreshDigest, service.hasher.Digest("adm_rt_current")) {
+				t.Fatal("logout did not pass both cookie proofs to the repository")
+			}
+		})
+	}
+}
+
+func TestCookieLogoutAccessLookupFailureDoesNotFallback(t *testing.T) {
+	transientErr := errors.New("session store temporarily unavailable")
+	repo := &repositoryFake{cookieLogoutErr: transientErr}
+	service := newTestService(t, repo, accessFake{})
+
+	err := service.LogoutAdmin(context.Background(), LogoutCommand{
+		Transport: TransportCookie, AccessToken: "adm_at_current", RefreshToken: "adm_rt_current", TraceID: "trace",
+	})
+	if !errors.Is(err, transientErr) {
+		t.Fatalf("expected access lookup error, got %v", err)
+	}
+	if repo.cookieLogoutCalls != 1 || repo.revokes != 0 {
+		t.Fatalf("transient lookup bypassed atomic cookie logout: cookie_calls=%d token_revokes=%d", repo.cookieLogoutCalls, repo.revokes)
+	}
+}
+
+func TestCookieLogoutExpiredAccessAcceptsSameFamilyRefresh(t *testing.T) {
+	repo := &repositoryFake{}
+	service := newTestService(t, repo, accessFake{})
+
+	err := service.LogoutAdmin(context.Background(), LogoutCommand{
+		Transport: TransportCookie, AccessToken: "adm_at_expired", RefreshToken: "adm_rt_current", TraceID: "trace",
+	})
+	if err != nil {
+		t.Fatalf("same-family refresh logout failed: %v", err)
+	}
+	if repo.cookieLogoutCalls != 1 || repo.revokes != 0 {
+		t.Fatalf("unexpected logout calls: cookie_calls=%d token_revokes=%d", repo.cookieLogoutCalls, repo.revokes)
+	}
+}
+
+func TestCookieLogoutRejectsRefreshFromDifferentFamily(t *testing.T) {
+	repo := &repositoryFake{cookieLogoutErr: ErrSessionRevoked}
+	service := newTestService(t, repo, accessFake{})
+
+	err := service.LogoutAdmin(context.Background(), LogoutCommand{
+		Transport: TransportCookie, AccessToken: "adm_at_expired", RefreshToken: "adm_rt_other", TraceID: "trace",
+	})
+	if !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("expected family mismatch rejection, got %v", err)
+	}
+	if repo.cookieLogoutCalls != 1 || repo.revokes != 0 {
+		t.Fatalf("family mismatch bypassed atomic cookie logout: cookie_calls=%d token_revokes=%d", repo.cookieLogoutCalls, repo.revokes)
 	}
 }
 
@@ -392,7 +558,7 @@ func TestRandomFailurePreventsIdentityWrites(t *testing.T) {
 			name:  "logout revocation",
 			setup: func(*repositoryFake) {},
 			run: func(ctx context.Context, service *Service) error {
-				return service.LogoutAdmin(ctx, "adm_at_old", "", "trace", false)
+				return service.LogoutAdmin(ctx, LogoutCommand{Transport: TransportBearer, AccessToken: "adm_at_old", TraceID: "trace"})
 			},
 			calls: func(repo *repositoryFake) int { return repo.revokes },
 		},
@@ -447,10 +613,18 @@ func TestSessionSecretGenerationPropagatesEveryRandomFailure(t *testing.T) {
 
 type auditPortFake struct {
 	events []SecurityEvent
+	errors []error
 }
 
 func (a *auditPortFake) AppendSecurityEvent(_ context.Context, event SecurityEvent) (string, error) {
 	a.events = append(a.events, event)
+	if len(a.errors) > 0 {
+		err := a.errors[0]
+		a.errors = a.errors[1:]
+		if err != nil {
+			return "", err
+		}
+	}
 	return event.AuditID, nil
 }
 
@@ -466,5 +640,22 @@ func TestOutboxDispatcherUsesIdentityAuditPort(t *testing.T) {
 	}
 	if len(repo.published) != 1 || repo.published[0] != "evt-1" {
 		t.Fatalf("unexpected published events: %+v", repo.published)
+	}
+}
+
+func TestOutboxDispatcherMarksFailureThenRetriesSuccessfully(t *testing.T) {
+	event := SecurityEvent{AuditID: "aud-retry", Action: "admin.auth.session_refreshed", ActorID: "usr-1"}
+	repo := &repositoryFake{claimed: []ClaimedOutboxEvent{{EventID: "evt-retry", Payload: event}}}
+	auditPort := &auditPortFake{errors: []error{errors.New("audit temporarily unavailable"), nil}}
+	dispatcher := NewOutboxDispatcher(repo, auditPort, slog.Default())
+
+	dispatcher.dispatch(context.Background())
+	if len(repo.failed) != 1 || repo.failed[0] != "evt-retry" || len(repo.published) != 0 {
+		t.Fatalf("first attempt did not record retry: failed=%v published=%v", repo.failed, repo.published)
+	}
+
+	dispatcher.dispatch(context.Background())
+	if len(auditPort.events) != 2 || len(repo.published) != 1 || repo.published[0] != "evt-retry" {
+		t.Fatalf("retry did not publish: events=%d published=%v", len(auditPort.events), repo.published)
 	}
 }

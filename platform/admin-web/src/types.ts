@@ -25,6 +25,7 @@ export interface AdminIdentitySummary {
 
 export interface AdminSession {
   session_id: string;
+  session_version: number;
   transport: "cookie" | "bearer";
   admin: AdminIdentitySummary;
   authorization: AdminAuthorizationSnapshot;

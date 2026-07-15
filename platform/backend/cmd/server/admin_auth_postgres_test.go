@@ -10,7 +10,9 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +30,18 @@ import (
 )
 
 const adminE2EOrigin = "https://admin.integration.test"
+
+type failOnceAuditAdapter struct {
+	delegate  identity.AuditPort
+	remaining atomic.Int32
+}
+
+func (a *failOnceAuditAdapter) AppendSecurityEvent(ctx context.Context, event identity.SecurityEvent) (string, error) {
+	if a.remaining.CompareAndSwap(1, 0) {
+		return "", io.ErrUnexpectedEOF
+	}
+	return a.delegate.AppendSecurityEvent(ctx, event)
+}
 
 func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 	database := testpostgres.Open(t)
@@ -56,6 +70,23 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 	if _, err := identityService.BootstrapAdminIdentity(ctx, "no-scope@example.test", "No Scope", []byte("correct-password-456")); err != nil {
 		t.Fatal(err)
 	}
+	disabledAdminID, err := identityService.BootstrapAdminIdentity(ctx, "disabled@example.test", "Disabled Administrator", []byte("correct-password-654"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Pool.Exec(ctx, `UPDATE identity.users SET account_status='disabled',updated_at=$2 WHERE user_id=$1`, disabledAdminID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	productAdminID, err := identityService.BootstrapAdminIdentity(ctx, "product-admin@example.test", "Product A Administrator", []byte("correct-password-789"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accessService.BindAdminScope(ctx, accesscontrol.BindAdminScopeCommand{
+		AdminUserID: productAdminID, RoleCode: "super_admin", Scope: accesscontrol.Scope{Type: "product", ProductID: "prod-a"},
+		ActorID: adminID, TraceID: "trace-product-admin-binding", IdempotencyKey: "idem-product-admin-binding-001",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	auditRepository := auditpostgres.New(database.Pool)
 	auditService := audit.NewService(auditRepository)
@@ -81,9 +112,18 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 
 	wrong := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "admin@example.test", "credential": "wrong-password", "transport": "cookie"}, nil, nil)
 	noScope := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "no-scope@example.test", "credential": "correct-password-456", "transport": "cookie"}, nil, nil)
-	if wrong.StatusCode != http.StatusUnauthorized || noScope.StatusCode != http.StatusUnauthorized || problemCode(t, wrong) != "admin_auth.invalid_credentials" || problemCode(t, noScope) != "admin_auth.invalid_credentials" {
-		t.Fatal("invalid credentials and no-scope responses must be indistinguishable")
+	unknown := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "unknown@example.test", "credential": "wrong-password", "transport": "cookie"}, nil, nil)
+	disabled := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "disabled@example.test", "credential": "correct-password-654", "transport": "cookie"}, nil, nil)
+	assertIndistinguishableAuthFailures(t, wrong, noScope, unknown, disabled)
+	productLogin := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "product-admin@example.test", "credential": "correct-password-789", "transport": "cookie"}, nil, nil)
+	if productLogin.StatusCode != http.StatusOK {
+		t.Fatalf("product-scoped login status = %d, body = %s", productLogin.StatusCode, readBody(t, productLogin))
 	}
+	var productSession identity.AdminSession
+	if err := json.Unmarshal([]byte(readBody(t, productLogin)), &productSession); err != nil {
+		t.Fatal(err)
+	}
+	assertCatalogAuthorization(t, productSession.Authorization, "product", "prod-a")
 
 	login := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "admin@example.test", "credential": "correct-password-123", "transport": "cookie"}, nil, nil)
 	if login.StatusCode != http.StatusOK {
@@ -97,6 +137,10 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 	if err := json.Unmarshal([]byte(loginBody), &session); err != nil {
 		t.Fatal(err)
 	}
+	if session.SessionVersion != 1 {
+		t.Fatalf("login session_version = %d, want 1", session.SessionVersion)
+	}
+	assertCatalogAuthorization(t, session.Authorization, "platform", "")
 	assertSessionCookies(t, login)
 
 	current := get(t, client, server.URL+"/api/v1/admin/auth/session")
@@ -111,8 +155,28 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 	if refresh.StatusCode != http.StatusOK {
 		t.Fatalf("refresh status = %d, body = %s", refresh.StatusCode, readBody(t, refresh))
 	}
-	_ = readBody(t, refresh)
+	var refreshedCookieSession identity.AdminSession
+	if err := json.Unmarshal([]byte(readBody(t, refresh)), &refreshedCookieSession); err != nil {
+		t.Fatal(err)
+	}
+	if refreshedCookieSession.SessionVersion != session.SessionVersion+1 {
+		t.Fatalf("refreshed session_version = %d, want %d", refreshedCookieSession.SessionVersion, session.SessionVersion+1)
+	}
 	assertSessionCookies(t, refresh)
+	currentAfterRefresh := get(t, client, server.URL+"/api/v1/admin/auth/session")
+	if currentAfterRefresh.StatusCode != http.StatusOK {
+		t.Fatalf("current session after refresh status = %d, body = %s", currentAfterRefresh.StatusCode, readBody(t, currentAfterRefresh))
+	}
+	var recoveredCookieSession identity.AdminSession
+	if err := json.Unmarshal([]byte(readBody(t, currentAfterRefresh)), &recoveredCookieSession); err != nil {
+		t.Fatal(err)
+	}
+	if refreshedCookieSession.CSRFToken == nil || recoveredCookieSession.CSRFToken == nil || *refreshedCookieSession.CSRFToken != *recoveredCookieSession.CSRFToken {
+		t.Fatal("refresh and same-version session recovery returned different CSRF tokens")
+	}
+	if recoveredCookieSession.SessionVersion != refreshedCookieSession.SessionVersion {
+		t.Fatalf("recovered session_version = %d, want %d", recoveredCookieSession.SessionVersion, refreshedCookieSession.SessionVersion)
+	}
 
 	replayClient := *server.Client()
 	replay := postJSON(t, &replayClient, refreshURL, adminE2EOrigin, map[string]any{"transport": "cookie"}, []*http.Cookie{oldRefresh}, nil)
@@ -156,6 +220,21 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	secondAccess := namedCookie(t, client.Jar.Cookies(mustURL(t, server.URL+"/api/v1/admin/auth/session")), "__Host-platform_admin_access")
+	secondRefresh := namedCookie(t, client.Jar.Cookies(mustURL(t, refreshURL)), "__Secure-platform_admin_refresh")
+	crossTransportClient := *server.Client()
+	crossTransportClient.Jar = nil
+	cookieAsBearerLogout := postJSON(t, &crossTransportClient, server.URL+"/api/v1/admin/auth/logout", "", nil, nil, map[string]string{
+		"Authorization": "Bearer " + secondAccess.Value,
+	})
+	if cookieAsBearerLogout.StatusCode != http.StatusUnauthorized || problemCode(t, cookieAsBearerLogout) != "admin_auth.session_revoked" {
+		t.Fatal("cookie access submitted as bearer logout was not rejected")
+	}
+	cookieAfterCrossTransportLogout := getWithCookies(t, server.Client(), server.URL+"/api/v1/admin/auth/session", []*http.Cookie{secondAccess})
+	if cookieAfterCrossTransportLogout.StatusCode != http.StatusOK {
+		t.Fatalf("cross-transport logout revoked cookie session: status=%d body=%s", cookieAfterCrossTransportLogout.StatusCode, readBody(t, cookieAfterCrossTransportLogout))
+	}
+	_ = readBody(t, cookieAfterCrossTransportLogout)
 	logout := postJSON(t, client, server.URL+"/api/v1/admin/auth/logout", adminE2EOrigin, nil, nil, map[string]string{"X-CSRF-Token": *secondSession.CSRFToken})
 	if logout.StatusCode != http.StatusNoContent {
 		t.Fatalf("logout status = %d, body = %s", logout.StatusCode, readBody(t, logout))
@@ -166,6 +245,79 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 		t.Fatalf("session after logout status = %d, want 401", afterLogout.StatusCode)
 	}
 	_ = readBody(t, afterLogout)
+	oldAccessAfterLogout := getWithCookies(t, server.Client(), server.URL+"/api/v1/admin/auth/session", []*http.Cookie{secondAccess})
+	if oldAccessAfterLogout.StatusCode != http.StatusUnauthorized || problemCode(t, oldAccessAfterLogout) != "admin_auth.session_revoked" {
+		t.Fatal("saved access cookie remained usable after logout")
+	}
+	oldRefreshAfterLogout := postJSON(t, server.Client(), refreshURL, adminE2EOrigin, map[string]any{"transport": "cookie"}, []*http.Cookie{secondRefresh}, nil)
+	if oldRefreshAfterLogout.StatusCode != http.StatusUnauthorized || problemCode(t, oldRefreshAfterLogout) != "admin_auth.session_revoked" {
+		t.Fatal("saved refresh cookie remained usable after logout")
+	}
+
+	concurrentLogin := postJSON(t, client, server.URL+"/api/v1/admin/auth/login", adminE2EOrigin, map[string]any{"identifier": "admin@example.test", "credential": "correct-password-123", "transport": "cookie"}, nil, nil)
+	if concurrentLogin.StatusCode != http.StatusOK {
+		t.Fatalf("concurrent-flow login status = %d, body = %s", concurrentLogin.StatusCode, readBody(t, concurrentLogin))
+	}
+	concurrentRefresh := namedCookie(t, concurrentLogin.Cookies(), "__Secure-platform_admin_refresh")
+	_ = readBody(t, concurrentLogin)
+	requests := make([]*http.Request, 2)
+	for index := range requests {
+		payload, err := json.Marshal(map[string]any{"transport": "cookie"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := http.NewRequest(http.MethodPost, refreshURL, bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", adminE2EOrigin)
+		request.AddCookie(concurrentRefresh)
+		requests[index] = request
+	}
+	type refreshResult struct {
+		response *http.Response
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan refreshResult, len(requests))
+	concurrentClient := server.Client()
+	for _, request := range requests {
+		go func(request *http.Request) {
+			<-start
+			response, err := concurrentClient.Do(request)
+			results <- refreshResult{response: response, err: err}
+		}(request)
+	}
+	close(start)
+	succeeded, replayed := 0, 0
+	var winningAccess *http.Cookie
+	for range requests {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("concurrent refresh request failed: %v", result.err)
+		}
+		switch result.response.StatusCode {
+		case http.StatusOK:
+			succeeded++
+			winningAccess = namedCookie(t, result.response.Cookies(), "__Host-platform_admin_access")
+			_ = readBody(t, result.response)
+		case http.StatusUnauthorized:
+			if problemCode(t, result.response) != "admin_auth.refresh_replayed" {
+				t.Fatal("concurrent refresh loser did not return the stable replay code")
+			}
+			replayed++
+		default:
+			t.Fatalf("concurrent refresh status = %d", result.response.StatusCode)
+		}
+	}
+	if succeeded != 1 || replayed != 1 || winningAccess == nil {
+		t.Fatalf("concurrent refresh results: succeeded=%d replayed=%d", succeeded, replayed)
+	}
+	winnerAfterReplay := getWithCookies(t, server.Client(), server.URL+"/api/v1/admin/auth/session", []*http.Cookie{winningAccess})
+	if winnerAfterReplay.StatusCode != http.StatusUnauthorized || problemCode(t, winnerAfterReplay) != "admin_auth.session_revoked" {
+		t.Fatal("concurrent refresh replay did not revoke the token family issued to the winner")
+	}
 
 	deadline := time.Now().Add(6 * time.Second)
 	for {
@@ -183,13 +335,17 @@ func TestAdminCookieGoldenFlowWithPostgreSQLAndAuditOutbox(t *testing.T) {
 
 func TestAdminControlledBearerGoldenFlowWithPostgreSQL(t *testing.T) {
 	database := testpostgres.Open(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	repository := identitypostgres.New(database.Pool)
 	accessService := accesscontrol.NewService(accesspostgres.New(database.Pool), nil)
 	hasher, err := securevalue.NewHasher("integration-test-token-pepper-at-least-32-bytes")
 	if err != nil {
 		t.Fatal(err)
 	}
+	auditService := audit.NewService(auditpostgres.New(database.Pool))
+	dispatcher := identity.NewOutboxDispatcher(repository, identityAuditAdapter{service: auditService}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	go dispatcher.Run(ctx)
 	identityService, err := identity.NewService(repository, accessService, identity.Bcrypt{Cost: 10}, hasher, identity.Policy{
 		AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour,
 		LoginWindow: 10 * time.Minute, LoginMaximumAttempts: 5, LoginBlockDuration: 10 * time.Minute,
@@ -247,12 +403,13 @@ func TestAdminControlledBearerGoldenFlowWithPostgreSQL(t *testing.T) {
 		})
 	}
 
+	const bearerLoginTraceID = "trace-bearer-login"
 	login := postJSON(t, client, loginURL, "", map[string]any{
 		"identifier":        "bearer-admin@example.test",
 		"credential":        "correct-bearer-password-123",
 		"transport":         "bearer",
 		"controlled_client": controlledClientPayload(primary.ClientID, primary.CredentialID, primary.ProofType, primary.Secret),
-	}, nil, nil)
+	}, nil, map[string]string{"X-Request-ID": bearerLoginTraceID})
 	if login.StatusCode != http.StatusOK {
 		t.Fatalf("bearer login status = %d, body = %s", login.StatusCode, readBody(t, login))
 	}
@@ -263,6 +420,7 @@ func TestAdminControlledBearerGoldenFlowWithPostgreSQL(t *testing.T) {
 	if session.Transport != identity.TransportBearer || session.ControlledClientID == nil || *session.ControlledClientID != primary.ClientID {
 		t.Fatalf("unexpected controlled bearer session: %#v", session)
 	}
+	assertCatalogAuthorization(t, session.Authorization, "platform", "")
 	if session.TokenPair == nil || session.TokenPair.AccessToken == "" || session.TokenPair.RefreshToken == "" {
 		t.Fatal("bearer login did not return the token pair")
 	}
@@ -286,11 +444,12 @@ func TestAdminControlledBearerGoldenFlowWithPostgreSQL(t *testing.T) {
 		t.Fatal("refresh bound to a different controlled credential must be rejected")
 	}
 
+	const bearerRefreshTraceID = "trace-bearer-refresh"
 	refresh := postJSON(t, client, refreshURL, "", map[string]any{
 		"transport":         "bearer",
 		"refresh_token":     originalRefresh,
 		"controlled_client": controlledClientPayload(primary.ClientID, primary.CredentialID, primary.ProofType, primary.Secret),
-	}, nil, nil)
+	}, nil, map[string]string{"X-Request-ID": bearerRefreshTraceID})
 	if refresh.StatusCode != http.StatusOK {
 		t.Fatalf("exact-credential refresh status = %d, body = %s", refresh.StatusCode, readBody(t, refresh))
 	}
@@ -300,6 +459,57 @@ func TestAdminControlledBearerGoldenFlowWithPostgreSQL(t *testing.T) {
 	}
 	if refreshed.TokenPair == nil || refreshed.TokenPair.RefreshToken == "" || refreshed.TokenPair.RefreshToken == originalRefresh {
 		t.Fatal("exact-credential refresh did not rotate the refresh token")
+	}
+	assertCatalogAuthorization(t, refreshed.Authorization, "platform", "")
+
+	const bearerLogoutLoginTraceID = "trace-bearer-logout-login"
+	logoutLogin := postJSON(t, client, loginURL, "", map[string]any{
+		"identifier":        "bearer-admin@example.test",
+		"credential":        "correct-bearer-password-123",
+		"transport":         "bearer",
+		"controlled_client": controlledClientPayload(primary.ClientID, primary.CredentialID, primary.ProofType, primary.Secret),
+	}, nil, map[string]string{"X-Request-ID": bearerLogoutLoginTraceID})
+	if logoutLogin.StatusCode != http.StatusOK {
+		t.Fatalf("bearer logout-flow login status = %d, body = %s", logoutLogin.StatusCode, readBody(t, logoutLogin))
+	}
+	var logoutSession identity.AdminSession
+	if err := json.Unmarshal([]byte(readBody(t, logoutLogin)), &logoutSession); err != nil {
+		t.Fatal(err)
+	}
+	if logoutSession.TokenPair == nil {
+		t.Fatal("bearer logout-flow login did not return a token pair")
+	}
+	refreshAsBearerLogout := postJSON(t, client, server.URL+"/api/v1/admin/auth/logout", "", nil, nil, map[string]string{
+		"Authorization": "Bearer " + logoutSession.TokenPair.RefreshToken,
+	})
+	if refreshAsBearerLogout.StatusCode != http.StatusUnauthorized || problemCode(t, refreshAsBearerLogout) != "admin_auth.session_revoked" {
+		t.Fatal("bearer refresh submitted as bearer access logout was not rejected")
+	}
+	accessAfterInvalidLogout := getWithBearer(t, client, server.URL+"/api/v1/admin/auth/session", logoutSession.TokenPair.AccessToken)
+	if accessAfterInvalidLogout.StatusCode != http.StatusOK {
+		t.Fatalf("invalid bearer logout revoked valid access: status=%d body=%s", accessAfterInvalidLogout.StatusCode, readBody(t, accessAfterInvalidLogout))
+	}
+	_ = readBody(t, accessAfterInvalidLogout)
+	const bearerLogoutTraceID = "trace-bearer-logout"
+	bearerLogout := postJSON(t, client, server.URL+"/api/v1/admin/auth/logout", "", nil, nil, map[string]string{
+		"Authorization": "Bearer " + logoutSession.TokenPair.AccessToken,
+		"X-Request-ID":  bearerLogoutTraceID,
+	})
+	if bearerLogout.StatusCode != http.StatusNoContent {
+		t.Fatalf("bearer logout status = %d, body = %s", bearerLogout.StatusCode, readBody(t, bearerLogout))
+	}
+	_ = bearerLogout.Body.Close()
+	loggedOutAccess := getWithBearer(t, client, server.URL+"/api/v1/admin/auth/session", logoutSession.TokenPair.AccessToken)
+	if loggedOutAccess.StatusCode != http.StatusUnauthorized || problemCode(t, loggedOutAccess) != "admin_auth.session_revoked" {
+		t.Fatal("bearer access remained usable after logout")
+	}
+	loggedOutRefresh := postJSON(t, client, refreshURL, "", map[string]any{
+		"transport":         "bearer",
+		"refresh_token":     logoutSession.TokenPair.RefreshToken,
+		"controlled_client": controlledClientPayload(primary.ClientID, primary.CredentialID, primary.ProofType, primary.Secret),
+	}, nil, nil)
+	if loggedOutRefresh.StatusCode != http.StatusUnauthorized || problemCode(t, loggedOutRefresh) != "admin_auth.session_revoked" {
+		t.Fatal("bearer refresh remained usable after logout")
 	}
 
 	if err := identityService.DisableControlledAdminClient(ctx, primary.ClientID); err != nil {
@@ -316,6 +526,104 @@ func TestAdminControlledBearerGoldenFlowWithPostgreSQL(t *testing.T) {
 	}, nil, nil)
 	if disabledRefresh.StatusCode != http.StatusUnauthorized || problemCode(t, disabledRefresh) != "admin_auth.session_revoked" {
 		t.Fatal("disabling a controlled client must invalidate its issued refresh token")
+	}
+
+	expectedAuditActions := map[string]string{
+		bearerLoginTraceID:       "admin.auth.login_succeeded",
+		bearerRefreshTraceID:     "admin.auth.session_refreshed",
+		bearerLogoutLoginTraceID: "admin.auth.login_succeeded",
+		bearerLogoutTraceID:      "admin.auth.session_revoked",
+	}
+	auditDeadline := time.Now().Add(6 * time.Second)
+	for {
+		matched := 0
+		for traceID, expectedAction := range expectedAuditActions {
+			var action string
+			err := database.Pool.QueryRow(ctx, `SELECT action FROM audit.events WHERE trace_id=$1`, traceID).Scan(&action)
+			if err == nil && action == expectedAction {
+				matched++
+			}
+		}
+		if matched == len(expectedAuditActions) {
+			break
+		}
+		if time.Now().After(auditDeadline) {
+			t.Fatalf("bearer audit events were not queryable by trace_id: matched=%d want=%d", matched, len(expectedAuditActions))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func TestIdentityAuditOutboxRetriesWithPostgreSQL(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	repository := identitypostgres.New(database.Pool)
+	accessService := accesscontrol.NewService(accesspostgres.New(database.Pool), nil)
+	hasher, err := securevalue.NewHasher("integration-test-token-pepper-at-least-32-bytes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityService, err := identity.NewService(repository, accessService, identity.Bcrypt{Cost: 10}, hasher, identity.Policy{
+		AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour,
+		LoginWindow: 10 * time.Minute, LoginMaximumAttempts: 5, LoginBlockDuration: 10 * time.Minute,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminID, err := identityService.BootstrapAdminIdentity(ctx, "retry-admin@example.test", "Retry Administrator", []byte("correct-password-123"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accessService.BootstrapPlatformAdmin(ctx, accesscontrol.BootstrapCommand{BindingID: "binding-retry-admin", RoleID: "role-retry-admin", AdminUserID: adminID, Now: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	auditService := audit.NewService(auditpostgres.New(database.Pool))
+	flakyAudit := &failOnceAuditAdapter{delegate: identityAuditAdapter{service: auditService}}
+	flakyAudit.remaining.Store(1)
+	dispatcher := identity.NewOutboxDispatcher(repository, flakyAudit, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	go dispatcher.Run(ctx)
+
+	const traceID = "trace-audit-retry-postgres"
+	if _, err := identityService.LoginAdmin(ctx, identity.LoginCommand{
+		Identifier: "retry-admin@example.test", Credential: "correct-password-123", Requested: identity.TransportCookie,
+		Source: "127.0.0.1", TraceID: traceID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	failureDeadline := time.Now().Add(3 * time.Second)
+	failurePersisted := false
+	for !failurePersisted {
+		var status, lastError string
+		var attempts int
+		err := database.Pool.QueryRow(ctx, `SELECT status,attempt_count,COALESCE(last_error,'') FROM identity.outbox_events WHERE payload->>'trace_id'=$1`, traceID).Scan(&status, &attempts, &lastError)
+		failurePersisted = err == nil && status == "pending" && attempts == 1 && lastError == "audit append failed"
+		if failurePersisted {
+			break
+		}
+		if time.Now().After(failureDeadline) {
+			t.Fatalf("transient audit failure was not retained for retry: status=%q attempts=%d last_error=%q error=%v", status, attempts, lastError, err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	successDeadline := time.Now().Add(6 * time.Second)
+	for {
+		var status, lastError string
+		var attempts, auditCount int
+		err := database.Pool.QueryRow(ctx, `
+			SELECT o.status,o.attempt_count,COALESCE(o.last_error,''),
+			       (SELECT count(*) FROM audit.events a WHERE a.trace_id=$1 AND a.action='admin.auth.login_succeeded')
+			FROM identity.outbox_events o WHERE o.payload->>'trace_id'=$1`, traceID).Scan(&status, &attempts, &lastError, &auditCount)
+		if err == nil && status == "published" && attempts == 2 && lastError == "" && auditCount == 1 {
+			break
+		}
+		if time.Now().After(successDeadline) {
+			t.Fatalf("audit retry did not publish exactly once: status=%q attempts=%d last_error=%q audit_count=%d error=%v", status, attempts, lastError, auditCount, err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -359,6 +667,22 @@ func get(t *testing.T, client *http.Client, target string) *http.Response {
 	return response
 }
 
+func getWithCookies(t *testing.T, client *http.Client, target string, cookies []*http.Cookie) *http.Response {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
 func getWithBearer(t *testing.T, client *http.Client, target, accessToken string) *http.Response {
 	t.Helper()
 	request, err := http.NewRequest(http.MethodGet, target, nil)
@@ -375,6 +699,26 @@ func getWithBearer(t *testing.T, client *http.Client, target, accessToken string
 
 func controlledClientPayload(clientID, credentialID, proofType, proof string) map[string]any {
 	return map[string]any{"client_id": clientID, "credential_id": credentialID, "proof_type": proofType, "proof": proof}
+}
+
+func assertCatalogAuthorization(t *testing.T, snapshot accesscontrol.Snapshot, scopeType, productID string) {
+	t.Helper()
+	definitions := accesscontrol.CurrentPermissionCatalog().Definitions()
+	if len(snapshot.Permissions) != len(definitions) {
+		t.Fatalf("authorization permissions = %v, want complete catalog", snapshot.Permissions)
+	}
+	granted := make(map[string]struct{}, len(snapshot.Permissions))
+	for _, permission := range snapshot.Permissions {
+		granted[permission] = struct{}{}
+	}
+	for _, definition := range definitions {
+		if _, ok := granted[definition.Code]; !ok {
+			t.Fatalf("authorization is missing permission %q", definition.Code)
+		}
+	}
+	if len(snapshot.Scopes) != 1 || snapshot.Scopes[0].Type != scopeType || snapshot.Scopes[0].ProductID != productID {
+		t.Fatalf("authorization scopes = %#v, want type=%q product_id=%q", snapshot.Scopes, scopeType, productID)
+	}
 }
 
 func assertSessionCookies(t *testing.T, response *http.Response) {
@@ -411,6 +755,31 @@ func problemCode(t *testing.T, response *http.Response) string {
 		t.Fatal(err)
 	}
 	return problem.Code
+}
+
+func assertIndistinguishableAuthFailures(t *testing.T, responses ...*http.Response) {
+	t.Helper()
+	var baseline map[string]any
+	for index, response := range responses {
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("authentication failure %d status = %d, want 401", index, response.StatusCode)
+		}
+		var problem map[string]any
+		if err := json.Unmarshal([]byte(readBody(t, response)), &problem); err != nil {
+			t.Fatal(err)
+		}
+		delete(problem, "request_id")
+		if problem["code"] != "admin_auth.invalid_credentials" {
+			t.Fatalf("authentication failure %d code = %v", index, problem["code"])
+		}
+		if index == 0 {
+			baseline = problem
+			continue
+		}
+		if !reflect.DeepEqual(problem, baseline) {
+			t.Fatalf("authentication failure %d is distinguishable: got=%v want=%v", index, problem, baseline)
+		}
+	}
 }
 
 func readBody(t *testing.T, response *http.Response) string {

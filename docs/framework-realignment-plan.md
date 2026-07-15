@@ -2,7 +2,7 @@
 
 ## 裁决
 
-不从头重写，不建立 `v2`、`new` 或另一套平行平台。现有代码大约 80% 是可复用工程地基，真正需要调整的是约 20% 的入口、模块装配和产品组织；尚未实现的 Client UI、SDK、模板和生成器按新主线建设。
+不从头重写，不建立 `v2`、`new` 或另一套平行平台。现有代码大约 80% 是可复用工程地基，真正需要调整的是约 20% 的入口、模块装配和产品组织。Client UI/SDK 基座、Assembly Generator 和第一套实验模板候选现已实现；未完成项与严格顺序只看 `end-to-end-development-plan.md`。
 
 ## 2026-07-13 安全与模块入口关口
 
@@ -36,16 +36,17 @@
 - 把硬编码管理员权限改成版本化 Permission Catalog；能力包可以声明权限，但不能自动给管理员授权。
 - 补真实 PostgreSQL 迁移、行锁、Cookie、refresh replay 和 outbox 集成验证。
 
-当前代码状态：前四项已完成并通过 Go 单元/HTTP 测试与 `go vet`；真实 PostgreSQL、行锁、Cookie 浏览器和 outbox 端到端验证仍未完成。
+当前代码状态：前四项、真实 PostgreSQL/行锁/refresh replay/outbox 的本地 HTTP 与集成子范围已经通过；管理员 Cookie 的真实浏览器双标签、403/退出恢复、Cookie 属性和桌面/移动证据也已通过。准确成熟度只看 `implementation-status.md`。
 
 ### 3. 建立机器可执行的装配层
 
 ```text
 platform/backend/internal/modules/assembly/
+platform/backend/internal/modules/assembly/generation/
+platform/backend/internal/workflows/assemblyexecution/
 platform/capability-packages/<package_id>/<version>/manifest.json
 platform/contracts/schemas/
 platform/templates/<template_id>/<version>/
-platform/generator/
 ```
 
 - 文档目录只供人阅读，运行时必须使用版本化 Manifest、Schema、checksum 和 snapshot。
@@ -70,9 +71,7 @@ platform/client-ui/headless/
 platform/client-ui/web-react/
 platform/client-ui/hosted-web/
 platform/sdk/typescript/
-platform/templates/web-react/standard-a/
-platform/templates/desktop-webview/standard-a/
-platform/generator/testdata/
+platform/experimental/templates/standard-a/<version>/
 ```
 
 - Headless 层统一状态和事件，不保存支付、权益等业务事实。
@@ -86,15 +85,9 @@ platform/generator/testdata/
 - G2 通过前不接路由、不建业务表、不扩展后台菜单、不接真实 Provider。
 - OpenAPI 中未实现的契约可保留，但实施状态必须机器可查，不能把契约当实现。
 
-## 第一条落地顺序
+## 第一条落地主线
 
-1. 完成本次文档和命名清理。
-2. 修复认证安全细节并完成模块 Router/Registrar。
-3. 封装机器 Manifest、Blueprint、Plan、lock 和 Generator 契约。
-4. 实现空白蓝图装配，验证幂等、哈希冲突和 custom 保护。
-5. 完成 `package.account` 的真实后端、管理块、用户 UI、SDK、源码与测试。
-6. 完成 `package.entitlement` 的完整纵向交付。
-7. 从实验目录生成真实样板并跑 ST-028；通过后才把包提升为 `available`。
+本文件不再维护第二份工作编号或顺序。唯一执行表为 `end-to-end-development-plan.md` 第 6.2 节：先关闭管理员浏览器认证、托管 CI 和第一套模板视觉关口，再完成受信工具、创建向导/软件工作区、lifecycle API 和 Extension Catalog；随后逐面完成 `package.account` 与 `package.entitlement`，最后在 G2C 从统一后台真实点击创建并同时验收该软件后台和用户前台。任一关口未通过不得进入下一项。
 
 ## 编码前必须先裁决的风险
 
@@ -109,6 +102,6 @@ platform/generator/testdata/
 - 现有认证测试继续通过，随机错误和真实 PostgreSQL 风险有验证证据。
 - Router/Module Registrar 可以注册 Product 与 Assembly，不再硬编码只有认证路由。
 - 机器 Manifest 与 OpenAPI 契约通过校验。
-- 空白蓝图可以重复生成且不覆盖 custom。
+- 模板预览可以重复生成可运行前台框架且不覆盖 custom；Product Blueprint 不使用空包或假包，真实样板等首批 verified candidate 后在 ST-028 装配。
 
 达到以上标准后继续写第一条完整能力链；未达到前不扩充更多后台功能。

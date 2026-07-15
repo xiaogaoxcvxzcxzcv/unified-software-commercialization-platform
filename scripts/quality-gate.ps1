@@ -74,8 +74,8 @@ function Invoke-GateStep {
     }
     catch {
         $status = 'failed'
-        $message = $_.Exception.Message
-        Write-Host "FAILED: $message" -ForegroundColor Red
+        $message = 'step_failed; inspect the local or hosted command log'
+        Write-Host "FAILED: $Name" -ForegroundColor Red
     }
     finally {
         $stopwatch.Stop()
@@ -85,6 +85,52 @@ function Invoke-GateStep {
             duration_ms = $stopwatch.ElapsedMilliseconds
             message     = $message
         })
+    }
+}
+
+function Test-GitCommitRevision {
+    param([AllowNull()][string]$Revision)
+    if ([string]::IsNullOrWhiteSpace($Revision) -or $Revision -notmatch '^[0-9a-fA-F]{40}$' -or $Revision -match '^0{40}$') {
+        return $false
+    }
+    & git -C $RepoRoot cat-file -e "${Revision}^{commit}" 2>$null
+    return $LASTEXITCODE -eq 0
+}
+
+function Test-GitWhitespace {
+    $baseRevision = $env:QUALITY_GATE_BASE_REVISION
+    $headRevision = $env:QUALITY_GATE_HEAD_REVISION
+    $commonArguments = @('-C', $RepoRoot, '-c', 'core.safecrlf=false', '-c', 'core.autocrlf=false')
+    if (Test-GitCommitRevision -Revision $headRevision) {
+        if (Test-GitCommitRevision -Revision $baseRevision) {
+            Invoke-Native -Command 'git' -Arguments ($commonArguments + @('diff', '--check', $baseRevision, $headRevision, '--'))
+            return
+        }
+        & git -C $RepoRoot cat-file -e "${headRevision}^{commit}" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Invoke-Native -Command 'git' -Arguments ($commonArguments + @('diff', '--check', "${headRevision}^", $headRevision, '--'))
+            return
+        }
+        Invoke-Native -Command 'git' -Arguments ($commonArguments + @('show', '--check', '--format=', $headRevision))
+        return
+    }
+    Invoke-Native -Command 'git' -Arguments ($commonArguments + @('diff', '--check'))
+}
+
+function Invoke-GoTestsWithPostgresEvidence {
+    $output = @(& go test -count=1 ./... 2>&1)
+    $exitCode = $LASTEXITCODE
+    foreach ($line in $output) {
+        Write-Host $line
+    }
+    if ($RequirePostgres -and ($output -match 'PostgreSQL integration test skipped')) {
+        throw 'required PostgreSQL integration tests were skipped'
+    }
+    if ($exitCode -ne 0) {
+        throw "go test exited with code $exitCode"
+    }
+    if ($RequirePostgres) {
+        Write-Host 'PostgreSQL integration tests completed without the missing-database skip marker'
     }
 }
 
@@ -343,9 +389,7 @@ function Write-GateReport {
 try {
     Set-Location $RepoRoot
 
-    Invoke-GateStep -Name 'Git whitespace check' -Action {
-        Invoke-Native -Command 'git' -Arguments @('-C', $RepoRoot, '-c', 'core.safecrlf=false', '-c', 'core.autocrlf=false', 'diff', '--check')
-    }
+    Invoke-GateStep -Name 'Git whitespace check' -Action { Test-GitWhitespace }
     Invoke-GateStep -Name 'Strict UTF-8' -Action { Test-StrictUtf8 }
     Invoke-GateStep -Name 'Migration naming and pairing' -Action { Test-Migrations }
     Invoke-GateStep -Name 'Local documentation links' -Action { Test-DocumentationLinks }
@@ -391,7 +435,7 @@ try {
             $env:GOCACHE = Join-Path $runtime 'go-build-cache'
             $env:GOMODCACHE = Join-Path $runtime 'go-mod-cache'
             Push-Location (Join-Path $RepoRoot 'platform/backend')
-            try { Invoke-Native -Command 'go' -Arguments @('test', '-count=1', './...') } finally { Pop-Location }
+            try { Invoke-GoTestsWithPostgresEvidence } finally { Pop-Location }
         }
         Invoke-GateStep -Name 'Go vet' -Action {
             Push-Location (Join-Path $RepoRoot 'platform/backend')

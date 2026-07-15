@@ -6,9 +6,11 @@
 
 减少重复开发是第一目标。统一管理后台、共享后端、Client UI、SDK 和源码生成都是实现这个目标的交付面，任何一面都不能单独代表完整产品。最高产品真相见 `product-scope.md`，完整包门槛见 `complete-capability-package-standard.md`。
 
+用户前台模板交付可运行 Shell、布局、导航、主题、所选公共 Feature Block 的页面编排和 custom 扩展槽。登录、个人中心、会员等公共页面随对应 `available` 能力包装配；软件自己的业务首页、目录页、工作台和核心内容不做统一模板，由开发人员在 custom 区域实现并接入。
+
 ## 当前状态
 
-- 当前阶段：F0 本地框架验证、G1-01 至 G1-06 已按编号收口；G1-07 第一套 Web/桌面模板已达到 `implemented candidate`，当前等待桌面/窄屏浏览器视觉 QA 后收口。完整能力包尚未开始。
+- 当前阶段：F0-02 的三个认证边界 P1 已按契约修复，并通过真实 PostgreSQL、真实双标签浏览器和 Full 18 项质量门补救复验，重新达到 `verified`。当前唯一关口为 F0-03：修复首次托管 CI 暴露的 Linux 路径与离线模板依赖问题，取得绿色托管运行并配置 required check。完整能力包尚未开始。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程和内存演示 Client；它用于验证信息架构、产品/租户上下文与交互，不是生产数据源。
@@ -46,7 +48,7 @@ platform/
   sdk/                     各语言客户端 SDK
   templates/               版本化 UI 模板与目标端项目模板
   experimental/            服务端受控 verified 候选目录
-  generator/               蓝图解析后的源码和配置生成器
+  backend/internal/modules/assembly/generation/  蓝图解析后的源码和配置生成器
   contracts/               OpenAPI、事件和文件契约
   deploy/                  Docker 与环境模板
 docs/
@@ -156,7 +158,7 @@ Product Blueprint
 
 第一条主链只完成 `package.account`、`package.entitlement` 和 Web/桌面标准 UI。Device/License、Commerce、AI、存储和运营能力随后按同一完整包标准逐个加入。基础代理租户隔离保留在数据模型，但代理经营界面不是第一条主链的中心。
 
-G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已提供只在实验目录可见的 `standard-a` 候选，仍缺浏览器视觉证据；生产计划在没有 `available` 包、模板和受信 Generator/SDK 工具时继续失败关闭。G1-08/G1-09 负责向导与真实装配入口。
+G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已提供只在实验目录可见的 `standard-a` 候选，仍缺浏览器视觉证据；G1-07.1、G1-08、G1-10 和 G1-11 分别负责受信工具、创建向导/软件管理工作区、lifecycle API 和可信扩展目录。Product Blueprint 至少选择一个真实能力包，原 G1-09 基础样板不再独立执行，第一次真实装配进入 G2C。
 
 ## 红线
 

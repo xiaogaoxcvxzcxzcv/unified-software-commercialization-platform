@@ -93,14 +93,135 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
-export async function authenticatedAdminRequest<T>(path: string, init: RequestInit = {}, csrfToken: string | null = null) {
-  if (!path.startsWith("/api/v1/admin/")) {
-    throw new AuthApiError("管理请求地址不在允许范围内", {
-      status: 400,
-      code: "admin_auth.invalid_admin_api_path",
-      retryable: false,
+let refreshInFlight: Promise<AdminSession> | null = null;
+let sessionSyncInFlight: Promise<AdminSession | null> | null = null;
+let currentAdminSession: AdminSession | null = null;
+const sessionInvalidatedListeners = new Set<() => void>();
+const sessionEpochStorageKey = "platform_admin_session_epoch_v1";
+const refreshLockName = "platform-admin-auth-refresh-v1";
+const terminalSessionCodes = new Set([
+  "admin_auth.session_expired",
+  "admin_auth.session_revoked",
+  "admin_auth.refresh_replayed",
+]);
+let observedSessionEpoch = readSharedSessionEpoch();
+
+interface BrowserLockManager {
+  request<T>(name: string, callback: () => T | PromiseLike<T>): Promise<T>;
+}
+
+function readSharedSessionEpoch() {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage.getItem(sessionEpochStorageKey);
+  } catch {
+    return null;
+  }
+}
+
+function publishSharedSessionEpoch() {
+  const epoch = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+  try {
+    window.localStorage.setItem(sessionEpochStorageKey, epoch);
+    observedSessionEpoch = epoch;
+  } catch {
+    // The epoch is coordination metadata only; memory-only auth remains valid.
+  }
+}
+
+function getBrowserLockManager() {
+  if (typeof navigator === "undefined") return null;
+  return (navigator as Navigator & { locks?: BrowserLockManager }).locks ?? null;
+}
+
+function rememberSession(session: AdminSession, publish = false) {
+  if (currentAdminSession && session.session_version < currentAdminSession.session_version) {
+    return currentAdminSession;
+  }
+  currentAdminSession = session;
+  if (publish) publishSharedSessionEpoch();
+  return session;
+}
+
+function isTerminalSessionFailure(reason: unknown) {
+  return reason instanceof AuthApiError
+    && reason.status === 401
+    && terminalSessionCodes.has(reason.code);
+}
+
+function invalidateRememberedSession(publish = false) {
+  currentAdminSession = null;
+  if (publish) publishSharedSessionEpoch();
+  for (const listener of sessionInvalidatedListeners) listener();
+}
+
+function handleTerminalSessionFailure(reason: unknown) {
+  if (isTerminalSessionFailure(reason)) invalidateRememberedSession(true);
+  return reason;
+}
+
+async function refreshAfterCheckingCurrentSession() {
+  try {
+    const recovered = await request<AdminSession>(`${authBasePath}/session`);
+    observedSessionEpoch = readSharedSessionEpoch();
+    return rememberSession(recovered);
+  } catch (reason) {
+    if (!(reason instanceof AuthApiError)
+      || reason.status !== 401
+      || reason.code !== "admin_auth.session_expired") {
+      throw handleTerminalSessionFailure(reason);
+    }
+  }
+  return request<AdminSession>(`${authBasePath}/refresh`, {
+    method: "POST",
+    body: JSON.stringify({ transport: "cookie" }),
+  }).then((session) => rememberSession(session, true)).catch((reason: unknown) => {
+    throw handleTerminalSessionFailure(reason);
+  });
+}
+
+function refreshAdminSession() {
+  if (!refreshInFlight) {
+    const locks = getBrowserLockManager();
+    const refresh = locks
+      ? locks.request<AdminSession>(refreshLockName, refreshAfterCheckingCurrentSession)
+      : request<AdminSession>(`${authBasePath}/refresh`, {
+        method: "POST",
+        body: JSON.stringify({ transport: "cookie" }),
+      }).then((session) => rememberSession(session, true)).catch((reason: unknown) => {
+        throw handleTerminalSessionFailure(reason);
+      });
+    refreshInFlight = refresh.finally(() => {
+      refreshInFlight = null;
     });
   }
+  return refreshInFlight;
+}
+
+function synchronizeSharedSession() {
+  const sharedEpoch = readSharedSessionEpoch();
+  if (!sharedEpoch || sharedEpoch === observedSessionEpoch) return Promise.resolve<AdminSession | null>(null);
+  if (!sessionSyncInFlight) {
+    sessionSyncInFlight = request<AdminSession>(`${authBasePath}/session`).then((session) => {
+      observedSessionEpoch = sharedEpoch;
+      return rememberSession(session);
+    }).catch((reason: unknown) => {
+      if (reason instanceof AuthApiError
+        && reason.status === 401
+        && reason.code === "admin_auth.session_expired") {
+        observedSessionEpoch = sharedEpoch;
+        return null;
+      }
+      throw handleTerminalSessionFailure(reason);
+    }).finally(() => {
+      sessionSyncInFlight = null;
+    });
+  }
+  return sessionSyncInFlight;
+}
+
+async function sendAuthenticatedAdminRequest<T>(path: string, init: RequestInit, csrfToken: string | null) {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (unsafeMethods.has(method)) {
@@ -116,48 +237,89 @@ export async function authenticatedAdminRequest<T>(path: string, init: RequestIn
   return request<T>(path, { ...init, headers });
 }
 
-let refreshInFlight: Promise<AdminSession> | null = null;
-let currentCsrfToken: string | null = null;
+export async function authenticatedAdminRequest<T>(path: string, init: RequestInit = {}, csrfToken: string | null = null) {
+  if (!path.startsWith("/api/v1/admin/")) {
+    throw new AuthApiError("管理请求地址不在允许范围内", {
+      status: 400,
+      code: "admin_auth.invalid_admin_api_path",
+      retryable: false,
+    });
+  }
 
-function rememberSession(session: AdminSession) {
-  currentCsrfToken = session.csrf_token;
-  return session;
+  await synchronizeSharedSession();
+  const requestCsrfToken = unsafeMethods.has((init.method ?? "GET").toUpperCase())
+    ? currentAdminSession?.csrf_token ?? csrfToken
+    : csrfToken;
+  try {
+    return await sendAuthenticatedAdminRequest<T>(path, init, requestCsrfToken);
+  } catch (reason) {
+    if (!(reason instanceof AuthApiError)
+      || reason.status !== 401
+      || reason.code !== "admin_auth.session_expired") {
+      throw handleTerminalSessionFailure(reason);
+    }
+
+    await refreshAdminSession();
+    try {
+      return await sendAuthenticatedAdminRequest<T>(path, init, currentAdminSession?.csrf_token ?? null);
+    } catch (replayReason) {
+      throw handleTerminalSessionFailure(replayReason);
+    }
+  }
 }
 
 export function getAdminCsrfToken() {
-  return currentCsrfToken;
+  return currentAdminSession?.csrf_token ?? null;
+}
+
+export function resetAdminAuthStateForTests() {
+  refreshInFlight = null;
+  sessionSyncInFlight = null;
+  currentAdminSession = null;
+  observedSessionEpoch = null;
+  sessionInvalidatedListeners.clear();
+  try {
+    if (typeof window !== "undefined") window.localStorage.removeItem(sessionEpochStorageKey);
+  } catch {
+    // Tests may provide a window without storage access.
+  }
+}
+
+export function subscribeAdminSessionInvalidated(listener: () => void) {
+  sessionInvalidatedListeners.add(listener);
+  return () => {
+    sessionInvalidatedListeners.delete(listener);
+  };
 }
 
 export const authClient = {
   getSession() {
-    return request<AdminSession>(`${authBasePath}/session`).then(rememberSession);
+    // An expired access cookie is recoverable while the refresh cookie is
+    // still valid. AuthContext owns that initial recovery decision.
+    return request<AdminSession>(`${authBasePath}/session`).then((session) => {
+      observedSessionEpoch = readSharedSessionEpoch();
+      return rememberSession(session);
+    });
   },
   login(identifier: string, credential: string) {
     return request<AdminSession>(`${authBasePath}/login`, {
       method: "POST",
       body: JSON.stringify({ identifier, credential, transport: "cookie" }),
-    }).then(rememberSession);
+    }).then((session) => rememberSession(session, true));
   },
   refresh() {
-    if (!refreshInFlight) {
-      refreshInFlight = request<AdminSession>(`${authBasePath}/refresh`, {
-        method: "POST",
-        body: JSON.stringify({ transport: "cookie" }),
-      }).then(rememberSession).finally(() => {
-        refreshInFlight = null;
-      });
-    }
-    return refreshInFlight;
+    return refreshAdminSession();
   },
   logout(csrfToken: string | null) {
-    return authenticatedAdminRequest<void>(`${authBasePath}/logout`, { method: "POST" }, csrfToken).finally(() => {
-      currentCsrfToken = null;
+    return authenticatedAdminRequest<void>(`${authBasePath}/logout`, { method: "POST" }, currentAdminSession?.csrf_token ?? csrfToken).then(() => {
+      currentAdminSession = null;
+      publishSharedSessionEpoch();
     });
   },
 };
 
 export function isAuthenticationFailure(reason: unknown) {
-  return reason instanceof AuthApiError && (reason.status === 401 || reason.status === 403);
+  return isTerminalSessionFailure(reason);
 }
 
 export function getAuthErrorMessage(reason: unknown) {

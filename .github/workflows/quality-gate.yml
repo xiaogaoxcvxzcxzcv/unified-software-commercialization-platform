@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   quality-gate:
+    name: quality-gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -30,16 +31,30 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://platform_test@127.0.0.1:5432/platform_test_control?sslmode=disable
       GOTELEMETRY: "off"
+      QUALITY_GATE_BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
+      QUALITY_GATE_HEAD_REVISION: ${{ github.sha }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: platform/backend/go.mod
           cache-dependency-path: platform/backend/go.sum
+
+      - name: Cache quality gate Go runtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .runtime/go-build-cache
+            .runtime/go-mod-cache
+          key: ${{ runner.os }}-quality-gate-go-${{ hashFiles('platform/backend/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-quality-gate-go-
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

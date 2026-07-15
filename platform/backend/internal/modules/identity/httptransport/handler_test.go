@@ -16,12 +16,13 @@ import (
 )
 
 type serviceStub struct {
-	login              identity.AdminSession
-	loginCommand       identity.LoginCommand
-	logoutToken        string
-	logoutCookieAccess bool
-	refreshCommand     identity.RefreshCommand
-	err                error
+	login          identity.AdminSession
+	loginCommand   identity.LoginCommand
+	logoutCommand  identity.LogoutCommand
+	logoutCalls    int
+	refreshCommand identity.RefreshCommand
+	refreshCalls   int
+	err            error
 }
 
 func (s *serviceStub) LoginAdmin(_ context.Context, command identity.LoginCommand) (identity.AdminSession, error) {
@@ -33,18 +34,19 @@ func (s *serviceStub) CurrentAdminSession(context.Context, string) (identity.Adm
 }
 func (s *serviceStub) RefreshAdminSessionWithClient(_ context.Context, command identity.RefreshCommand) (identity.AdminSession, error) {
 	s.refreshCommand = command
+	s.refreshCalls++
 	return s.login, s.err
 }
-func (s *serviceStub) LogoutAdmin(_ context.Context, token, _, _ string, cookieAccess bool) error {
-	s.logoutToken = token
-	s.logoutCookieAccess = cookieAccess
+func (s *serviceStub) LogoutAdmin(_ context.Context, command identity.LogoutCommand) error {
+	s.logoutCommand = command
+	s.logoutCalls++
 	return s.err
 }
 
 func cookieSession() identity.AdminSession {
 	now := time.Now().UTC()
-	csrf := "csrf_abcdefghijklmnopqrstuvwxyz0123456789"
-	return identity.AdminSession{SessionID: "session", Transport: identity.TransportCookie, Admin: identity.AdminIdentitySummary{AdminUserID: "user", DisplayName: "Admin", AccountStatus: "active", AuthTime: now, AuthenticationMethod: "password"}, Authorization: accesscontrol.Snapshot{AuthorizationVersion: 1, Permissions: []string{"platform.read"}, Scopes: []accesscontrol.Scope{{Type: "platform"}}}, AccessExpiresAt: now.Add(time.Minute), RefreshExpiresAt: now.Add(time.Hour), CSRFToken: &csrf, CookieTokens: &identity.IssuedTokens{AccessToken: "adm_at_secret_access", RefreshToken: "adm_rt_secret_refresh", AccessExpiresAt: now.Add(time.Minute), RefreshExpiresAt: now.Add(time.Hour)}}
+	csrf := "test-csrf-token-material"
+	return identity.AdminSession{SessionID: "session", Transport: identity.TransportCookie, Admin: identity.AdminIdentitySummary{AdminUserID: "user", DisplayName: "Admin", AccountStatus: "active", AuthTime: now, AuthenticationMethod: "password"}, Authorization: accesscontrol.Snapshot{AuthorizationVersion: 1, Permissions: []string{"platform.read"}, Scopes: []accesscontrol.Scope{{Type: "platform"}}}, AccessExpiresAt: now.Add(time.Minute), RefreshExpiresAt: now.Add(time.Hour), CSRFToken: &csrf, CookieTokens: &identity.IssuedTokens{AccessToken: "test-access-token-material", RefreshToken: "test-refresh-token-material", AccessExpiresAt: now.Add(time.Minute), RefreshExpiresAt: now.Add(time.Hour)}}
 }
 
 func TestCookieLoginSetsFixedSecureCookiesWithoutLeakingTokens(t *testing.T) {
@@ -71,7 +73,7 @@ func TestCookieLoginSetsFixedSecureCookiesWithoutLeakingTokens(t *testing.T) {
 	if cookies[0].Name != accessCookieName || cookies[0].Path != "/" || cookies[1].Name != refreshCookieName || cookies[1].Path != "/api/v1/admin/auth" {
 		t.Fatalf("unexpected cookie paths: %+v", cookies)
 	}
-	if strings.Contains(rr.Body.String(), "adm_at_secret_access") || strings.Contains(rr.Body.String(), "adm_rt_secret_refresh") {
+	if strings.Contains(rr.Body.String(), "test-access-token-material") || strings.Contains(rr.Body.String(), "test-refresh-token-material") {
 		t.Fatal("cookie response leaked opaque token")
 	}
 }
@@ -97,6 +99,70 @@ func TestCookieRefreshRequiresOriginButNotCSRF(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK || stub.refreshCommand.Transport != identity.TransportCookie || stub.refreshCommand.ControlledClient != nil {
 		t.Fatalf("status=%d command=%+v", rr.Code, stub.refreshCommand)
+	}
+}
+
+func TestCookieRefreshWithoutCookieReturnsExpiredSession(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		contentType bool
+	}{
+		{name: "empty body"},
+		{name: "empty object", body: `{}`, contentType: true},
+		{name: "explicit cookie transport", body: `{"transport":"cookie"}`, contentType: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stub := &serviceStub{login: cookieSession()}
+			handler := New(stub, Config{AllowedOrigins: []string{"https://admin.example.com"}})
+			var body *bytes.Reader
+			if test.body == "" {
+				body = bytes.NewReader(nil)
+			} else {
+				body = bytes.NewReader([]byte(test.body))
+			}
+			req := httptest.NewRequest(http.MethodPost, "https://api.example.com/api/v1/admin/auth/refresh", body)
+			req.Header.Set("Origin", "https://admin.example.com")
+			if test.contentType {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusUnauthorized {
+				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			assertProblemCode(t, rr, "admin_auth.session_expired")
+			if stub.refreshCalls != 0 {
+				t.Fatalf("refresh service calls=%d command=%+v", stub.refreshCalls, stub.refreshCommand)
+			}
+			assertClearedSessionCookies(t, rr)
+		})
+	}
+}
+
+func TestCookieRefreshWithoutCookieRejectsMissingOrUnregisteredOrigin(t *testing.T) {
+	for _, origin := range []string{"", "https://evil.example"} {
+		t.Run(origin, func(t *testing.T) {
+			stub := &serviceStub{login: cookieSession()}
+			handler := New(stub, Config{AllowedOrigins: []string{"https://admin.example.com"}})
+			req := httptest.NewRequest(http.MethodPost, "https://api.example.com/api/v1/admin/auth/refresh", nil)
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("origin=%q status=%d body=%s", origin, rr.Code, rr.Body.String())
+			}
+			assertProblemCode(t, rr, "admin_auth.origin_denied")
+			if stub.refreshCalls != 0 {
+				t.Fatalf("refresh service calls=%d", stub.refreshCalls)
+			}
+			if cookies := rr.Result().Cookies(); len(cookies) != 0 {
+				t.Fatalf("origin rejection changed cookies: %+v", cookies)
+			}
+		})
 	}
 }
 
@@ -159,17 +225,88 @@ func TestCookieLoginRejectsControlledClientProof(t *testing.T) {
 	}
 }
 
-func TestLogoutFallsBackToRefreshWithoutCSRF(t *testing.T) {
+func TestCookieLogoutPassesAllSessionProofsToService(t *testing.T) {
 	stub := &serviceStub{login: cookieSession()}
 	handler := New(stub, Config{AllowedOrigins: []string{"https://admin.example.com"}})
 	req := httptest.NewRequest(http.MethodPost, "https://api.example.com/api/v1/admin/auth/logout", nil)
 	req.Header.Set("Origin", "https://admin.example.com")
+	req.Header.Set(csrfHeader, "csrf-proof")
 	req.AddCookie(&http.Cookie{Name: accessCookieName, Value: "expired-access"})
 	req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "valid-refresh"})
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusNoContent || stub.logoutToken != "valid-refresh" || stub.logoutCookieAccess {
-		t.Fatalf("unexpected logout: status=%d token=%q access=%v", rr.Code, stub.logoutToken, stub.logoutCookieAccess)
+	if rr.Code != http.StatusNoContent || stub.logoutCalls != 1 {
+		t.Fatalf("unexpected logout: status=%d calls=%d", rr.Code, stub.logoutCalls)
+	}
+	command := stub.logoutCommand
+	if command.Transport != identity.TransportCookie || command.AccessToken != "expired-access" || command.RefreshToken != "valid-refresh" || command.CSRFToken != "csrf-proof" {
+		t.Fatalf("logout command=%+v", command)
+	}
+	assertClearedSessionCookies(t, rr)
+}
+
+func TestCookieLogoutRejectsMissingOrUnregisteredOrigin(t *testing.T) {
+	for _, origin := range []string{"", "https://evil.example"} {
+		t.Run(origin, func(t *testing.T) {
+			stub := &serviceStub{login: cookieSession()}
+			handler := New(stub, Config{AllowedOrigins: []string{"https://admin.example.com"}})
+			req := httptest.NewRequest(http.MethodPost, "https://api.example.com/api/v1/admin/auth/logout", nil)
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			req.AddCookie(&http.Cookie{Name: accessCookieName, Value: "access"})
+			req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "refresh"})
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("origin=%q status=%d body=%s", origin, rr.Code, rr.Body.String())
+			}
+			assertProblemCode(t, rr, "admin_auth.origin_denied")
+			if stub.logoutCalls != 0 {
+				t.Fatalf("logout service calls=%d", stub.logoutCalls)
+			}
+			if cookies := rr.Result().Cookies(); len(cookies) != 0 {
+				t.Fatalf("origin rejection changed cookies: %+v", cookies)
+			}
+		})
+	}
+}
+
+func TestTransientLogoutFailureKeepsCookiesForRetry(t *testing.T) {
+	stub := &serviceStub{err: errors.New("temporary database failure")}
+	handler := New(stub, Config{AllowedOrigins: []string{"https://admin.example.com"}})
+	req := httptest.NewRequest(http.MethodPost, "https://api.example.com/api/v1/admin/auth/logout", nil)
+	req.Header.Set("Origin", "https://admin.example.com")
+	req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "still-valid"})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if stub.logoutCalls != 1 {
+		t.Fatalf("logout service calls=%d", stub.logoutCalls)
+	}
+	if cookies := rr.Result().Cookies(); len(cookies) != 0 {
+		t.Fatalf("transient logout failure cleared cookies: %+v", cookies)
+	}
+}
+
+func TestTerminalLogoutFailureClearsCookies(t *testing.T) {
+	terminalErrors := []error{identity.ErrSessionExpired, identity.ErrSessionRevoked, identity.ErrRefreshReplayed}
+	for _, terminalErr := range terminalErrors {
+		t.Run(terminalErr.Error(), func(t *testing.T) {
+			stub := &serviceStub{err: terminalErr}
+			handler := New(stub, Config{AllowedOrigins: []string{"https://admin.example.com"}})
+			req := httptest.NewRequest(http.MethodPost, "https://api.example.com/api/v1/admin/auth/logout", nil)
+			req.Header.Set("Origin", "https://admin.example.com")
+			req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "terminal-refresh"})
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusUnauthorized {
+				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			assertClearedSessionCookies(t, rr)
+		})
 	}
 }
 
@@ -246,5 +383,38 @@ func TestAdminAccessTokenAcceptsOnlyCookieOrBearerAccessProof(t *testing.T) {
 	request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "refresh-is-not-access"})
 	if _, ok := AdminAccessToken(request); ok {
 		t.Fatal("refresh cookie was accepted as an access proof")
+	}
+}
+
+func assertProblemCode(t *testing.T, rr *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != want {
+		t.Fatalf("problem code=%v want=%q body=%v", body["code"], want, body)
+	}
+}
+
+func assertClearedSessionCookies(t *testing.T, rr *httptest.ResponseRecorder) {
+	t.Helper()
+	cookies := rr.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("cleared cookies=%d want=2: %+v", len(cookies), cookies)
+	}
+	wantPaths := map[string]string{accessCookieName: "/", refreshCookieName: "/api/v1/admin/auth"}
+	for _, cookie := range cookies {
+		wantPath, ok := wantPaths[cookie.Name]
+		if !ok {
+			t.Fatalf("unexpected cleared cookie: %+v", cookie)
+		}
+		if cookie.Value != "" || cookie.Path != wantPath || cookie.MaxAge != -1 || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || !cookie.Expires.Before(time.Now()) {
+			t.Fatalf("invalid cleared cookie: %+v", cookie)
+		}
+		delete(wantPaths, cookie.Name)
+	}
+	if len(wantPaths) != 0 {
+		t.Fatalf("missing cleared cookies: %v", wantPaths)
 	}
 }

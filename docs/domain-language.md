@@ -9,7 +9,7 @@
 | Platform Capability | `capability_id` | product | 某 Product 是否接入统一底座的一类能力 | `payment`、`ai_gateway`、`storage` |
 | Complete Capability Package | `package_id` + version | assembly / package catalog | 创建软件时可勾选的完整前后台交付单元是什么 | `package.account`、`package.commerce` |
 | Product Blueprint | `blueprint_id` + version | assembly | 新软件选择哪些端、能力包、UI、渠道和扩展 | Web + account + 标准 UI |
-| UI Template | `ui_template_id` + version | templates | 同一能力采用哪套兼容布局与交互呈现 | standard-web、compact-desktop |
+| UI Template | `ui_template_id` + version | templates | 同一组能力采用哪套可运行前台框架、公共页面编排与交互呈现 | standard-web、compact-desktop |
 | Assembly Manifest | `assembly_id` + version | assembly | 实际启用、生成和验证了哪些版本 | 包、SDK、模板与产物清单 |
 | Generated Project Lock | `platform.lock` | generator / assembly | 哪些文件归生成器管理，怎样复现和升级 | 文件哈希、所有权和生成器版本 |
 | Product Feature | `feature_code` | 产品功能注册表，商业定义由 catalog 引用 | 软件向最终用户提供的哪个可售/可授权功能 | `batch_export`、`hd_render` |
@@ -43,7 +43,7 @@
 
 ## 蓝图、模板与装配结果
 
-Product Blueprint 是期望，Assembly Manifest 是实际结果，Generated Project Lock 是源码所有权与可复现证据。UI Template 只改变呈现，不改变业务状态机、安全和计费语义。四者不能互相替代，也不能塞进一个无版本的 Product JSON。
+Product Blueprint 是期望，Assembly Manifest 是实际结果，Generated Project Lock 是源码所有权与可复现证据。UI Template 定义可运行前台 Shell、布局、导航、主题、公共 Feature Block 的页面编排和扩展槽，但不拥有登录、会员、支付等业务能力，也不改变业务状态机、安全和计费语义。软件独有的业务首页、目录页和工作台属于产品 custom 内容。四者不能互相替代，也不能塞进一个无版本的 Product JSON。
 
 错误示例：
 

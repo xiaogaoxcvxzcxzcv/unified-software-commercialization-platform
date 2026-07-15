@@ -94,6 +94,29 @@ type Rotation struct {
 	OutboxEvent    OutboxEvent
 }
 
+type RefreshInspection struct {
+	Session  StoredSession
+	Replayed bool
+}
+
+type CookieLogoutProof struct {
+	AccessDigest  []byte
+	RefreshDigest []byte
+	CSRFDigest    []byte
+}
+
+type TokenExpectation struct {
+	Transport Transport
+	TokenType string
+}
+
+type SessionRevokeReason string
+
+const (
+	RevokeReasonLogout       SessionRevokeReason = "logout"
+	RevokeReasonNoAdminScope SessionRevokeReason = "no_active_admin_scope"
+)
+
 type ThrottleState struct {
 	FailureCount int
 	BlockedUntil *time.Time
@@ -182,9 +205,10 @@ type Repository interface {
 	CreateAdminSession(context.Context, NewSession) error
 	FindByAccessDigest(context.Context, []byte, time.Time) (StoredSession, error)
 	TouchSession(context.Context, string, time.Time) error
-	RotateCSRF(context.Context, string, []byte, time.Time) error
+	InspectRefresh(context.Context, []byte, Transport, *ControlledClientBinding, time.Time) (RefreshInspection, error)
 	RotateRefresh(context.Context, []byte, Transport, *ControlledClientBinding, Rotation) (StoredSession, error)
-	RevokeByToken(context.Context, []byte, time.Time, OutboxEvent) error
+	RevokeByToken(context.Context, []byte, TokenExpectation, time.Time, SessionRevokeReason, OutboxEvent) error
+	RevokeCookieSession(context.Context, CookieLogoutProof, time.Time, OutboxEvent) error
 	BootstrapIdentity(context.Context, BootstrapUser) (string, error)
 	ResolveControlledClientCredential(context.Context, string, string, string, []byte, time.Time) (ControlledClientCredential, error)
 	RegisterControlledClient(context.Context, ControlledClientRegistration) error
@@ -241,6 +265,14 @@ type RefreshCommand struct {
 	TraceID          string
 }
 
+type LogoutCommand struct {
+	Transport    Transport
+	AccessToken  string
+	RefreshToken string
+	CSRFToken    string
+	TraceID      string
+}
+
 type IssuedTokens struct {
 	AccessToken      string    `json:"access_token"`
 	RefreshToken     string    `json:"refresh_token"`
@@ -258,6 +290,7 @@ type AdminIdentitySummary struct {
 
 type AdminSession struct {
 	SessionID          string                 `json:"session_id"`
+	SessionVersion     int64                  `json:"session_version"`
 	Transport          Transport              `json:"transport"`
 	ControlledClientID *string                `json:"controlled_client_id,omitempty"`
 	Admin              AdminIdentitySummary   `json:"admin"`

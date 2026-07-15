@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -27,7 +29,7 @@ func TestLoadRejectsDisabledTLSInProduction(t *testing.T) {
 func TestLoadAcceptsValidConfiguration(t *testing.T) {
 	values := map[string]string{
 		"PLATFORM_DATABASE_URL": "postgres://user@localhost/platform?sslmode=disable", "PLATFORM_ADMIN_TOKEN_PEPPER": validTestPepper(),
-		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": `[{"ref":"workspace.default","target_root":"D:/assembly-target","artifact_root":"D:/assembly-artifacts"}]`,
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": validAssemblyOutputTargets(t, "workspace.default"),
 	}
 	cfg, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok })
 	if err != nil {
@@ -45,7 +47,7 @@ func TestLoadRejectsInvalidAssemblyOutputReference(t *testing.T) {
 	values := map[string]string{
 		"PLATFORM_DATABASE_URL":            "postgres://user@localhost/platform?sslmode=disable",
 		"PLATFORM_ADMIN_TOKEN_PEPPER":      validTestPepper(),
-		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": `[{"ref":"../outside","target_root":"D:/assembly-target","artifact_root":"D:/assembly-artifacts"}]`,
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": validAssemblyOutputTargets(t, "../outside"),
 	}
 	if _, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok }); err == nil {
 		t.Fatal("expected invalid assembly output reference to fail")
@@ -53,6 +55,21 @@ func TestLoadRejectsInvalidAssemblyOutputReference(t *testing.T) {
 }
 
 func validTestPepper() string { return strings.Repeat("test-only-", 4) }
+
+func validAssemblyOutputTargets(t *testing.T, reference string) string {
+	t.Helper()
+	root := t.TempDir()
+	targets := []AssemblyOutputTarget{{
+		Reference:    reference,
+		TargetRoot:   filepath.Join(root, "assembly-target"),
+		ArtifactRoot: filepath.Join(root, "assembly-artifacts"),
+	}}
+	encoded, err := json.Marshal(targets)
+	if err != nil {
+		t.Fatalf("marshal assembly output targets: %v", err)
+	}
+	return string(encoded)
+}
 
 func TestLoadRejectsWeakAdminPepper(t *testing.T) {
 	values := map[string]string{"PLATFORM_DATABASE_URL": "postgres://user@localhost/platform?sslmode=disable", "PLATFORM_ADMIN_TOKEN_PEPPER": "short"}

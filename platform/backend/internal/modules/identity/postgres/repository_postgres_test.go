@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"platform.local/capability-platform/backend/internal/modules/accesscontrol"
 	"platform.local/capability-platform/backend/internal/modules/identity"
 	identitypostgres "platform.local/capability-platform/backend/internal/modules/identity/postgres"
+	"platform.local/capability-platform/backend/internal/platform/securevalue"
 	testpostgres "platform.local/capability-platform/backend/internal/testsupport/postgres"
 )
 
@@ -70,6 +73,347 @@ func TestRepositoryRefreshReplayRevokesTokenFamily(t *testing.T) {
 	}
 	if reason != "refresh_replayed" {
 		t.Fatalf("revoke reason = %q, want refresh_replayed", reason)
+	}
+}
+
+type firstCallBlockingAccessResolver struct {
+	entered chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (r *firstCallBlockingAccessResolver) ResolveAdminAccessSnapshot(context.Context, string, string) (accesscontrol.Snapshot, error) {
+	if r.calls.Add(1) == 1 {
+		close(r.entered)
+		<-r.release
+	}
+	return accesscontrol.Snapshot{
+		AuthorizationVersion: 1,
+		Permissions:          []string{"platform.read"},
+		Scopes:               []accesscontrol.Scope{{Type: "platform"}},
+	}, nil
+}
+
+func TestCurrentSessionCannotOverwriteConcurrentRefreshCSRF(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	bootstrapUser(t, repository, now)
+	hasher, err := securevalue.NewHasher("csrf-race-integration-pepper-32-bytes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := testSession(now)
+	const oldAccess = "old-access-token-for-csrf-race"
+	const oldRefresh = "old-refresh-token-for-csrf-race"
+	stored.AccessToken.Digest = hasher.Digest(oldAccess)
+	stored.RefreshToken.Digest = hasher.Digest(oldRefresh)
+	if err := repository.CreateAdminSession(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	resolver := &firstCallBlockingAccessResolver{entered: make(chan struct{}), release: make(chan struct{})}
+	service, err := identity.NewService(repository, resolver, identity.Bcrypt{Cost: 4}, hasher, identity.Policy{
+		AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour,
+		LoginWindow: time.Minute, LoginMaximumAttempts: 5, LoginBlockDuration: time.Minute,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type currentResult struct {
+		session identity.AdminSession
+		err     error
+	}
+	currentDone := make(chan currentResult, 1)
+	go func() {
+		session, currentErr := service.CurrentAdminSession(ctx, oldAccess)
+		currentDone <- currentResult{session: session, err: currentErr}
+	}()
+	select {
+	case <-resolver.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("current session did not reach the controlled race point")
+	}
+
+	refreshed, err := service.RefreshAdminSession(ctx, oldRefresh, identity.TransportCookie, "trace-csrf-race-refresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.SessionVersion != 2 || refreshed.CookieTokens == nil || refreshed.CSRFToken == nil {
+		t.Fatalf("unexpected refreshed session: %+v", refreshed)
+	}
+	close(resolver.release)
+	var stale currentResult
+	select {
+	case stale = <-currentDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stale current session did not complete")
+	}
+	if stale.err != nil || stale.session.SessionVersion != 1 {
+		t.Fatalf("unexpected stale current result: session=%+v error=%v", stale.session, stale.err)
+	}
+
+	var persistedCSRF []byte
+	if err := database.Pool.QueryRow(ctx, `SELECT csrf_digest FROM identity.admin_sessions WHERE session_id=$1`, stored.SessionID).Scan(&persistedCSRF); err != nil {
+		t.Fatal(err)
+	}
+	if string(persistedCSRF) != string(hasher.Digest(*refreshed.CSRFToken)) {
+		t.Fatal("stale GET session overwrote the CSRF digest committed by refresh")
+	}
+	if _, err := service.CurrentAdminSessionWithCSRF(ctx, refreshed.CookieTokens.AccessToken, *refreshed.CSRFToken); err != nil {
+		t.Fatalf("refreshed access and CSRF were not usable after stale GET completed: %v", err)
+	}
+}
+
+func TestRepositoryCookieLogoutRequiresCSRFAndRevokesFamily(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 8, 0, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	session := testSession(now)
+	if err := repository.CreateAdminSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+
+	proof := identity.CookieLogoutProof{AccessDigest: session.AccessToken.Digest, RefreshDigest: session.RefreshToken.Digest, CSRFDigest: []byte("wrong-csrf")}
+	if err := repository.RevokeCookieSession(ctx, proof, now.Add(time.Minute), securityEvent("logout-wrong-csrf", now)); !errors.Is(err, identity.ErrCSRFFailed) {
+		t.Fatalf("wrong CSRF error = %v, want ErrCSRFFailed", err)
+	}
+	if _, err := repository.FindByAccessDigest(ctx, session.AccessToken.Digest, now.Add(time.Minute)); err != nil {
+		t.Fatalf("wrong CSRF revoked session: %v", err)
+	}
+
+	proof.CSRFDigest = session.CSRFDigest
+	if err := repository.RevokeCookieSession(ctx, proof, now.Add(2*time.Minute), securityEvent("logout-valid", now)); err != nil {
+		t.Fatalf("valid cookie logout error = %v", err)
+	}
+	if _, err := repository.FindByAccessDigest(ctx, session.AccessToken.Digest, now.Add(2*time.Minute)); !errors.Is(err, identity.ErrSessionRevoked) {
+		t.Fatalf("access after logout error = %v, want ErrSessionRevoked", err)
+	}
+	if _, err := repository.InspectRefresh(ctx, session.RefreshToken.Digest, identity.TransportCookie, nil, now.Add(2*time.Minute)); !errors.Is(err, identity.ErrSessionRevoked) {
+		t.Fatalf("refresh after logout error = %v, want ErrSessionRevoked", err)
+	}
+}
+
+func TestRepositoryCookieLogoutExpiredAccessRequiresSameFamilyRefresh(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 9, 0, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	first := testSession(now)
+	if err := repository.CreateAdminSession(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := testSession(now.Add(time.Second))
+	second.SessionID = "session-2"
+	second.TokenFamilyID = "family-2"
+	second.AccessToken.TokenID = "access-2"
+	second.AccessToken.Digest = []byte("access-digest-2")
+	second.RefreshToken.TokenID = "refresh-2"
+	second.RefreshToken.Digest = []byte("refresh-digest-2")
+	second.OutboxEvent = securityEvent("session-created-2", now)
+	if err := repository.CreateAdminSession(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+
+	expiredAt := now.Add(16 * time.Minute)
+	mismatched := identity.CookieLogoutProof{AccessDigest: first.AccessToken.Digest, RefreshDigest: second.RefreshToken.Digest}
+	if err := repository.RevokeCookieSession(ctx, mismatched, expiredAt, securityEvent("logout-mismatched", now)); !errors.Is(err, identity.ErrSessionRevoked) {
+		t.Fatalf("mismatched family error = %v, want ErrSessionRevoked", err)
+	}
+	assertRowCount(t, database, `SELECT count(*) FROM identity.admin_sessions WHERE session_id=$1 AND revoked_at IS NULL`, first.SessionID, 1)
+	assertRowCount(t, database, `SELECT count(*) FROM identity.admin_sessions WHERE session_id=$1 AND revoked_at IS NULL`, second.SessionID, 1)
+
+	sameFamily := identity.CookieLogoutProof{AccessDigest: first.AccessToken.Digest, RefreshDigest: first.RefreshToken.Digest}
+	if err := repository.RevokeCookieSession(ctx, sameFamily, expiredAt, securityEvent("logout-expired-access", now)); err != nil {
+		t.Fatalf("expired access fallback error = %v", err)
+	}
+	assertRowCount(t, database, `SELECT count(*) FROM identity.admin_sessions WHERE session_id=$1 AND revoked_at IS NOT NULL`, first.SessionID, 1)
+}
+
+func TestRepositoryCookieLogoutActiveAccessRejectsIncompleteOrMixedProofPair(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 9, 30, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	first := testSession(now)
+	if err := repository.CreateAdminSession(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := testSession(now.Add(time.Second))
+	second.SessionID = "session-active-mixed-2"
+	second.TokenFamilyID = "family-active-mixed-2"
+	second.AccessToken.TokenID = "access-active-mixed-2"
+	second.AccessToken.Digest = []byte("access-active-mixed-digest-2")
+	second.RefreshToken.TokenID = "refresh-active-mixed-2"
+	second.RefreshToken.Digest = []byte("refresh-active-mixed-digest-2")
+	second.OutboxEvent = securityEvent("session-active-mixed-created-2", now)
+	if err := repository.CreateAdminSession(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name          string
+		refreshDigest []byte
+	}{
+		{name: "missing refresh", refreshDigest: []byte("unknown-refresh-digest")},
+		{name: "different family", refreshDigest: second.RefreshToken.Digest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			proof := identity.CookieLogoutProof{
+				AccessDigest: first.AccessToken.Digest, RefreshDigest: test.refreshDigest, CSRFDigest: first.CSRFDigest,
+			}
+			if err := repository.RevokeCookieSession(ctx, proof, now.Add(time.Minute), securityEvent("logout-active-mixed-"+test.name, now)); !errors.Is(err, identity.ErrSessionRevoked) {
+				t.Fatalf("mixed proof error = %v, want ErrSessionRevoked", err)
+			}
+			assertRowCount(t, database, `SELECT count(*) FROM identity.admin_sessions WHERE session_id=$1 AND revoked_at IS NULL`, first.SessionID, 1)
+			assertRowCount(t, database, `SELECT count(*) FROM identity.admin_sessions WHERE session_id=$1 AND revoked_at IS NULL`, second.SessionID, 1)
+		})
+	}
+}
+
+func TestRepositoryCookieLogoutConsumedRefreshReplayWinsBeforeActiveAccess(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 9, 45, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	session := testSession(now)
+	if err := repository.CreateAdminSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	rotationAt := now.Add(time.Minute)
+	rotation := identity.Rotation{
+		AccessToken:  identity.TokenRecord{TokenID: "access-after-consume", TokenType: "access", Digest: []byte("access-after-consume-digest"), ExpiresAt: rotationAt.Add(15 * time.Minute)},
+		RefreshToken: identity.TokenRecord{TokenID: "refresh-after-consume", TokenType: "refresh", Digest: []byte("refresh-after-consume-digest"), ExpiresAt: rotationAt.Add(time.Hour)},
+		CSRFDigest:   []byte("csrf-after-consume"), AccessExpires: rotationAt.Add(15 * time.Minute), RefreshExpires: rotationAt.Add(time.Hour), Now: rotationAt,
+		OutboxEvent: securityEvent("refresh-before-cookie-replay", rotationAt),
+	}
+	if _, err := repository.RotateRefresh(ctx, session.RefreshToken.Digest, identity.TransportCookie, nil, rotation); err != nil {
+		t.Fatal(err)
+	}
+	proof := identity.CookieLogoutProof{
+		AccessDigest: rotation.AccessToken.Digest, RefreshDigest: session.RefreshToken.Digest, CSRFDigest: rotation.CSRFDigest,
+	}
+	if err := repository.RevokeCookieSession(ctx, proof, rotationAt.Add(time.Minute), securityEvent("logout-consumed-refresh-replay", rotationAt)); !errors.Is(err, identity.ErrRefreshReplayed) {
+		t.Fatalf("consumed refresh logout error = %v, want ErrRefreshReplayed", err)
+	}
+	if _, err := repository.FindByAccessDigest(ctx, rotation.AccessToken.Digest, rotationAt.Add(time.Minute)); !errors.Is(err, identity.ErrSessionRevoked) {
+		t.Fatalf("current access after consumed refresh replay error = %v, want ErrSessionRevoked", err)
+	}
+}
+
+func TestRepositoryRevokeByTokenEnforcesTransportAndTokenType(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 9, 55, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	session := testSession(now)
+	if err := repository.CreateAdminSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+
+	wrongExpectations := []struct {
+		name        string
+		digest      []byte
+		expectation identity.TokenExpectation
+	}{
+		{name: "cookie access as bearer access", digest: session.AccessToken.Digest, expectation: identity.TokenExpectation{Transport: identity.TransportBearer, TokenType: "access"}},
+		{name: "cookie refresh as bearer access", digest: session.RefreshToken.Digest, expectation: identity.TokenExpectation{Transport: identity.TransportBearer, TokenType: "access"}},
+		{name: "cookie refresh as cookie access", digest: session.RefreshToken.Digest, expectation: identity.TokenExpectation{Transport: identity.TransportCookie, TokenType: "access"}},
+	}
+	for _, test := range wrongExpectations {
+		t.Run(test.name, func(t *testing.T) {
+			err := repository.RevokeByToken(ctx, test.digest, test.expectation, now.Add(time.Minute), identity.RevokeReasonLogout, securityEvent("revoke-wrong-"+test.name, now))
+			if !errors.Is(err, identity.ErrSessionRevoked) {
+				t.Fatalf("wrong expectation error = %v, want ErrSessionRevoked", err)
+			}
+			if _, err := repository.FindByAccessDigest(ctx, session.AccessToken.Digest, now.Add(time.Minute)); err != nil {
+				t.Fatalf("wrong expectation revoked session: %v", err)
+			}
+		})
+	}
+
+	correct := identity.TokenExpectation{Transport: identity.TransportCookie, TokenType: "refresh"}
+	if err := repository.RevokeByToken(ctx, session.RefreshToken.Digest, correct, now.Add(2*time.Minute), identity.RevokeReasonNoAdminScope, securityEvent("revoke-cookie-refresh", now)); err != nil {
+		t.Fatalf("correct refresh expectation error = %v", err)
+	}
+	if _, err := repository.FindByAccessDigest(ctx, session.AccessToken.Digest, now.Add(2*time.Minute)); !errors.Is(err, identity.ErrSessionRevoked) {
+		t.Fatalf("correct refresh revoke access error = %v, want ErrSessionRevoked", err)
+	}
+}
+
+func TestRepositoryCookieLogoutOutboxFailureRollsBackRevocation(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	session := testSession(now)
+	if err := repository.CreateAdminSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	duplicate := securityEvent("duplicate-logout", now)
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO identity.outbox_events(event_id,topic,payload,next_attempt_at,created_at) VALUES($1,$2,'{}'::jsonb,$3,$3)`, duplicate.EventID, duplicate.Topic, now); err != nil {
+		t.Fatal(err)
+	}
+	proof := identity.CookieLogoutProof{AccessDigest: session.AccessToken.Digest, CSRFDigest: session.CSRFDigest}
+	if err := repository.RevokeCookieSession(ctx, proof, now.Add(time.Minute), duplicate); err == nil {
+		t.Fatal("logout succeeded despite duplicate outbox event")
+	}
+	if _, err := repository.FindByAccessDigest(ctx, session.AccessToken.Digest, now.Add(time.Minute)); err != nil {
+		t.Fatalf("outbox failure did not roll back revocation: %v", err)
+	}
+}
+
+func TestRepositoryRefreshAndLogoutRaceEndsWithRevokedFamily(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 11, 0, 0, 0, time.UTC)
+	bootstrapUser(t, repository, now)
+	session := testSession(now)
+	if err := repository.CreateAdminSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	rotationAt := now.Add(time.Minute)
+	rotation := identity.Rotation{
+		AccessToken:  identity.TokenRecord{TokenID: "access-race-next", TokenType: "access", Digest: []byte("access-race-next-digest"), ExpiresAt: rotationAt.Add(15 * time.Minute)},
+		RefreshToken: identity.TokenRecord{TokenID: "refresh-race-next", TokenType: "refresh", Digest: []byte("refresh-race-next-digest"), ExpiresAt: rotationAt.Add(time.Hour)},
+		CSRFDigest:   []byte("csrf-race-next"), AccessExpires: rotationAt.Add(15 * time.Minute), RefreshExpires: rotationAt.Add(time.Hour), Now: rotationAt,
+		OutboxEvent: securityEvent("refresh-race", rotationAt),
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	go func() {
+		<-start
+		_, err := repository.RotateRefresh(ctx, session.RefreshToken.Digest, identity.TransportCookie, nil, rotation)
+		results <- err
+	}()
+	go func() {
+		<-start
+		results <- repository.RevokeCookieSession(ctx, identity.CookieLogoutProof{RefreshDigest: session.RefreshToken.Digest}, rotationAt, securityEvent("logout-race", rotationAt))
+	}()
+	close(start)
+	for index := 0; index < 2; index++ {
+		select {
+		case err := <-results:
+			if err != nil && !errors.Is(err, identity.ErrSessionRevoked) && !errors.Is(err, identity.ErrRefreshReplayed) {
+				t.Fatalf("race result error = %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("refresh/logout race deadlocked")
+		}
+	}
+	assertRowCount(t, database, `SELECT count(*) FROM identity.admin_sessions WHERE session_id=$1 AND revoked_at IS NOT NULL`, session.SessionID, 1)
+	if _, err := repository.FindByAccessDigest(ctx, rotation.AccessToken.Digest, rotationAt.Add(time.Minute)); !errors.Is(err, identity.ErrSessionRevoked) && !errors.Is(err, identity.ErrSessionExpired) {
+		t.Fatalf("derived access after race error = %v", err)
 	}
 }
 
