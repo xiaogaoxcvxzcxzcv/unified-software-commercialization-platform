@@ -114,6 +114,20 @@ if (-not (Test-Path -LiteralPath $NpmCache)) {
 }
 $removeSmoke = -not $KeepOutput
 try {
+    if ($env:CI -eq 'true') {
+        # npm ci caches lockfile tarballs but may omit the registry metadata
+        # required to resolve a fresh generated package without a lockfile.
+        # Prime only public dependencies; both generated targets still perform
+        # their real installation from empty directories with --offline.
+        $primeRoot = Join-Path $SmokeRoot 'public-cache-prime'
+        New-Item -ItemType Directory -Force -Path $primeRoot | Out-Null
+        Copy-Item -LiteralPath (Join-Path $TemplateRoot 'package.json') -Destination (Join-Path $primeRoot 'package.json')
+        Set-GeneratedPackageDependencies -ProjectRoot $primeRoot -SdkPackagePath $null -UiPackagePath $null
+        Invoke-NativeCommand -Command $Npm -Arguments @(
+            'install', '--prefer-offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', $NpmCache
+        ) -WorkingDirectory $primeRoot
+    }
+
     foreach ($packageDirectory in @('platform/sdk/typescript', 'platform/client-ui')) {
         $fullPackageDirectory = Join-Path $RepoRoot $packageDirectory
         if (-not (Test-Path -LiteralPath (Join-Path $fullPackageDirectory 'dist'))) {
