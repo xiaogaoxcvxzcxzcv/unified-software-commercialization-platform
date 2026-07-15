@@ -75,13 +75,19 @@ func TestAssemblyHTTPPostgreSQLFoundationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := core.NewService(assemblypostgres.New(database.Pool), core.NewRegistryValidator(registry), fixedAssemblyPlanner{}, securevalue.ID, nil)
+	service := core.NewService(
+		assemblypostgres.New(database.Pool), core.NewRegistryValidator(registry), fixedAssemblyPlanner{}, securevalue.ID, nil,
+		core.WithOutputTargetVerifier(newCoreOutputTargetVerifier(assemblyOutputTarget("workspace.default", "production", true), assemblyOutputTarget("workspace.secondary", "production", false))),
+	)
 	guard := adminrequest.New(
 		assemblyIntegrationAuthenticator{},
 		integrationAuthorizer{},
 		nil,
 	)
-	handler := requestid.Middleware(assemblyhttp.New(newAssemblyAdminAdapter(service, "workspace.default", "workspace.secondary"), guard))
+	handler := requestid.Middleware(assemblyhttp.New(newAssemblyAdminAdapter(service,
+		assemblyOutputTarget("workspace.default", "production", true),
+		assemblyOutputTarget("workspace.secondary", "production", false),
+	), guard))
 
 	blueprintDocument, err := os.ReadFile(filepath.Join("..", "..", "..", "contracts", "schemas", "fixtures", "catalog-blueprint", "product-blueprint.valid.json"))
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type LookupEnv func(string) (string, bool)
@@ -63,6 +64,10 @@ type Assembly struct {
 
 type AssemblyOutputTarget struct {
 	Reference    string `json:"ref"`
+	Environment  string `json:"environment"`
+	DisplayName  string `json:"display_name"`
+	Summary      string `json:"summary"`
+	IsDefault    bool   `json:"is_default"`
 	TargetRoot   string `json:"target_root"`
 	ArtifactRoot string `json:"artifact_root"`
 }
@@ -192,9 +197,16 @@ func (c Config) validate() error {
 		return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS must contain at least one server-controlled target")
 	}
 	seenTargets := make(map[string]struct{}, len(c.Assembly.OutputTargets))
+	defaultByEnvironment := make(map[string]string, 4)
 	for _, target := range c.Assembly.OutputTargets {
 		if len(target.Reference) < 3 || len(target.Reference) > 128 || !assemblyReferencePattern.MatchString(target.Reference) {
 			return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS contains an invalid reference")
+		}
+		if !assemblyEnvironment(target.Environment) {
+			return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS contains an invalid environment")
+		}
+		if !validOutputTargetDisplay(target.DisplayName, 120) || !validOutputTargetDisplay(target.Summary, 240) {
+			return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS contains invalid display metadata")
 		}
 		if strings.TrimSpace(target.TargetRoot) == "" || strings.TrimSpace(target.ArtifactRoot) == "" {
 			return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS roots must not be empty")
@@ -206,6 +218,12 @@ func (c Config) validate() error {
 			return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS contains a duplicate reference")
 		}
 		seenTargets[target.Reference] = struct{}{}
+		if target.IsDefault {
+			if previous := defaultByEnvironment[target.Environment]; previous != "" {
+				return errors.New("PLATFORM_ASSEMBLY_OUTPUT_TARGETS contains multiple defaults for one environment")
+			}
+			defaultByEnvironment[target.Environment] = target.Reference
+		}
 	}
 	for name, timeout := range map[string]time.Duration{
 		"PLATFORM_HEALTH_CHECK_TIMEOUT":     c.HealthCheckTimeout,
@@ -224,6 +242,27 @@ func (c Config) validate() error {
 }
 
 var assemblyReferencePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+
+func assemblyEnvironment(value string) bool {
+	switch value {
+	case "development", "test", "staging", "production":
+		return true
+	default:
+		return false
+	}
+}
+
+func validOutputTargetDisplay(value string, maximum int) bool {
+	if value == "" || value != strings.TrimSpace(value) || utf8.RuneCountInString(value) > maximum || strings.ContainsAny(value, "/\\") {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x1f || character == 0x7f {
+			return false
+		}
+	}
+	return true
+}
 
 func parseLogLevel(raw string) (slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {

@@ -23,18 +23,31 @@ var (
 type IDGenerator func(string) (string, error)
 
 type Service struct {
-	repository  Repository
-	validator   DocumentValidator
-	planner     Planner
-	idGenerator IDGenerator
-	now         func() time.Time
+	repository    Repository
+	validator     DocumentValidator
+	planner       Planner
+	outputTargets OutputTargetVerifier
+	idGenerator   IDGenerator
+	now           func() time.Time
 }
 
-func NewService(repository Repository, validator DocumentValidator, planner Planner, idGenerator IDGenerator, now func() time.Time) *Service {
+type ServiceOption func(*Service)
+
+func WithOutputTargetVerifier(verifier OutputTargetVerifier) ServiceOption {
+	return func(service *Service) { service.outputTargets = verifier }
+}
+
+func NewService(repository Repository, validator DocumentValidator, planner Planner, idGenerator IDGenerator, now func() time.Time, options ...ServiceOption) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repository: repository, validator: validator, planner: planner, idGenerator: idGenerator, now: now}
+	service := &Service{repository: repository, validator: validator, planner: planner, idGenerator: idGenerator, now: now}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 type CreateBlueprintCommand struct {
@@ -220,6 +233,9 @@ func (s *Service) StartAssembly(ctx context.Context, command StartAssemblyComman
 	}
 	if plan.ConfirmedAt == nil {
 		return Run{}, ErrPlanNotConfirmed
+	}
+	if s.outputTargets == nil || s.outputTargets.VerifyOutputTarget(ctx, plan.Environment, command.OutputTargetRef) != nil {
+		return Run{}, ErrOutputTargetUnavailable
 	}
 	confirmationChecksum, err := planConfirmationChecksum(plan.Document)
 	if err != nil || !digestsEqual(confirmationChecksum, command.ConfirmationChecksum) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"sort"
 
 	"platform.local/capability-platform/backend/internal/modules/assembly/core"
 	assemblyhttp "platform.local/capability-platform/backend/internal/modules/assembly/httptransport"
@@ -13,7 +14,7 @@ import (
 type assemblyAdminAdapter struct {
 	service      assemblyCoreService
 	executor     assemblyRunExecutor
-	outputTarget map[string]struct{}
+	outputTarget map[string]assemblyhttp.OutputTarget
 }
 
 type assemblyRunExecutor interface {
@@ -32,18 +33,37 @@ type assemblyCoreService interface {
 	GetLock(context.Context, string) (core.GeneratedProjectLock, error)
 }
 
-func newAssemblyAdminAdapter(service assemblyCoreService, outputTargetRefs ...string) assemblyAdminAdapter {
-	return newAssemblyAdminAdapterWithExecutor(service, nil, outputTargetRefs...)
+func newAssemblyAdminAdapter(service assemblyCoreService, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
+	return newAssemblyAdminAdapterWithExecutor(service, nil, outputTargets...)
 }
 
-func newAssemblyAdminAdapterWithExecutor(service assemblyCoreService, executor assemblyRunExecutor, outputTargetRefs ...string) assemblyAdminAdapter {
-	targets := make(map[string]struct{}, len(outputTargetRefs))
-	for _, reference := range outputTargetRefs {
-		if reference != "" {
-			targets[reference] = struct{}{}
+func newAssemblyAdminAdapterWithExecutor(service assemblyCoreService, executor assemblyRunExecutor, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
+	targets := make(map[string]assemblyhttp.OutputTarget, len(outputTargets))
+	for _, target := range outputTargets {
+		if target.OutputTargetRef != "" && target.Environment != "" {
+			targets[outputTargetKey(target.Environment, target.OutputTargetRef)] = target
 		}
 	}
 	return assemblyAdminAdapter{service: service, executor: executor, outputTarget: targets}
+}
+
+func (a assemblyAdminAdapter) ListOutputTargets(_ context.Context, command assemblyhttp.ListOutputTargetsCommand) (assemblyhttp.OutputTargetList, error) {
+	items := make([]assemblyhttp.OutputTarget, 0, len(a.outputTarget))
+	for _, target := range a.outputTarget {
+		if target.Environment == command.Environment {
+			items = append(items, target)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].OutputTargetRef < items[j].OutputTargetRef })
+	var defaultRef *string
+	for _, item := range items {
+		if item.IsDefault {
+			value := item.OutputTargetRef
+			defaultRef = &value
+			break
+		}
+	}
+	return assemblyhttp.OutputTargetList{Environment: command.Environment, DefaultOutputTargetRef: defaultRef, Items: items}, nil
 }
 
 func (a assemblyAdminAdapter) CreateBlueprint(ctx context.Context, command assemblyhttp.CreateBlueprintCommand) (assemblyhttp.Blueprint, error) {
@@ -72,15 +92,15 @@ func (a assemblyAdminAdapter) GetPlan(ctx context.Context, command assemblyhttp.
 }
 
 func (a assemblyAdminAdapter) StartAssembly(ctx context.Context, command assemblyhttp.StartAssemblyCommand) (assemblyhttp.Run, error) {
-	if _, allowed := a.outputTarget[command.OutputTargetRef]; !allowed {
-		return assemblyhttp.Run{}, assemblyhttp.ErrPlanUnavailable
-	}
 	plan, err := a.service.GetPlan(ctx, command.PlanID)
 	if err != nil {
 		return assemblyhttp.Run{}, mapAssemblyError(err)
 	}
 	if plan.BlueprintID != command.BlueprintID || !constantTimeEqual(plan.PlanSHA256, command.PlanChecksum) {
 		return assemblyhttp.Run{}, assemblyhttp.ErrConflict
+	}
+	if _, allowed := a.outputTarget[outputTargetKey(plan.Environment, command.OutputTargetRef)]; !allowed {
+		return assemblyhttp.Run{}, assemblyhttp.ErrOutputTargetUnavailable
 	}
 	confirmed := plan
 	if plan.Version == command.ExpectedPlanVersion {
@@ -151,18 +171,35 @@ func assemblyPlan(value core.Plan) assemblyhttp.Plan {
 }
 
 func assemblyRun(value core.Run) assemblyhttp.Run {
-	manifestPath, lockPath := "", ""
+	manifestURL, lockURL := "", ""
 	if value.ManifestID != "" {
-		manifestPath = "/api/v1/admin/assembly-manifests/" + value.ManifestID
+		manifestURL = "/api/v1/admin/assembly-manifests/" + value.ManifestID
 	}
 	if value.LockID != "" {
-		lockPath = "/api/v1/admin/generated-project-locks/" + value.LockID
+		lockURL = "/api/v1/admin/generated-project-locks/" + value.LockID
 	}
 	return assemblyhttp.Run{
 		RunID: value.RunID, PlanID: value.PlanID, PlanVersion: value.PlanVersion, PlanChecksum: value.PlanSHA256,
-		OutputTargetRef: value.OutputTargetRef, Status: string(value.Status), Document: value.Document, ManifestPath: manifestPath, LockPath: lockPath,
+		OutputTargetRef: value.OutputTargetRef, Status: string(value.Status), Document: value.Document, ManifestURL: manifestURL, LockURL: lockURL,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt, AuditID: value.AuditID,
 	}
+}
+
+func outputTargetKey(environment, reference string) string { return environment + "\x00" + reference }
+
+func newCoreOutputTargetVerifier(outputTargets ...assemblyhttp.OutputTarget) core.OutputTargetVerifier {
+	allowed := make(map[string]struct{}, len(outputTargets))
+	for _, target := range outputTargets {
+		if target.Environment != "" && target.OutputTargetRef != "" {
+			allowed[outputTargetKey(target.Environment, target.OutputTargetRef)] = struct{}{}
+		}
+	}
+	return core.OutputTargetVerifierFunc(func(_ context.Context, environment, outputTargetRef string) error {
+		if _, ok := allowed[outputTargetKey(environment, outputTargetRef)]; !ok {
+			return core.ErrOutputTargetUnavailable
+		}
+		return nil
+	})
 }
 
 func mapAssemblyError(err error) error {
@@ -190,6 +227,8 @@ func mapAssemblyError(err error) error {
 		return assemblyhttp.ErrPlanNotExecutable
 	case errors.Is(err, core.ErrPlanNotConfirmed):
 		return assemblyhttp.ErrPlanNotConfirmed
+	case errors.Is(err, core.ErrOutputTargetUnavailable):
+		return assemblyhttp.ErrOutputTargetUnavailable
 	case errors.Is(err, core.ErrInvalidRunTransition):
 		return assemblyhttp.ErrConflict
 	default:

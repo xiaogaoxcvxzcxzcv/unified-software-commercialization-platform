@@ -8,10 +8,12 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"platform.local/capability-platform/backend/internal/platform/adminrequest"
 	"platform.local/capability-platform/backend/internal/platform/httpx"
@@ -24,6 +26,7 @@ const (
 	runsPath                  = "/api/v1/admin/assembly-runs"
 	manifestsPath             = "/api/v1/admin/assembly-manifests"
 	locksPath                 = "/api/v1/admin/generated-project-locks"
+	outputTargetsPath         = "/api/v1/admin/assembly-output-targets"
 	assemblyReadPermission    = "assembly.read"
 	blueprintManagePermission = "assembly.blueprint.manage"
 	assemblyPlanPermission    = "assembly.plan"
@@ -42,16 +45,17 @@ var (
 // translates Assembly core errors to them without exposing repositories or
 // persistence details to the transport.
 var (
-	ErrInvalidCommand      = errors.New("assembly command is invalid")
-	ErrDocumentInvalid     = errors.New("assembly document is invalid")
-	ErrNotFound            = errors.New("assembly resource was not found")
-	ErrConflict            = errors.New("assembly resource conflicts with existing state")
-	ErrVersionConflict     = errors.New("assembly resource version changed")
-	ErrIdempotencyConflict = errors.New("assembly idempotency key conflicts with an earlier request")
-	ErrOperationInProgress = errors.New("assembly operation is already in progress")
-	ErrPlanUnavailable     = errors.New("assembly planner is unavailable")
-	ErrPlanNotExecutable   = errors.New("assembly plan is not executable")
-	ErrPlanNotConfirmed    = errors.New("assembly plan is not confirmed")
+	ErrInvalidCommand          = errors.New("assembly command is invalid")
+	ErrDocumentInvalid         = errors.New("assembly document is invalid")
+	ErrNotFound                = errors.New("assembly resource was not found")
+	ErrConflict                = errors.New("assembly resource conflicts with existing state")
+	ErrVersionConflict         = errors.New("assembly resource version changed")
+	ErrIdempotencyConflict     = errors.New("assembly idempotency key conflicts with an earlier request")
+	ErrOperationInProgress     = errors.New("assembly operation is already in progress")
+	ErrPlanUnavailable         = errors.New("assembly planner is unavailable")
+	ErrPlanNotExecutable       = errors.New("assembly plan is not executable")
+	ErrPlanNotConfirmed        = errors.New("assembly plan is not confirmed")
+	ErrOutputTargetUnavailable = errors.New("assembly output target is unavailable")
 )
 
 type Service interface {
@@ -63,6 +67,26 @@ type Service interface {
 	GetRun(context.Context, GetRunCommand) (Run, error)
 	GetManifest(context.Context, GetManifestCommand) (Manifest, error)
 	GetLock(context.Context, GetLockCommand) (GeneratedProjectLock, error)
+	ListOutputTargets(context.Context, ListOutputTargetsCommand) (OutputTargetList, error)
+}
+
+type ListOutputTargetsCommand struct {
+	Environment string
+	ActorID     string
+}
+
+type OutputTarget struct {
+	OutputTargetRef string
+	Environment     string
+	DisplayName     string
+	Summary         string
+	IsDefault       bool
+}
+
+type OutputTargetList struct {
+	Environment            string
+	DefaultOutputTargetRef *string
+	Items                  []OutputTarget
 }
 
 type CreateBlueprintCommand struct {
@@ -148,8 +172,8 @@ type Run struct {
 	OutputTargetRef string
 	Status          string
 	Document        json.RawMessage
-	ManifestPath    string
-	LockPath        string
+	ManifestURL     string
+	LockURL         string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	CompletedAt     *time.Time
@@ -198,11 +222,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 		return
 	}
-	if r.URL.RawQuery != "" {
+	if route.kind != routeOutputTargets && r.URL.RawQuery != "" {
 		httpx.Error(w, r, http.StatusBadRequest, "assembly.invalid_query", "query parameters are not supported")
 		return
 	}
 	switch route.kind {
+	case routeOutputTargets:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.listOutputTargets(w, r)
 	case routeBlueprints:
 		if r.Method != http.MethodPost {
 			httpx.MethodNotAllowed(w, r, http.MethodPost)
@@ -254,6 +284,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	}
+}
+
+func (h *Handler) listOutputTargets(w http.ResponseWriter, r *http.Request) {
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(values) != 1 || len(values["environment"]) != 1 || !validEnvironment(values["environment"][0]) {
+		httpx.Error(w, r, http.StatusBadRequest, "assembly.invalid_query", "exactly one supported environment query parameter is required")
+		return
+	}
+	principal, ok := h.authorize(w, r, assemblyPlanPermission, false)
+	if !ok {
+		return
+	}
+	result, err := h.service.ListOutputTargets(r.Context(), ListOutputTargetsCommand{Environment: values["environment"][0], ActorID: principal.AdminUserID})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if !validOutputTargetList(result) {
+		writeInternalError(w, r)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, outputTargetListResponseFrom(result))
 }
 
 func (h *Handler) createBlueprint(w http.ResponseWriter, r *http.Request) {
@@ -502,12 +554,26 @@ type runResponse struct {
 	OutputTargetRef string          `json:"output_target_ref"`
 	Status          string          `json:"status"`
 	Document        json.RawMessage `json:"document"`
-	ManifestPath    string          `json:"manifest_path,omitempty"`
-	LockPath        string          `json:"lock_path,omitempty"`
+	ManifestURL     string          `json:"manifest_url,omitempty"`
+	LockURL         string          `json:"lock_url,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
 	AuditID         string          `json:"audit_id"`
+}
+
+type outputTargetResponse struct {
+	OutputTargetRef string `json:"output_target_ref"`
+	DisplayName     string `json:"display_name"`
+	Summary         string `json:"summary"`
+	IsDefault       bool   `json:"is_default"`
+}
+
+type outputTargetListResponse struct {
+	Environment            string                 `json:"environment"`
+	DefaultPolicy          string                 `json:"default_policy"`
+	DefaultOutputTargetRef *string                `json:"default_output_target_ref"`
+	Items                  []outputTargetResponse `json:"items"`
 }
 
 type manifestResponse struct {
@@ -550,8 +616,59 @@ func planResponseFrom(value Plan) planResponse {
 func runResponseFrom(value Run) runResponse {
 	return runResponse{RunID: value.RunID, PlanID: value.PlanID,
 		PlanVersion: value.PlanVersion, PlanChecksum: value.PlanChecksum, OutputTargetRef: value.OutputTargetRef, Status: value.Status,
-		Document: value.Document, ManifestPath: value.ManifestPath, LockPath: value.LockPath,
+		Document: value.Document, ManifestURL: value.ManifestURL, LockURL: value.LockURL,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt, AuditID: value.AuditID}
+}
+
+func outputTargetListResponseFrom(value OutputTargetList) outputTargetListResponse {
+	items := make([]outputTargetResponse, len(value.Items))
+	for index, item := range value.Items {
+		items[index] = outputTargetResponse{OutputTargetRef: item.OutputTargetRef, DisplayName: item.DisplayName, Summary: item.Summary, IsDefault: item.IsDefault}
+	}
+	return outputTargetListResponse{Environment: value.Environment, DefaultPolicy: "explicit", DefaultOutputTargetRef: value.DefaultOutputTargetRef, Items: items}
+}
+
+func validOutputTargetList(value OutputTargetList) bool {
+	if !validEnvironment(value.Environment) || value.Items == nil {
+		return false
+	}
+	seen := make(map[string]struct{}, len(value.Items))
+	defaultRef := ""
+	for index, item := range value.Items {
+		if item.Environment != value.Environment || !referencePattern.MatchString(item.OutputTargetRef) ||
+			!validRedactedDisplay(item.DisplayName, 120) || !validRedactedDisplay(item.Summary, 240) {
+			return false
+		}
+		if index > 0 && value.Items[index-1].OutputTargetRef >= item.OutputTargetRef {
+			return false
+		}
+		if _, duplicate := seen[item.OutputTargetRef]; duplicate {
+			return false
+		}
+		seen[item.OutputTargetRef] = struct{}{}
+		if item.IsDefault {
+			if defaultRef != "" {
+				return false
+			}
+			defaultRef = item.OutputTargetRef
+		}
+	}
+	if value.DefaultOutputTargetRef == nil {
+		return defaultRef == ""
+	}
+	return defaultRef != "" && *value.DefaultOutputTargetRef == defaultRef
+}
+
+func validRedactedDisplay(value string, maximum int) bool {
+	if value == "" || value != strings.TrimSpace(value) || utf8.RuneCountInString(value) > maximum || strings.ContainsAny(value, "/\\") {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x1f || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func manifestResponseFrom(value Manifest) manifestResponse {
@@ -718,6 +835,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		httpx.Error(w, r, http.StatusUnprocessableEntity, "assembly.plan_not_executable", "assembly plan is not executable")
 	case errors.Is(err, ErrPlanNotConfirmed):
 		httpx.Error(w, r, http.StatusUnprocessableEntity, "assembly.plan_not_confirmed", "assembly plan confirmation is invalid or missing")
+	case errors.Is(err, ErrOutputTargetUnavailable):
+		httpx.Error(w, r, http.StatusUnprocessableEntity, "assembly.output_target_unavailable", "assembly output target is unavailable")
 	case errors.Is(err, ErrConflict):
 		httpx.Error(w, r, http.StatusConflict, "assembly.conflict", "assembly resource conflicts with existing state")
 	default:
@@ -736,6 +855,7 @@ const (
 	routeRun
 	routeManifest
 	routeLock
+	routeOutputTargets
 )
 
 type parsedRoute struct {
@@ -749,6 +869,9 @@ func parseRoute(r *http.Request) (parsedRoute, bool) {
 	}
 	if r.URL.Path == blueprintsPath {
 		return parsedRoute{kind: routeBlueprints}, true
+	}
+	if r.URL.Path == outputTargetsPath {
+		return parsedRoute{kind: routeOutputTargets}, true
 	}
 	if strings.HasPrefix(r.URL.Path, blueprintsPath+"/") {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, blueprintsPath+"/"), "/")

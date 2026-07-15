@@ -183,13 +183,15 @@ func main() {
 		logger.Error("assembly production catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	assemblyService := assemblycore.NewService(
-		assemblypostgres.New(db.Pool()), assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
-	)
 	configuredWorkspaces := make([]assemblygeneration.Workspace, 0, len(cfg.Assembly.OutputTargets))
+	configuredOutputTargets := make([]assemblyhttp.OutputTarget, 0, len(cfg.Assembly.OutputTargets))
 	for _, target := range cfg.Assembly.OutputTargets {
 		configuredWorkspaces = append(configuredWorkspaces, assemblygeneration.Workspace{
 			Reference: target.Reference, TargetRoot: target.TargetRoot, ArtifactRoot: target.ArtifactRoot,
+		})
+		configuredOutputTargets = append(configuredOutputTargets, assemblyhttp.OutputTarget{
+			OutputTargetRef: target.Reference, Environment: target.Environment, DisplayName: target.DisplayName,
+			Summary: target.Summary, IsDefault: target.IsDefault,
 		})
 	}
 	assemblyWorkspaces, err := assemblygeneration.NewWorkspaceCatalog(configuredWorkspaces)
@@ -197,6 +199,10 @@ func main() {
 		logger.Error("assembly output workspace initialization failed", "error", err)
 		os.Exit(1)
 	}
+	assemblyService := assemblycore.NewService(
+		assemblypostgres.New(db.Pool()), assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
+		assemblycore.WithOutputTargetVerifier(newCoreOutputTargetVerifier(configuredOutputTargets...)),
+	)
 	auditRepository := auditpostgres.New(db.Pool())
 	auditService := audit.NewService(auditRepository)
 	identityRepository := identitypostgres.New(db.Pool())
@@ -237,7 +243,7 @@ func main() {
 	tenantHandler := tenanthttp.New(tenantService, adminGuard)
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
-	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithExecutor(assemblyService, assemblyExecutionWorkflow, assemblyWorkspaces.References()...), adminGuard)
+	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithExecutor(assemblyService, assemblyExecutionWorkflow, configuredOutputTargets...), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
 	modules := platformserver.NewModuleRegistrar()

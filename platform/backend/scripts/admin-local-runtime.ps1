@@ -127,6 +127,10 @@ function Start-ManagedBackend {
     $encodedPassword = [Uri]::EscapeDataString($password)
     $targets = ConvertTo-Json -InputObject @(@{
         ref = 'workspace.default'
+        environment = 'development'
+        display_name = 'Local development workspace'
+        summary = 'Server-managed local source and evidence output'
+        is_default = $true
         target_root = $TargetRoot.Replace('\', '/')
         artifact_root = $ArtifactRoot.Replace('\', '/')
     }) -Compress

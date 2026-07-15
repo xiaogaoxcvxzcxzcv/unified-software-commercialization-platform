@@ -1,0 +1,46 @@
+{
+    "schema_version":  1,
+    "generated_at_utc":  "2026-07-15T14:13:55.3375915Z",
+    "mode":  "Core",
+    "require_postgres":  false,
+    "git_commit":  "7f5cd24fb27c81471d9378913ae2452d08b987a2",
+    "passed":  true,
+    "steps":  [
+                  {
+                      "name":  "Git whitespace check",
+                      "status":  "passed",
+                      "duration_ms":  87,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Strict UTF-8",
+                      "status":  "passed",
+                      "duration_ms":  6310,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Migration naming and pairing",
+                      "status":  "passed",
+                      "duration_ms":  31,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Local documentation links",
+                      "status":  "passed",
+                      "duration_ms":  5328,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Secret pattern scan",
+                      "status":  "passed",
+                      "duration_ms":  6751,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "OpenAPI contract",
+                      "status":  "passed",
+                      "duration_ms":  75,
+                      "message":  ""
+                  }
+              ]
+}

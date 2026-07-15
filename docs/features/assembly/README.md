@@ -8,6 +8,10 @@ G1-04 已达到 `verified foundation`：Blueprint、Plan、Run、Manifest 和 Ge
 
 G1-05 已达到 `verified`。Go 生成器具备锁定源码读取、严格模板渲染、UTF-8/LF 与规范 JSON 输出、确定性目标快照、generated/integration/custom/forked 所有权冲突检查、稳定 generated region 合并、提交前快照复核、同文件系统 staging、Windows/POSIX 原子文件替换和提交失败回滚；现在还会生成并校验 Result、Diagnostic、Assembly Manifest、Generated Project Lock、Rollback Point、Commit Journal 和 Eject Plan。`PLATFORM_ASSEMBLY_OUTPUT_TARGETS` 把客户端只能提交的 `output_target_ref` 解析为互不重叠的服务端受控源码根与制品根，Assembly execute 已通过公开 Product、Tenant、Product Application 和 Product Capability 服务编排到生产进程，并在持久 journal 上支持显式 rollback、幂等重放和升级前一版本恢复。真实 PostgreSQL Full 13 项门禁已通过。
 
+G1-07.1 已达到 `verified`：普通/实验 Generator/SDK 工具目录、Tool Manifest、内容树、执行入口、内置适配器白名单、兼容性与 Catalog Snapshot 已完成。四个工具根保持为空，真实工具版本仍需 G2C 执行证据后发布。
+
+G1-08.1 已达到 `verified`：管理端 Assembly API Client、服务端授权输出目标目录、顶层路由/Core 双重校验和创建流程状态模型已完成；浏览器只接收 opaque 引用与脱敏展示信息，写请求幂等键在认证刷新后原样重放。真实 PostgreSQL、浏览器同源 Cookie 请求和 Full 18 项门禁已通过。
+
 普通生产能力包、UI 模板和受信 Generator/SDK 工具目录当前为空，因此生产计划生成按设计失败关闭。受控实验模板目录已有 `standard-a` 0.1.0，可用于无能力包的模板生成验证；非空 Extension Manifest 仍因可信扩展目录尚未实现而失败关闭。当前没有 `available` 完整能力包，管理后台创建向导和业务页面仍未闭环。
 
 ## 拥有的数据
@@ -29,7 +33,7 @@ G1-05 已达到 `verified`。Go 生成器具备锁定源码读取、严格模板
 - Run 的 Plan、幂等摘要、`output_target_ref`、创建时间和步骤身份不可漂移，时间/attempt/步骤状态必须单调，completed/rolled_back 终态不可重写。
 - 向 Product 模块提供受信 Plan 能力集合校验，不跨表读取 Product、Application 或 Tenant 数据。
 
-G1-05 完成的是 Generator 与 Run 的后端执行闭包，不等于完整软件装配已经可交付。G1-06 已完成 SDK/Client UI 基座，G1-07 已完成 `standard-a` Web/desktop WebView 生成与浏览器视觉验收；G1-07.1/G1-08/G1-10/G1-11 还需完成受信工具目录、管理后台向导与软件工作区、公开 lifecycle API 和可信 Extension Catalog。Product Blueprint 至少需要一个真实能力包，因此原 G1-09 基础样板不再独立执行，第一次真实样板装配进入 G2C。普通能力包、模板和受信工具目录仍为空，eject 当前只生成不可变计划而不直接改写源码。`staging` 环境在 Product/Application 环境模型扩展前失败关闭，不能静默映射为 production。
+G1-05 完成的是 Generator 与 Run 的后端执行闭包，不等于完整软件装配已经可交付。G1-06 已完成 SDK/Client UI 基座，G1-07 已完成 `standard-a` Web/desktop WebView 生成与浏览器视觉验收，G1-07.1 已完成受信工具目录基础，G1-08.1 已完成创建 Client/状态模型；G1-08.2 至 G1-08.4、G1-10、G1-11 还需完成管理后台向导、软件工作区、装配恢复、公开 lifecycle API 和可信 Extension Catalog。Product Blueprint 至少需要一个真实能力包，因此原 G1-09 基础样板不再独立执行，第一次真实样板装配进入 G2C。普通能力包、模板和真实工具版本仍为空，eject 当前只生成不可变计划而不直接改写源码。`staging` 环境在 Product/Application 环境模型扩展前失败关闭，不能静默映射为 production。
 
 ## 只读机器目录
 

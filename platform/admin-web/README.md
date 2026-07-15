@@ -6,7 +6,7 @@
 
 管理员认证通过 `src/api/authClient.ts` 调用真实 `/api/v1/admin/auth/*` 接口，使用 Secure、HttpOnly Cookie 和仅存于 React 内存的 CSRF token，不提供演示登录或前端 token 持久化。Vite 开发服务器把同源 `/api` 请求代理到 `127.0.0.1:8080`；后端未启动时登录页会明确报错并拒绝进入后台。
 
-业务页面仍只通过 `src/api/adminClient.ts` 访问数据。当前业务 Client 使用内存演示数据，后续由 OpenAPI 生成的 Client 替换；页面和 Feature Block 不得直接访问数据库或后端 Service。右上角“演示环境”专指业务数据，不代表管理员认证为演示。
+现有产品/租户等业务页面仍只通过 `src/api/adminClient.ts` 访问内存演示数据。Assembly 创建流程已新增 `src/api/assemblyClient.ts` 和 `src/features/assembly/createSoftwareMachine.ts`，连接真实 Blueprint/Plan/Run/Manifest/lock 与脱敏输出目标契约；`/create` 页面将在 G1-08.2 实现。页面和 Feature Block 不得直接访问数据库或后端 Service。右上角“演示环境”专指尚未替换的业务数据，不代表管理员认证或 Assembly Client 为演示。
 
 ```powershell
 npm.cmd install

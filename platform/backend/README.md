@@ -121,7 +121,7 @@ go run ./cmd/render-template-preview --repository-root ../.. --template-id stand
 - `PLATFORM_ADMIN_TOKEN_PEPPER` 至少 32 字节，必须由秘密管理系统注入；管理后台 Origin 使用精确 HTTPS Origin，本地真实 Cookie 开发入口默认为 `https://127.0.0.1:5174`。
 - access token 最长 15 分钟；refresh token 单次轮换，旧 refresh 任意重用会撤销整个 token family。
 - `PLATFORM_ADMIN_BEARER_ENABLED` 只接受 `true` 或 `false`，它是紧急关闭开关而不是授权来源；关闭后既有 Bearer access/refresh 立即失效。
-- `PLATFORM_ASSEMBLY_OUTPUT_TARGETS` 是 JSON 数组，每项必须提供唯一 `ref`、绝对且已存在的 `target_root` 与 `artifact_root`；两根及不同映射之间不得相同、重叠或经过链接/reparse。客户端只能提交 `ref`，不能提交路径。
+- `PLATFORM_ASSEMBLY_OUTPUT_TARGETS` 是 JSON 数组，每项必须提供唯一 `ref`、`environment`、`display_name`、`summary`、`is_default`，以及绝对且已存在的 `target_root` 与 `artifact_root`；同一环境最多一个显式默认项，无默认项也合法。两根及不同映射之间不得相同、重叠或经过链接/reparse。浏览器只能读取脱敏展示字段并提交 `ref`，不能获得或提交宿主路径。
 
 ## 初始化首个管理员
 
