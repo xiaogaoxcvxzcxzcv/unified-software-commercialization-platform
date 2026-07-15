@@ -45,9 +45,19 @@ func TestRepositoryBootstrapSnapshotVersionAndExpiry(t *testing.T) {
 	if snapshot.AuthorizationVersion != 2 {
 		t.Fatalf("authorization version = %d, want 2", snapshot.AuthorizationVersion)
 	}
-	wantPermissions := accesscontrol.CurrentPermissionCatalog().Definitions()
-	if len(snapshot.Permissions) != len(wantPermissions) || len(snapshot.Scopes) != 1 || snapshot.Scopes[0].Type != "platform" {
+	wantPermissionCount := 0
+	for _, definition := range accesscontrol.CurrentPermissionCatalog().Definitions() {
+		if definition.GrantsPlatformSuperAdminOnBootstrap() {
+			wantPermissionCount++
+		}
+	}
+	if len(snapshot.Permissions) != wantPermissionCount || len(snapshot.Scopes) != 1 || snapshot.Scopes[0].Type != "platform" {
 		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	for _, permission := range snapshot.Permissions {
+		if permission == "assembly.experimental.use" {
+			t.Fatal("bootstrap unexpectedly granted experimental catalog access")
+		}
 	}
 
 	if _, err := database.Pool.Exec(context.Background(), `UPDATE access_control.admin_scope_bindings SET expires_at=$1 WHERE binding_id=$2`, now.Add(-time.Minute), command.BindingID); err != nil {

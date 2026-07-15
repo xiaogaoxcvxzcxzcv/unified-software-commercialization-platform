@@ -8,13 +8,16 @@ import (
 
 	"platform.local/capability-platform/backend/internal/modules/assembly/core"
 	assemblyhttp "platform.local/capability-platform/backend/internal/modules/assembly/httptransport"
+	"platform.local/capability-platform/backend/internal/modules/assembly/machinecatalog"
 	"platform.local/capability-platform/backend/internal/workflows/assemblyexecution"
 )
 
 type assemblyAdminAdapter struct {
-	service      assemblyCoreService
-	executor     assemblyRunExecutor
-	outputTarget map[string]assemblyhttp.OutputTarget
+	service             assemblyCoreService
+	executor            assemblyRunExecutor
+	outputTarget        map[string]assemblyhttp.OutputTarget
+	ordinaryCatalog     *machinecatalog.Catalog
+	experimentalCatalog *machinecatalog.Catalog
 }
 
 type assemblyRunExecutor interface {
@@ -38,13 +41,67 @@ func newAssemblyAdminAdapter(service assemblyCoreService, outputTargets ...assem
 }
 
 func newAssemblyAdminAdapterWithExecutor(service assemblyCoreService, executor assemblyRunExecutor, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
+	return newAssemblyAdminAdapterWithCatalogs(service, executor, nil, nil, outputTargets...)
+}
+
+func newAssemblyAdminAdapterWithCatalogs(service assemblyCoreService, executor assemblyRunExecutor, ordinaryCatalog, experimentalCatalog *machinecatalog.Catalog, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
 	targets := make(map[string]assemblyhttp.OutputTarget, len(outputTargets))
 	for _, target := range outputTargets {
 		if target.OutputTargetRef != "" && target.Environment != "" {
 			targets[outputTargetKey(target.Environment, target.OutputTargetRef)] = target
 		}
 	}
-	return assemblyAdminAdapter{service: service, executor: executor, outputTarget: targets}
+	return assemblyAdminAdapter{service: service, executor: executor, outputTarget: targets, ordinaryCatalog: ordinaryCatalog, experimentalCatalog: experimentalCatalog}
+}
+
+func (a assemblyAdminAdapter) ListCatalogOptions(_ context.Context, command assemblyhttp.ListCatalogOptionsCommand) (assemblyhttp.CatalogOptions, error) {
+	return catalogOptionsFrom(a.ordinaryCatalog, command)
+}
+
+func (a assemblyAdminAdapter) ListExperimentalCatalogOptions(_ context.Context, command assemblyhttp.ListCatalogOptionsCommand) (assemblyhttp.CatalogOptions, error) {
+	return catalogOptionsFrom(a.experimentalCatalog, command)
+}
+
+func catalogOptionsFrom(catalog *machinecatalog.Catalog, command assemblyhttp.ListCatalogOptionsCommand) (assemblyhttp.CatalogOptions, error) {
+	if catalog == nil {
+		return assemblyhttp.CatalogOptions{}, assemblyhttp.ErrPlanUnavailable
+	}
+	value, err := catalog.Options(command.Target, command.DeliveryMode, command.Environment)
+	if err != nil {
+		return assemblyhttp.CatalogOptions{}, err
+	}
+	result := assemblyhttp.CatalogOptions{CatalogScope: value.CatalogScope, CatalogRevision: value.CatalogRevision, Target: value.Target, DeliveryMode: value.DeliveryMode, Environment: value.Environment,
+		Packages: make([]assemblyhttp.CatalogPackageOption, len(value.Packages)), Templates: make([]assemblyhttp.CatalogTemplateOption, len(value.Templates)), Generators: mapToolOptions(value.Generators), SDKs: mapToolOptions(value.SDKs)}
+	for i, item := range value.Packages {
+		result.Packages[i] = assemblyhttp.CatalogPackageOption{PackageID: item.PackageID, Version: item.Version, Name: item.Name, UserValue: item.UserValue,
+			Dependencies: mapRequirements(item.Dependencies), Conflicts: mapRequirements(item.Conflicts), CompatibleTemplateRefs: mapVersionRefs(item.CompatibleTemplateRefs)}
+	}
+	for i, item := range value.Templates {
+		result.Templates[i] = assemblyhttp.CatalogTemplateOption{TemplateID: item.TemplateID, Version: item.Version, Name: item.Name, SupportedBlocks: item.SupportedBlocks}
+	}
+	return result, nil
+}
+
+func mapRequirements(values []machinecatalog.Requirement) []assemblyhttp.CatalogRequirement {
+	result := make([]assemblyhttp.CatalogRequirement, len(values))
+	for i, v := range values {
+		result[i] = assemblyhttp.CatalogRequirement{PackageID: v.PackageID, VersionRange: v.VersionRange}
+	}
+	return result
+}
+func mapVersionRefs(values []machinecatalog.VersionRef) []assemblyhttp.CatalogVersionRef {
+	result := make([]assemblyhttp.CatalogVersionRef, len(values))
+	for i, v := range values {
+		result[i] = assemblyhttp.CatalogVersionRef{ID: v.ID, Version: v.Version}
+	}
+	return result
+}
+func mapToolOptions(values []machinecatalog.ToolOption) []assemblyhttp.CatalogToolOption {
+	result := make([]assemblyhttp.CatalogToolOption, len(values))
+	for i, v := range values {
+		result[i] = assemblyhttp.CatalogToolOption{ID: v.ID, Version: v.Version, Name: v.Name}
+	}
+	return result
 }
 
 func (a assemblyAdminAdapter) ListOutputTargets(_ context.Context, command assemblyhttp.ListOutputTargetsCommand) (assemblyhttp.OutputTargetList, error) {

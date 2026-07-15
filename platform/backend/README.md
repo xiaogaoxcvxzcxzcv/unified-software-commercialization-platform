@@ -104,7 +104,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\platform\backend\scrip
 - Generator 只接收服务端解析后的源码根与独立制品根。输出先进入同文件系统 staging，复核目标快照后按稳定顺序原子提交；失败恢复已替换文件并删除本次新建文件。
 - 制品根保存 Schema 合法且 checksum 闭包一致的 Result、Diagnostic、Assembly Manifest、Generated Project Lock、Rollback Point、Commit Journal 和 Eject Plan。提交 journal 支持幂等重放和显式文件 rollback，custom/未知/forked 文件不会被覆盖。
 - Plan 中的稳定 Application 身份与 Product Application 服务创建的运行时 ID 以 `{plan_application_id, application_id}` 显式映射，不能混为同一主键。
-- 当前普通能力包、普通模板和受信工具目录为空；`standard-a` 只存在于受控实验模板目录，正常生产蓝图仍会在规划阶段失败关闭。`staging` 尚未进入 Product/Application 持久化环境枚举，也会失败关闭；不得映射为 production。
+- 普通与实验能力包、模板、Generator 和 SDK 分别由八个独立根配置并在进程启动时独立加载；普通目录只接受 `ordinary/available`，实验目录只接受 `experimental/verified`。`GET /api/v1/admin/assembly-catalog-options` 永远投影普通目录，独立实验路径还要求 `assembly.experimental.use`，浏览器不能用参数或 Header 切换 scope。当前普通能力包、普通模板和受信工具目录为空；`standard-a` 只存在于受控实验模板目录，正常生产蓝图仍会在规划阶段失败关闭。`staging` 尚未进入 Product/Application 持久化环境枚举，也会失败关闭；不得映射为 production。
 
 模板作者可以用只写 `.runtime/` 的开发命令预览无能力包的实验模板。命令会通过实验目录重新校验 Manifest 和内容树，使用正式 PureRenderer、generated region 与 FileCommitter 生成到一个全新的空目录；它不会创建或覆盖 `custom` 代码，也不是生产装配入口：
 

@@ -38,7 +38,9 @@ func TestLoadAcceptsValidConfiguration(t *testing.T) {
 	if cfg.Database.MaxConnections != 20 {
 		t.Fatalf("MaxConnections = %d", cfg.Database.MaxConnections)
 	}
-	if cfg.Assembly.SchemaDirectory == "" || len(cfg.Assembly.OutputTargets) != 1 || cfg.Assembly.OutputTargets[0].Reference != "workspace.default" || cfg.Assembly.OutputTargets[0].Environment != "test" || !cfg.Assembly.OutputTargets[0].IsDefault {
+	if cfg.Assembly.SchemaDirectory == "" || cfg.Assembly.ExperimentalCapabilityPackageRoot == "" || cfg.Assembly.ExperimentalTemplateRoot == "" ||
+		cfg.Assembly.ExperimentalGeneratorToolRoot == "" || cfg.Assembly.ExperimentalSDKToolRoot == "" || len(cfg.Assembly.OutputTargets) != 1 ||
+		cfg.Assembly.OutputTargets[0].Reference != "workspace.default" || cfg.Assembly.OutputTargets[0].Environment != "test" || !cfg.Assembly.OutputTargets[0].IsDefault {
 		t.Fatalf("Assembly = %#v", cfg.Assembly)
 	}
 }

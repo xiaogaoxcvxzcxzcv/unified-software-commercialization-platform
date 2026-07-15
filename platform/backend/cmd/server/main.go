@@ -183,6 +183,15 @@ func main() {
 		logger.Error("assembly production catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
+	experimentalAssemblyCatalog, err := machinecatalog.LoadExperimentalWithTools(
+		cfg.Assembly.ExperimentalCapabilityPackageRoot, cfg.Assembly.ExperimentalTemplateRoot,
+		cfg.Assembly.ExperimentalGeneratorToolRoot, cfg.Assembly.ExperimentalSDKToolRoot,
+		assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks,
+	)
+	if err != nil {
+		logger.Error("assembly experimental catalog initialization failed", "error", err)
+		os.Exit(1)
+	}
 	configuredWorkspaces := make([]assemblygeneration.Workspace, 0, len(cfg.Assembly.OutputTargets))
 	configuredOutputTargets := make([]assemblyhttp.OutputTarget, 0, len(cfg.Assembly.OutputTargets))
 	for _, target := range cfg.Assembly.OutputTargets {
@@ -243,7 +252,7 @@ func main() {
 	tenantHandler := tenanthttp.New(tenantService, adminGuard)
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
-	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithExecutor(assemblyService, assemblyExecutionWorkflow, configuredOutputTargets...), adminGuard)
+	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyExecutionWorkflow, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
 	modules := platformserver.NewModuleRegistrar()

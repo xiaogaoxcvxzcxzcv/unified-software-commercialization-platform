@@ -17,42 +17,143 @@ import (
 const testChecksum = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 type serviceStub struct {
-	outputTargets    OutputTargetList
-	outputTargetsErr error
-	listTargets      ListOutputTargetsCommand
-	listTargetCalls  int
-	blueprint        Blueprint
-	blueprintErr     error
-	createBlueprint  CreateBlueprintCommand
-	getBlueprint     GetBlueprintCommand
-	createCalls      int
-	getCalls         int
-	plan             Plan
-	planErr          error
-	createPlan       CreatePlanCommand
-	getPlan          GetPlanCommand
-	createPlanCalls  int
-	getPlanCalls     int
-	run              Run
-	runErr           error
-	start            StartAssemblyCommand
-	getRun           GetRunCommand
-	startCalls       int
-	getRunCalls      int
-	manifest         Manifest
-	manifestErr      error
-	getManifest      GetManifestCommand
-	getManifestCalls int
-	lock             GeneratedProjectLock
-	lockErr          error
-	getLock          GetLockCommand
-	getLockCalls     int
+	catalogOptions        CatalogOptions
+	catalogOptionsErr     error
+	listCatalog           ListCatalogOptionsCommand
+	listCatalogCalls      int
+	listExperimentalCalls int
+	outputTargets         OutputTargetList
+	outputTargetsErr      error
+	listTargets           ListOutputTargetsCommand
+	listTargetCalls       int
+	blueprint             Blueprint
+	blueprintErr          error
+	createBlueprint       CreateBlueprintCommand
+	getBlueprint          GetBlueprintCommand
+	createCalls           int
+	getCalls              int
+	plan                  Plan
+	planErr               error
+	createPlan            CreatePlanCommand
+	getPlan               GetPlanCommand
+	createPlanCalls       int
+	getPlanCalls          int
+	run                   Run
+	runErr                error
+	start                 StartAssemblyCommand
+	getRun                GetRunCommand
+	startCalls            int
+	getRunCalls           int
+	manifest              Manifest
+	manifestErr           error
+	getManifest           GetManifestCommand
+	getManifestCalls      int
+	lock                  GeneratedProjectLock
+	lockErr               error
+	getLock               GetLockCommand
+	getLockCalls          int
+}
+
+func (s *serviceStub) ListCatalogOptions(_ context.Context, command ListCatalogOptionsCommand) (CatalogOptions, error) {
+	s.listCatalogCalls++
+	s.listCatalog = command
+	return s.catalogOptions, s.catalogOptionsErr
+}
+func (s *serviceStub) ListExperimentalCatalogOptions(_ context.Context, command ListCatalogOptionsCommand) (CatalogOptions, error) {
+	s.listExperimentalCalls++
+	s.listCatalog = command
+	return s.catalogOptions, s.catalogOptionsErr
 }
 
 func (s *serviceStub) ListOutputTargets(_ context.Context, command ListOutputTargetsCommand) (OutputTargetList, error) {
 	s.listTargetCalls++
 	s.listTargets = command
 	return s.outputTargets, s.outputTargetsErr
+}
+
+func TestHandlerListsOrdinaryAndExperimentalCatalogOptionsThroughSeparatePermissions(t *testing.T) {
+	service := &serviceStub{catalogOptions: CatalogOptions{CatalogScope: "ordinary", CatalogRevision: "catalog-123456789abc", Target: "web", DeliveryMode: "generated_source", Environment: "test", Packages: []CatalogPackageOption{}, Templates: []CatalogTemplateOption{}, Generators: []CatalogToolOption{}, SDKs: []CatalogToolOption{}}}
+	handler, _, authorization := allowedHandler(service)
+	response := perform(handler, http.MethodGet, "/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test", "", nil)
+	if response.Code != http.StatusOK || authorization.permission != assemblyPlanPermission || service.listCatalogCalls != 1 || service.listExperimentalCalls != 0 {
+		t.Fatalf("ordinary response=%d permission=%q calls=%d/%d body=%s", response.Code, authorization.permission, service.listCatalogCalls, service.listExperimentalCalls, response.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["catalog_scope"] != "ordinary" || len(body) != 9 {
+		t.Fatalf("ordinary body=%#v", body)
+	}
+
+	service.catalogOptions.CatalogScope = "experimental"
+	response = perform(handler, http.MethodGet, "/api/v1/admin/experimental/assembly-catalog-options?environment=test&delivery_mode=generated_source&target=web", "", nil)
+	if response.Code != http.StatusOK || authorization.permission != assemblyExperimentalPermission || service.listExperimentalCalls != 1 {
+		t.Fatalf("experimental response=%d permission=%q calls=%d body=%s", response.Code, authorization.permission, service.listExperimentalCalls, response.Body.String())
+	}
+}
+
+func TestHandlerRejectsCatalogScopeInjectionAndMalformedQueriesBeforeService(t *testing.T) {
+	service := &serviceStub{}
+	handler, _, _ := allowedHandler(service)
+	tests := []struct {
+		target, body string
+		headers      http.Header
+	}{
+		{"/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test&catalog_scope=experimental", "", nil},
+		{"/api/v1/admin/assembly-catalog-options?target=web&target=h5&delivery_mode=generated_source&environment=test", "", nil},
+		{"/api/v1/admin/assembly-catalog-options?target=invalid&delivery_mode=generated_source&environment=test", "", nil},
+		{"/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test", `{}`, http.Header{"Content-Type": []string{"application/json"}}},
+		{"/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test", "", http.Header{"X-Assembly-Catalog-Scope": []string{"experimental"}}},
+	}
+	for _, test := range tests {
+		response := perform(handler, http.MethodGet, test.target, test.body, test.headers)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s => %d body=%s", test.target, response.Code, response.Body.String())
+		}
+	}
+	if service.listCatalogCalls != 0 || service.listExperimentalCalls != 0 {
+		t.Fatalf("service called %d/%d", service.listCatalogCalls, service.listExperimentalCalls)
+	}
+}
+
+func TestCatalogDisplayAllowsProseSlashAndRejectsHostPaths(t *testing.T) {
+	for _, value := range []string{"Web / H5 capability", "Account and profile"} {
+		if !validCatalogDisplay(value, 120) {
+			t.Fatalf("valid prose rejected: %q", value)
+		}
+	}
+	for _, value := range []string{"D:/private/source", "/var/private", `\\server\share`, "../outside", "file:///private/source", "name\x00hidden"} {
+		if validCatalogDisplay(value, 120) {
+			t.Fatalf("path-like catalog display accepted: %q", value)
+		}
+	}
+}
+
+func TestHandlerFailsClosedBeforeSerializingPathLikeCatalogMetadata(t *testing.T) {
+	service := &serviceStub{catalogOptions: CatalogOptions{
+		CatalogScope: "ordinary", CatalogRevision: "catalog-123456789abc", Target: "web", DeliveryMode: "generated_source", Environment: "test",
+		Packages:  []CatalogPackageOption{{PackageID: "package.account", Version: "1.0.0", Name: "D:/private/source", UserValue: "Account capability", Dependencies: []CatalogRequirement{}, Conflicts: []CatalogRequirement{}, CompatibleTemplateRefs: []CatalogVersionRef{{ID: "standard-a", Version: "1.0.0"}}}},
+		Templates: []CatalogTemplateOption{}, Generators: []CatalogToolOption{}, SDKs: []CatalogToolOption{},
+	}}
+	handler, _, _ := allowedHandler(service)
+	response := perform(handler, http.MethodGet, "/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test", "", nil)
+	assertProblem(t, response, http.StatusInternalServerError, "internal_error")
+	if strings.Contains(response.Body.String(), "private/source") {
+		t.Fatalf("path-like metadata leaked: %s", response.Body.String())
+	}
+}
+
+func TestHandlerRequiresExplicitExperimentalCatalogPermission(t *testing.T) {
+	service := &serviceStub{}
+	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
+	authorization := &authorizerStub{decision: adminrequest.Decision{Allowed: false, ReasonCode: "permission_denied"}}
+	handler := New(service, adminrequest.New(auth, authorization, nil))
+	response := perform(handler, http.MethodGet, "/api/v1/admin/experimental/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test", "", nil)
+	assertProblem(t, response, http.StatusForbidden, "admin_auth.permission_denied")
+	if authorization.permission != assemblyExperimentalPermission || service.listExperimentalCalls != 0 || auth.proof {
+		t.Fatalf("permission=%q calls=%d proof=%v", authorization.permission, service.listExperimentalCalls, auth.proof)
+	}
 }
 
 func (s *serviceStub) CreateBlueprint(_ context.Context, command CreateBlueprintCommand) (Blueprint, error) {

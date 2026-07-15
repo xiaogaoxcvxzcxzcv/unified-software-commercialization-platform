@@ -16,6 +16,7 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 		"access.manage",
 		"assembly.blueprint.manage",
 		"assembly.execute",
+		"assembly.experimental.use",
 		"assembly.plan",
 		"assembly.read",
 		"audit.read",
@@ -39,7 +40,7 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 	if err := catalog.ValidateRequiredPermissions(got); err != nil {
 		t.Fatalf("current catalog does not validate: %v", err)
 	}
-	const wantChecksum = "sha256:d720a506d7c68f5d95fc4d20d9e7f7736139f180d28d4d9e2107b76f66031669"
+	const wantChecksum = "sha256:1ef5fdbe67b3f2bf323727c7cf0152004643a40b002c6353cd2d21783b56ca5b"
 	if checksum := catalog.Checksum(); checksum != wantChecksum {
 		t.Fatalf("checksum = %q, want %q", checksum, wantChecksum)
 	}
@@ -50,6 +51,7 @@ func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 	want := map[string]PermissionRisk{
 		"assembly.blueprint.manage": PermissionRiskNormal,
 		"assembly.execute":          PermissionRiskHigh,
+		"assembly.experimental.use": PermissionRiskNormal,
 		"assembly.plan":             PermissionRiskNormal,
 		"assembly.read":             PermissionRiskNormal,
 	}
@@ -62,7 +64,10 @@ func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 		if definition.Risk != risk {
 			t.Errorf("permission %q risk = %q, want %q", definition.Code, definition.Risk, risk)
 		}
-		if !definition.GrantsPlatformSuperAdminOnBootstrap() {
+		if definition.Code == "assembly.experimental.use" && definition.GrantsPlatformSuperAdminOnBootstrap() {
+			t.Errorf("permission %q must require an explicit binding", definition.Code)
+		}
+		if definition.Code != "assembly.experimental.use" && !definition.GrantsPlatformSuperAdminOnBootstrap() {
 			t.Errorf("permission %q is not granted to the bootstrap platform super administrator", definition.Code)
 		}
 		delete(want, definition.Code)
@@ -74,6 +79,7 @@ func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 	if err := catalog.ValidateRequiredPermissions([]string{
 		"assembly.blueprint.manage",
 		"assembly.execute",
+		"assembly.experimental.use",
 		"assembly.plan",
 		"assembly.read",
 	}); err != nil {

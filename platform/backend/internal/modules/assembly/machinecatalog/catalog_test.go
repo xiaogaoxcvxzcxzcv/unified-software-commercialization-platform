@@ -17,18 +17,34 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/assembly/machinecontract"
 )
 
-func TestProductionFeatureBlockCatalogIsMachineReadableAndNotPrematurelyReady(t *testing.T) {
+func TestProductionFeatureBlockCatalogOnlyMarksVerifiedWizardBlocksReady(t *testing.T) {
 	root := repositoryRoot(t)
 	contracts := loadContracts(t)
 	catalog, err := LoadBlockCatalog(filepath.Join(root, "platform", "contracts", "catalogs", "v1", "feature-blocks.json"), contracts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version() != "1.0.0" || len(catalog.Checksum()) != len("sha256:")+64 {
+	if catalog.Version() != "1.1.0" || len(catalog.Checksum()) != len("sha256:")+64 {
 		t.Fatalf("catalog identity = %s %s", catalog.Version(), catalog.Checksum())
+	}
+	ready := map[string]struct{}{
+		"assembly.blueprint-wizard": {},
+		"assembly.plan-review":      {},
+	}
+	for blockID, definition := range catalog.byID {
+		_, allowed := ready[blockID]
+		if allowed && definition.Readiness != "ready" {
+			t.Fatalf("verified wizard block %q readiness = %q", blockID, definition.Readiness)
+		}
+		if !allowed && definition.Readiness != "not_ready" {
+			t.Fatalf("unverified block %q readiness = %q", blockID, definition.Readiness)
+		}
 	}
 	if err := catalog.Validate([]string{"auth.login"}, "client"); !errors.Is(err, ErrBlockNotReady) {
 		t.Fatalf("planned client block should not be usable: %v", err)
+	}
+	if err := catalog.Validate([]string{"assembly.blueprint-wizard", "assembly.plan-review"}, "admin"); err != nil {
+		t.Fatalf("verified wizard blocks should be usable: %v", err)
 	}
 }
 
@@ -61,6 +77,44 @@ func TestEmptyOrdinaryCatalogProducesDeterministicSnapshot(t *testing.T) {
 	}
 	if first.SnapshotSHA256 != second.SnapshotSHA256 || len(first.Packages) != 0 || len(first.Templates) != 0 {
 		t.Fatalf("empty snapshots differ: %#v %#v", first, second)
+	}
+}
+
+func TestCatalogOptionsAreStableFilteredAndRedacted(t *testing.T) {
+	account := packageDocument(t, "package.account", "1.0.0", nil, nil, []string{"auth.login", "account.profile"}, ordinaryView)
+	entitlement := packageDocument(t, "package.entitlement", "1.0.0", []Requirement{{PackageID: "package.account", VersionRange: "^1.0.0"}}, nil, []string{"entitlement.summary"}, ordinaryView)
+	template := templateDocument(t, "standard-a", "1.0.0", []Requirement{{PackageID: "package.account", VersionRange: "^1.0.0"}, {PackageID: "package.entitlement", VersionRange: "^1.0.0"}}, []string{"auth.login", "account.profile", "entitlement.summary"}, ordinaryView)
+	catalog := buildCatalog(t, []sourceDocument{entitlement, account}, []sourceDocument{template}, ordinaryView)
+	if err := catalog.addTools("generator", []sourceDocument{toolDocument(t, "generator", "platform.generator", "1.0.0", ordinaryView)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.addTools("sdk", []sourceDocument{toolDocument(t, "sdk", "platform.sdk", "1.0.0", ordinaryView)}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := catalog.Options("web", "generated_source", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := catalog.Options("web", "generated_source", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CatalogScope != "ordinary" || first.CatalogRevision != second.CatalogRevision || len(first.Packages) != 2 || len(first.Templates) != 1 || len(first.Generators) != 1 || len(first.SDKs) != 1 {
+		t.Fatalf("options = %#v", first)
+	}
+	if first.Packages[0].PackageID != "package.account" || first.Packages[1].PackageID != "package.entitlement" || len(first.Packages[1].CompatibleTemplateRefs) != 1 {
+		t.Fatalf("package options = %#v", first.Packages)
+	}
+	if first.Generators[0].ID != "platform.generator" || first.SDKs[0].ID != "platform.sdk" {
+		t.Fatalf("tool options = %#v / %#v", first.Generators, first.SDKs)
+	}
+	if _, err := catalog.Options("invalid", "generated_source", "test"); !errors.Is(err, ErrCatalogState) {
+		t.Fatalf("invalid filter error = %v", err)
+	}
+	empty, err := catalog.Options("web", "generated_source", "production")
+	if err != nil || empty.Packages == nil || empty.Templates == nil || empty.Generators == nil || empty.SDKs == nil || len(empty.Packages)+len(empty.Templates)+len(empty.Generators)+len(empty.SDKs) != 0 {
+		t.Fatalf("filtered empty options = %#v, %v", empty, err)
 	}
 }
 

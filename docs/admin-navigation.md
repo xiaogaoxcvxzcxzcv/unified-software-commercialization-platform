@@ -33,6 +33,8 @@
 | 装配记录 | `/assemblies` | 查看装配状态、Manifest、生成锁、测试报告、失败恢复和升级计划 |
 | 系统状态 | `/system/health` | API、数据库、任务和对象存储的健康状态；敏感连接信息不得展示 |
 
+`/create` 是普通管理员入口，只请求服务端 ordinary 目录并只显示 `available` 组合。受控 `/create/experimental` 不注册到普通菜单，必须由服务端显式授予 `assembly.experimental.use`；URL query、Header 或 Blueprint 字段不能把普通入口切到 experimental。
+
 ## 单款软件目录
 
 ```text

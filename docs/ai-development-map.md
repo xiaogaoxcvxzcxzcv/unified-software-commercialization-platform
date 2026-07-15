@@ -10,11 +10,11 @@
 
 ## 当前状态
 
-- 当前阶段：F0 已退出；G1-07 Standard-A 模板、G1-07.1 受信工具目录基础和 G1-08.1 创建软件 API Client/状态模型已 verified。当前唯一关口为 G1-08.2 `/create` 多步创建向导；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口必须继续失败关闭。
+- 当前阶段：F0 已退出；G1-07 Standard-A 模板、G1-07.1 受信工具目录基础、G1-08.1 创建 Client/状态模型和 G1-08.2 `/create` 五步向导已 verified。当前唯一关口为 G1-08.3 单款软件管理工作区；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口继续显示真实空状态并失败关闭。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
-- 管理后台已有可运行的 React + TypeScript 工程；管理员认证和 Assembly 创建流程 API Client/状态模型连接真实后端，现有产品/租户等业务页面仍使用内存演示 Client，不得混同为生产数据源。
-- Assembly 后端执行闭包、TypeScript SDK/Client UI 基座和 `standard-a` 实验模板候选已实现；软件创建向导、业务 Feature Block 和首个真实样板软件尚未实现。普通生产能力包/模板/工具目录为空，扩展目录未实现并失败关闭，当前不能声称“勾选能力即可得到完整前后台”。
+- 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建 Client/状态模型和 `/create` 五步向导连接真实后端，现有产品/租户等业务页面仍使用内存演示 Client，不得混同为生产数据源。
+- Assembly 后端执行闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选和软件创建向导已实现；单款软件工作区、业务 Feature Block 和首个真实样板软件尚未实现。普通生产能力包/模板/工具目录为空，扩展目录未实现并失败关闭，当前不能声称“勾选能力即可得到完整前后台”。
 - product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
 - 后端、OpenAPI、SDK、Hosted UI 和真实 Provider 接入以代码、自动化测试及冒烟记录为完成依据，不能以菜单或文档存在代替实现。
 - 产品范围和优先级以 `docs/product-scope.md` 为准。
@@ -158,7 +158,7 @@ Product Blueprint
 
 第一条主链只完成 `package.account`、`package.entitlement` 和 Web/桌面标准 UI。Device/License、Commerce、AI、存储和运营能力随后按同一完整包标准逐个加入。基础代理租户隔离保留在数据模型，但代理经营界面不是第一条主链的中心。
 
-G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已提供只在实验目录可见的 `standard-a` 候选，仍缺浏览器视觉证据；G1-07.1、G1-08、G1-10 和 G1-11 分别负责受信工具、创建向导/软件管理工作区、lifecycle API 和可信扩展目录。Product Blueprint 至少选择一个真实能力包，原 G1-09 基础样板不再独立执行，第一次真实装配进入 G2C。
+G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已完成只在实验目录可见的 `standard-a` 候选及浏览器视觉证据，G1-07.1 完成受信工具目录基础，G1-08.1/G1-08.2 完成创建 Client、状态模型与多步向导；G1-08.3/G1-08.4、G1-10 和 G1-11 分别负责软件工作区、装配恢复、lifecycle API 和可信扩展目录。Product Blueprint 至少选择一个真实能力包，原 G1-09 基础样板不再独立执行，第一次真实装配进入 G2C。
 
 ## 红线
 

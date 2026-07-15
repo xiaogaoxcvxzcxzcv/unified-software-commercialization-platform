@@ -21,22 +21,27 @@ import (
 )
 
 const (
-	blueprintsPath            = "/api/v1/admin/blueprints"
-	plansPath                 = "/api/v1/admin/assembly-plans"
-	runsPath                  = "/api/v1/admin/assembly-runs"
-	manifestsPath             = "/api/v1/admin/assembly-manifests"
-	locksPath                 = "/api/v1/admin/generated-project-locks"
-	outputTargetsPath         = "/api/v1/admin/assembly-output-targets"
-	assemblyReadPermission    = "assembly.read"
-	blueprintManagePermission = "assembly.blueprint.manage"
-	assemblyPlanPermission    = "assembly.plan"
-	assemblyExecutePermission = "assembly.execute"
-	maxRequestBody            = 1 << 20
+	blueprintsPath                 = "/api/v1/admin/blueprints"
+	plansPath                      = "/api/v1/admin/assembly-plans"
+	runsPath                       = "/api/v1/admin/assembly-runs"
+	manifestsPath                  = "/api/v1/admin/assembly-manifests"
+	locksPath                      = "/api/v1/admin/generated-project-locks"
+	outputTargetsPath              = "/api/v1/admin/assembly-output-targets"
+	catalogOptionsPath             = "/api/v1/admin/assembly-catalog-options"
+	experimentalCatalogOptionsPath = "/api/v1/admin/experimental/assembly-catalog-options"
+	assemblyReadPermission         = "assembly.read"
+	blueprintManagePermission      = "assembly.blueprint.manage"
+	assemblyPlanPermission         = "assembly.plan"
+	assemblyExecutePermission      = "assembly.execute"
+	assemblyExperimentalPermission = "assembly.experimental.use"
+	maxRequestBody                 = 1 << 20
 )
 
 var (
 	identifierPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	referencePattern   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+	packagePattern     = regexp.MustCompile(`^package\.[a-z][a-z0-9-]*$`)
+	semverPattern      = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 	idempotencyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
 	checksumPattern    = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
@@ -68,6 +73,60 @@ type Service interface {
 	GetManifest(context.Context, GetManifestCommand) (Manifest, error)
 	GetLock(context.Context, GetLockCommand) (GeneratedProjectLock, error)
 	ListOutputTargets(context.Context, ListOutputTargetsCommand) (OutputTargetList, error)
+	ListCatalogOptions(context.Context, ListCatalogOptionsCommand) (CatalogOptions, error)
+	ListExperimentalCatalogOptions(context.Context, ListCatalogOptionsCommand) (CatalogOptions, error)
+}
+
+type ListCatalogOptionsCommand struct {
+	Target       string
+	DeliveryMode string
+	Environment  string
+	ActorID      string
+}
+
+type CatalogOptions struct {
+	CatalogScope    string
+	CatalogRevision string
+	Target          string
+	DeliveryMode    string
+	Environment     string
+	Packages        []CatalogPackageOption
+	Templates       []CatalogTemplateOption
+	Generators      []CatalogToolOption
+	SDKs            []CatalogToolOption
+}
+
+type CatalogRequirement struct {
+	PackageID    string
+	VersionRange string
+}
+
+type CatalogVersionRef struct {
+	ID      string
+	Version string
+}
+
+type CatalogPackageOption struct {
+	PackageID              string
+	Version                string
+	Name                   string
+	UserValue              string
+	Dependencies           []CatalogRequirement
+	Conflicts              []CatalogRequirement
+	CompatibleTemplateRefs []CatalogVersionRef
+}
+
+type CatalogTemplateOption struct {
+	TemplateID      string
+	Version         string
+	Name            string
+	SupportedBlocks []string
+}
+
+type CatalogToolOption struct {
+	ID      string
+	Version string
+	Name    string
 }
 
 type ListOutputTargetsCommand struct {
@@ -222,7 +281,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 		return
 	}
-	if route.kind != routeOutputTargets && r.URL.RawQuery != "" {
+	if route.kind != routeOutputTargets && route.kind != routeCatalogOptions && route.kind != routeExperimentalCatalogOptions && r.URL.RawQuery != "" {
 		httpx.Error(w, r, http.StatusBadRequest, "assembly.invalid_query", "query parameters are not supported")
 		return
 	}
@@ -233,6 +292,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.listOutputTargets(w, r)
+	case routeCatalogOptions:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.listCatalogOptions(w, r, false)
+	case routeExperimentalCatalogOptions:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.listCatalogOptions(w, r, true)
 	case routeBlueprints:
 		if r.Method != http.MethodPost {
 			httpx.MethodNotAllowed(w, r, http.MethodPost)
@@ -284,6 +355,48 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	}
+}
+
+func (h *Handler) listCatalogOptions(w http.ResponseWriter, r *http.Request, experimental bool) {
+	if r.ContentLength > 0 || len(r.TransferEncoding) != 0 ||
+		len(r.Header.Values("X-Assembly-Catalog-Scope")) != 0 || len(r.Header.Values("X-Catalog-Scope")) != 0 || len(r.Header.Values("Catalog-Scope")) != 0 {
+		httpx.Error(w, r, http.StatusBadRequest, "assembly.invalid_query", "catalog scope and request bodies are not accepted")
+		return
+	}
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(values) != 3 || len(values["target"]) != 1 || len(values["delivery_mode"]) != 1 || len(values["environment"]) != 1 ||
+		!validTarget(values["target"][0]) || !validDeliveryMode(values["delivery_mode"][0]) || !validEnvironment(values["environment"][0]) {
+		httpx.Error(w, r, http.StatusBadRequest, "assembly.invalid_query", "exactly one supported target, delivery_mode, and environment are required")
+		return
+	}
+	permission := assemblyPlanPermission
+	if experimental {
+		permission = assemblyExperimentalPermission
+	}
+	principal, ok := h.authorize(w, r, permission, false)
+	if !ok {
+		return
+	}
+	command := ListCatalogOptionsCommand{Target: values["target"][0], DeliveryMode: values["delivery_mode"][0], Environment: values["environment"][0], ActorID: principal.AdminUserID}
+	var result CatalogOptions
+	if experimental {
+		result, err = h.service.ListExperimentalCatalogOptions(r.Context(), command)
+	} else {
+		result, err = h.service.ListCatalogOptions(r.Context(), command)
+	}
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	expectedScope := "ordinary"
+	if experimental {
+		expectedScope = "experimental"
+	}
+	if !validCatalogOptions(result, expectedScope, command) {
+		writeInternalError(w, r)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, catalogOptionsResponseFrom(result))
 }
 
 func (h *Handler) listOutputTargets(w http.ResponseWriter, r *http.Request) {
@@ -576,6 +689,46 @@ type outputTargetListResponse struct {
 	Items                  []outputTargetResponse `json:"items"`
 }
 
+type catalogRequirementResponse struct {
+	PackageID    string `json:"package_id"`
+	VersionRange string `json:"version_range"`
+}
+type catalogVersionRefResponse struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+type catalogPackageOptionResponse struct {
+	PackageID              string                       `json:"package_id"`
+	Version                string                       `json:"version"`
+	Name                   string                       `json:"name"`
+	UserValue              string                       `json:"user_value"`
+	Dependencies           []catalogRequirementResponse `json:"dependencies"`
+	Conflicts              []catalogRequirementResponse `json:"conflicts"`
+	CompatibleTemplateRefs []catalogVersionRefResponse  `json:"compatible_template_refs"`
+}
+type catalogTemplateOptionResponse struct {
+	TemplateID      string   `json:"template_id"`
+	Version         string   `json:"version"`
+	Name            string   `json:"name"`
+	SupportedBlocks []string `json:"supported_blocks"`
+}
+type catalogToolOptionResponse struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	Name    string `json:"name"`
+}
+type catalogOptionsResponse struct {
+	CatalogScope    string                          `json:"catalog_scope"`
+	CatalogRevision string                          `json:"catalog_revision"`
+	Target          string                          `json:"target"`
+	DeliveryMode    string                          `json:"delivery_mode"`
+	Environment     string                          `json:"environment"`
+	Packages        []catalogPackageOptionResponse  `json:"packages"`
+	Templates       []catalogTemplateOptionResponse `json:"templates"`
+	Generators      []catalogToolOptionResponse     `json:"generators"`
+	SDKs            []catalogToolOptionResponse     `json:"sdks"`
+}
+
 type manifestResponse struct {
 	AssemblyID       string          `json:"assembly_id"`
 	ProductID        string          `json:"product_id"`
@@ -626,6 +779,119 @@ func outputTargetListResponseFrom(value OutputTargetList) outputTargetListRespon
 		items[index] = outputTargetResponse{OutputTargetRef: item.OutputTargetRef, DisplayName: item.DisplayName, Summary: item.Summary, IsDefault: item.IsDefault}
 	}
 	return outputTargetListResponse{Environment: value.Environment, DefaultPolicy: "explicit", DefaultOutputTargetRef: value.DefaultOutputTargetRef, Items: items}
+}
+
+func catalogOptionsResponseFrom(value CatalogOptions) catalogOptionsResponse {
+	result := catalogOptionsResponse{CatalogScope: value.CatalogScope, CatalogRevision: value.CatalogRevision, Target: value.Target, DeliveryMode: value.DeliveryMode, Environment: value.Environment,
+		Packages: make([]catalogPackageOptionResponse, len(value.Packages)), Templates: make([]catalogTemplateOptionResponse, len(value.Templates)), Generators: toolOptionResponses(value.Generators), SDKs: toolOptionResponses(value.SDKs)}
+	for i, item := range value.Packages {
+		result.Packages[i] = catalogPackageOptionResponse{PackageID: item.PackageID, Version: item.Version, Name: item.Name, UserValue: item.UserValue,
+			Dependencies: requirementResponses(item.Dependencies), Conflicts: requirementResponses(item.Conflicts), CompatibleTemplateRefs: versionRefResponses(item.CompatibleTemplateRefs)}
+	}
+	for i, item := range value.Templates {
+		result.Templates[i] = catalogTemplateOptionResponse{TemplateID: item.TemplateID, Version: item.Version, Name: item.Name, SupportedBlocks: item.SupportedBlocks}
+	}
+	return result
+}
+
+func requirementResponses(values []CatalogRequirement) []catalogRequirementResponse {
+	result := make([]catalogRequirementResponse, len(values))
+	for i, v := range values {
+		result[i] = catalogRequirementResponse{PackageID: v.PackageID, VersionRange: v.VersionRange}
+	}
+	return result
+}
+func versionRefResponses(values []CatalogVersionRef) []catalogVersionRefResponse {
+	result := make([]catalogVersionRefResponse, len(values))
+	for i, v := range values {
+		result[i] = catalogVersionRefResponse{ID: v.ID, Version: v.Version}
+	}
+	return result
+}
+func toolOptionResponses(values []CatalogToolOption) []catalogToolOptionResponse {
+	result := make([]catalogToolOptionResponse, len(values))
+	for i, v := range values {
+		result[i] = catalogToolOptionResponse{ID: v.ID, Version: v.Version, Name: v.Name}
+	}
+	return result
+}
+
+func validCatalogOptions(value CatalogOptions, expectedScope string, command ListCatalogOptionsCommand) bool {
+	if value.CatalogScope != expectedScope || !referencePattern.MatchString(value.CatalogRevision) || value.Target != command.Target || value.DeliveryMode != command.DeliveryMode || value.Environment != command.Environment || value.Packages == nil || value.Templates == nil || value.Generators == nil || value.SDKs == nil {
+		return false
+	}
+	for i, item := range value.Packages {
+		if !packagePattern.MatchString(item.PackageID) || !semverPattern.MatchString(item.Version) || !validCatalogDisplay(item.Name, 120) || !validCatalogDisplay(item.UserValue, 240) || item.Dependencies == nil || item.Conflicts == nil || item.CompatibleTemplateRefs == nil || (i > 0 && value.Packages[i-1].PackageID+"\x00"+value.Packages[i-1].Version >= item.PackageID+"\x00"+item.Version) {
+			return false
+		}
+		if !validRequirements(item.Dependencies) || !validRequirements(item.Conflicts) || !validVersionRefs(item.CompatibleTemplateRefs) {
+			return false
+		}
+	}
+	for i, item := range value.Templates {
+		if !validIdentifier(item.TemplateID) || !semverPattern.MatchString(item.Version) || !validCatalogDisplay(item.Name, 120) || !validStableStrings(item.SupportedBlocks) || (i > 0 && value.Templates[i-1].TemplateID+"\x00"+value.Templates[i-1].Version >= item.TemplateID+"\x00"+item.Version) {
+			return false
+		}
+	}
+	return validTools(value.Generators) && validTools(value.SDKs)
+}
+
+func validRequirements(values []CatalogRequirement) bool {
+	for i, v := range values {
+		if !packagePattern.MatchString(v.PackageID) || v.VersionRange == "" || (i > 0 && values[i-1].PackageID+"\x00"+values[i-1].VersionRange >= v.PackageID+"\x00"+v.VersionRange) {
+			return false
+		}
+	}
+	return true
+}
+
+func validVersionRefs(values []CatalogVersionRef) bool {
+	for i, v := range values {
+		if !validIdentifier(v.ID) || !semverPattern.MatchString(v.Version) || (i > 0 && values[i-1].ID+"\x00"+values[i-1].Version >= v.ID+"\x00"+v.Version) {
+			return false
+		}
+	}
+	return true
+}
+
+func validTools(values []CatalogToolOption) bool {
+	for i, v := range values {
+		if !validIdentifier(v.ID) || !semverPattern.MatchString(v.Version) || !validCatalogDisplay(v.Name, 120) || (i > 0 && values[i-1].ID+"\x00"+values[i-1].Version >= v.ID+"\x00"+v.Version) {
+			return false
+		}
+	}
+	return true
+}
+
+func validStableStrings(values []string) bool {
+	if values == nil {
+		return false
+	}
+	for index, value := range values {
+		if !referencePattern.MatchString(value) || (index > 0 && values[index-1] >= value) {
+			return false
+		}
+	}
+	return true
+}
+
+func validCatalogDisplay(value string, maximum int) bool {
+	if value == "" || value != strings.TrimSpace(value) || utf8.RuneCountInString(value) > maximum || strings.Contains(value, "\\") {
+		return false
+	}
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.Contains(lower, "file://") || strings.Contains(value, "../") || strings.Contains(value, "/..") {
+		return false
+	}
+	if len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && value[2] == '/' {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x1f || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func validOutputTargetList(value OutputTargetList) bool {
@@ -734,6 +1000,17 @@ func validRunStatus(value string) bool {
 
 func validEnvironment(value string) bool {
 	return value == "development" || value == "test" || value == "staging" || value == "production"
+}
+
+func validTarget(value string) bool {
+	switch value {
+	case "web", "desktop_webview", "h5", "wechat_miniprogram", "mobile_app":
+		return true
+	}
+	return false
+}
+func validDeliveryMode(value string) bool {
+	return value == "hosted" || value == "package" || value == "generated_source"
 }
 
 func requireIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -856,6 +1133,8 @@ const (
 	routeManifest
 	routeLock
 	routeOutputTargets
+	routeCatalogOptions
+	routeExperimentalCatalogOptions
 )
 
 type parsedRoute struct {
@@ -872,6 +1151,12 @@ func parseRoute(r *http.Request) (parsedRoute, bool) {
 	}
 	if r.URL.Path == outputTargetsPath {
 		return parsedRoute{kind: routeOutputTargets}, true
+	}
+	if r.URL.Path == catalogOptionsPath {
+		return parsedRoute{kind: routeCatalogOptions}, true
+	}
+	if r.URL.Path == experimentalCatalogOptionsPath {
+		return parsedRoute{kind: routeExperimentalCatalogOptions}, true
 	}
 	if strings.HasPrefix(r.URL.Path, blueprintsPath+"/") {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, blueprintsPath+"/"), "/")

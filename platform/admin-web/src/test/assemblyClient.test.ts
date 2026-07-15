@@ -19,9 +19,52 @@ const blueprint: ProductBlueprintDocument = {
   sdk: { id: "sdk.typescript", version: "1.0.0" },
 };
 
+const catalogFilter = { target: "web", delivery_mode: "generated_source", environment: "development" } as const;
+const ordinaryCatalog = {
+  catalog_scope: "ordinary",
+  catalog_revision: "catalog-ordinary-1",
+  ...catalogFilter,
+  packages: [{
+    package_id: "package.account", version: "1.0.0", name: "统一账号", user_value: "Web / H5 登录与账号中心",
+    dependencies: [], conflicts: [], compatible_template_refs: [{ id: "standard-a", version: "1.0.0" }],
+  }],
+  templates: [{ template_id: "standard-a", version: "1.0.0", name: "标准界面", supported_blocks: ["account.profile"] }],
+  generators: [{ id: "platform.generator", version: "1.0.0", name: "平台生成器" }],
+  sdks: [{ id: "platform.sdk", version: "1.0.0", name: "TypeScript SDK" }],
+};
+
 beforeEach(() => authenticatedRequest.mockReset());
 
 describe("assemblyClient request contract", () => {
+  it("uses separate fixed ordinary and experimental catalog paths without a scope parameter", async () => {
+    authenticatedRequest.mockResolvedValueOnce(ordinaryCatalog).mockResolvedValueOnce({ ...ordinaryCatalog, catalog_scope: "experimental" });
+    await assemblyClient.listOrdinaryCatalogOptions(catalogFilter);
+    await assemblyClient.listExperimentalCatalogOptions(catalogFilter);
+    expect(authenticatedRequest.mock.calls.map(([path]) => path)).toEqual([
+      "/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=development",
+      "/api/v1/admin/experimental/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=development",
+    ]);
+    expect(authenticatedRequest.mock.calls.every(([path]) => !String(path).includes("scope="))).toBe(true);
+  });
+
+  it("accepts prose slashes but rejects host paths and unknown catalog fields", async () => {
+    authenticatedRequest.mockResolvedValueOnce(ordinaryCatalog);
+    await expect(assemblyClient.listOrdinaryCatalogOptions(catalogFilter)).resolves.toEqual(ordinaryCatalog);
+    authenticatedRequest.mockResolvedValueOnce({ ...ordinaryCatalog, packages: [{ ...ordinaryCatalog.packages[0], user_value: "D:/private/source" }] });
+    await expect(assemblyClient.listOrdinaryCatalogOptions(catalogFilter)).rejects.toThrow("host path");
+    authenticatedRequest.mockResolvedValueOnce({ ...ordinaryCatalog, catalog_root: "private" });
+    await expect(assemblyClient.listOrdinaryCatalogOptions(catalogFilter)).rejects.toThrow("unknown or missing fields");
+  });
+
+  it("rejects endpoint scope/filter mismatches and unstable option order", async () => {
+    authenticatedRequest.mockResolvedValueOnce({ ...ordinaryCatalog, catalog_scope: "experimental" });
+    await expect(assemblyClient.listOrdinaryCatalogOptions(catalogFilter)).rejects.toThrow("scope does not match");
+    authenticatedRequest.mockResolvedValueOnce({ ...ordinaryCatalog, environment: "test" });
+    await expect(assemblyClient.listOrdinaryCatalogOptions(catalogFilter)).rejects.toThrow("filters do not match");
+    authenticatedRequest.mockResolvedValueOnce({ ...ordinaryCatalog, generators: [{ id: "z-generator", version: "1.0.0", name: "Z" }, { id: "a-generator", version: "1.0.0", name: "A" }] });
+    await expect(assemblyClient.listOrdinaryCatalogOptions(catalogFilter)).rejects.toThrow("stable order");
+  });
+
   it("loads the exact redacted environment-scoped output target catalog", async () => {
     authenticatedRequest.mockResolvedValue({
       environment: "production",

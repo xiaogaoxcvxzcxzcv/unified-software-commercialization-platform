@@ -10,7 +10,7 @@ import (
 	"sort"
 )
 
-const PermissionCatalogVersion = "1.2.0"
+const PermissionCatalogVersion = "1.3.0"
 
 var (
 	ErrInvalidPermissionCatalog = errors.New("invalid permission catalog")
@@ -47,6 +47,7 @@ var currentPermissionCatalog = mustPermissionCatalog(
 		{Code: "access.manage", Description: "Manage administrator roles, permissions, and scopes", Risk: PermissionRiskHigh, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "assembly.blueprint.manage", Description: "Create and manage product assembly blueprints", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "assembly.execute", Description: "Execute confirmed product assembly plans", Risk: PermissionRiskHigh, grantToBootstrapPlatformSuperAdmin: true},
+		{Code: "assembly.experimental.use", Description: "Read and use the isolated experimental software assembly catalog", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: false},
 		{Code: "assembly.plan", Description: "Create deterministic product assembly plans", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "assembly.read", Description: "Read product assembly blueprints, plans, runs, manifests, and locks", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "audit.read", Description: "Read security and operation audit events", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},

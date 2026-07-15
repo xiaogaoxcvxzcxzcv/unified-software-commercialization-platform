@@ -5,6 +5,57 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type JsonObject = { [key: string]: JsonValue };
 
 export type AssemblyEnvironment = "development" | "test" | "staging" | "production";
+export type AssemblyTarget = "web" | "desktop_webview" | "h5" | "wechat_miniprogram" | "mobile_app";
+export type AssemblyDeliveryMode = "hosted" | "package" | "generated_source";
+export type AssemblyCatalogScope = "ordinary" | "experimental";
+
+export interface AssemblyCatalogFilter {
+  target: AssemblyTarget;
+  delivery_mode: AssemblyDeliveryMode;
+  environment: AssemblyEnvironment;
+}
+
+export interface AssemblyCatalogRequirement {
+  package_id: string;
+  version_range: string;
+}
+
+export interface AssemblyCatalogVersionRef {
+  id: string;
+  version: string;
+}
+
+export interface AssemblyCatalogPackageOption {
+  package_id: string;
+  version: string;
+  name: string;
+  user_value: string;
+  dependencies: AssemblyCatalogRequirement[];
+  conflicts: AssemblyCatalogRequirement[];
+  compatible_template_refs: AssemblyCatalogVersionRef[];
+}
+
+export interface AssemblyCatalogTemplateOption {
+  template_id: string;
+  version: string;
+  name: string;
+  supported_blocks: string[];
+}
+
+export interface AssemblyCatalogToolOption {
+  id: string;
+  version: string;
+  name: string;
+}
+
+export interface AssemblyCatalogOptions extends AssemblyCatalogFilter {
+  catalog_scope: AssemblyCatalogScope;
+  catalog_revision: string;
+  packages: AssemblyCatalogPackageOption[];
+  templates: AssemblyCatalogTemplateOption[];
+  generators: AssemblyCatalogToolOption[];
+  sdks: AssemblyCatalogToolOption[];
+}
 
 export interface TrustedToolSelection {
   id: string;
@@ -125,6 +176,9 @@ export interface StartAssemblyInput {
 const trustedToolKeys = new Set(["id", "version"]);
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const outputTargetRefPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+const stableCodePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+const packageIdPattern = /^package\.[a-z][a-z0-9-]*$/;
+const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const idempotencyKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/;
 const forbiddenToolKeys = new Set([
   "scope",
@@ -164,6 +218,141 @@ function containsForbiddenDisplayCharacter(value: string) {
       const codePoint = character.codePointAt(0)!;
       return codePoint <= 0x1f || codePoint === 0x7f;
     });
+}
+
+function containsPathLikeDisplayValue(value: string) {
+  return value.includes("\\")
+    || /^[A-Za-z]:[\\/]/.test(value)
+    || value.startsWith("/")
+    || /(^|[\\/])\.\.([\\/]|$)/.test(value)
+    || [...value].some((character) => {
+      const codePoint = character.codePointAt(0)!;
+      return codePoint <= 0x1f || codePoint === 0x7f;
+    });
+}
+
+function exactObject(value: unknown, expectedKeys: readonly string[], label: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} is invalid`);
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source).sort();
+  const expected = [...expectedKeys].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new TypeError(`${label} contains unknown or missing fields`);
+  }
+  return source;
+}
+
+function safeDisplayString(value: unknown, field: string, maxLength: number) {
+  if (typeof value !== "string" || !value.trim() || [...value].length > maxLength) {
+    throw new TypeError(`${field} is invalid`);
+  }
+  if (containsPathLikeDisplayValue(value)) throw new TypeError(`${field} must not contain a host path`);
+  return value;
+}
+
+function safeIdentifier(value: unknown, field: string) {
+  if (typeof value !== "string" || value.length > 128 || !identifierPattern.test(value)) {
+    throw new TypeError(`${field} is invalid`);
+  }
+  return value;
+}
+
+function safeStableCode(value: unknown, field: string) {
+  if (typeof value !== "string" || value.length < 3 || value.length > 64 || !stableCodePattern.test(value)) {
+    throw new TypeError(`${field} is invalid`);
+  }
+  return value;
+}
+
+function safeVersion(value: unknown, field: string) {
+  if (typeof value !== "string" || value.length < 5 || value.length > 80 || !semverPattern.test(value)) {
+    throw new TypeError(`${field} is invalid`);
+  }
+  return value;
+}
+
+function stableUnique<T>(items: T[], key: (item: T) => string, label: string) {
+  const keys = items.map(key);
+  if (new Set(keys).size !== keys.length) throw new TypeError(`${label} contains duplicate entries`);
+  if (keys.some((value, index) => index > 0 && keys[index - 1] >= value)) {
+    throw new TypeError(`${label} is not in stable order`);
+  }
+  return items;
+}
+
+function parseRequirement(value: unknown): AssemblyCatalogRequirement {
+  const source = exactObject(value, ["package_id", "version_range"], "catalog requirement");
+  if (typeof source.package_id !== "string" || !packageIdPattern.test(source.package_id)) {
+    throw new TypeError("catalog requirement package_id is invalid");
+  }
+  const versionRange = safeDisplayString(source.version_range, "catalog requirement version_range", 120);
+  return { package_id: source.package_id, version_range: versionRange };
+}
+
+function parseVersionRef(value: unknown): AssemblyCatalogVersionRef {
+  const source = exactObject(value, ["id", "version"], "catalog version ref");
+  return { id: safeIdentifier(source.id, "catalog version ref id"), version: safeVersion(source.version, "catalog version ref version") };
+}
+
+function parsePackageOption(value: unknown): AssemblyCatalogPackageOption {
+  const source = exactObject(value, ["package_id", "version", "name", "user_value", "dependencies", "conflicts", "compatible_template_refs"], "catalog package");
+  if (typeof source.package_id !== "string" || !packageIdPattern.test(source.package_id)) throw new TypeError("catalog package package_id is invalid");
+  if (!Array.isArray(source.dependencies) || !Array.isArray(source.conflicts) || !Array.isArray(source.compatible_template_refs)) {
+    throw new TypeError("catalog package relationships are invalid");
+  }
+  return {
+    package_id: source.package_id,
+    version: safeVersion(source.version, "catalog package version"),
+    name: safeDisplayString(source.name, "catalog package name", 120),
+    user_value: safeDisplayString(source.user_value, "catalog package user_value", 240),
+    dependencies: stableUnique(source.dependencies.map(parseRequirement), (item) => `${item.package_id}@${item.version_range}`, "catalog package dependencies"),
+    conflicts: stableUnique(source.conflicts.map(parseRequirement), (item) => `${item.package_id}@${item.version_range}`, "catalog package conflicts"),
+    compatible_template_refs: stableUnique(source.compatible_template_refs.map(parseVersionRef), (item) => `${item.id}@${item.version}`, "catalog package template refs"),
+  };
+}
+
+function parseTemplateOption(value: unknown): AssemblyCatalogTemplateOption {
+  const source = exactObject(value, ["template_id", "version", "name", "supported_blocks"], "catalog template");
+  if (!Array.isArray(source.supported_blocks)) throw new TypeError("catalog template supported_blocks is invalid");
+  return {
+    template_id: safeIdentifier(source.template_id, "catalog template template_id"),
+    version: safeVersion(source.version, "catalog template version"),
+    name: safeDisplayString(source.name, "catalog template name", 120),
+    supported_blocks: stableUnique(source.supported_blocks.map((item) => safeStableCode(item, "catalog template block")), (item) => item, "catalog template blocks"),
+  };
+}
+
+function parseToolOption(value: unknown): AssemblyCatalogToolOption {
+  const source = exactObject(value, ["id", "version", "name"], "catalog tool");
+  return {
+    id: safeIdentifier(source.id, "catalog tool id"),
+    version: safeVersion(source.version, "catalog tool version"),
+    name: safeDisplayString(source.name, "catalog tool name", 120),
+  };
+}
+
+function parseCatalogOptions(value: unknown, expectedScope: AssemblyCatalogScope, filter: AssemblyCatalogFilter): AssemblyCatalogOptions {
+  const source = exactObject(value, ["catalog_scope", "catalog_revision", "target", "delivery_mode", "environment", "packages", "templates", "generators", "sdks"], "assembly catalog options");
+  if (source.catalog_scope !== expectedScope) throw new TypeError("assembly catalog scope does not match the endpoint");
+  if (source.target !== filter.target || source.delivery_mode !== filter.delivery_mode || source.environment !== filter.environment) {
+    throw new TypeError("assembly catalog filters do not match the request");
+  }
+  if (!Array.isArray(source.packages) || !Array.isArray(source.templates) || !Array.isArray(source.generators) || !Array.isArray(source.sdks)) {
+    throw new TypeError("assembly catalog option lists are invalid");
+  }
+  return {
+    catalog_scope: expectedScope,
+    catalog_revision: safeStableCode(source.catalog_revision, "assembly catalog revision"),
+    ...filter,
+    packages: stableUnique(source.packages.map(parsePackageOption), (item) => `${item.package_id}@${item.version}`, "catalog packages"),
+    templates: stableUnique(source.templates.map(parseTemplateOption), (item) => `${item.template_id}@${item.version}`, "catalog templates"),
+    generators: stableUnique(source.generators.map(parseToolOption), (item) => `${item.id}@${item.version}`, "catalog generators"),
+    sdks: stableUnique(source.sdks.map(parseToolOption), (item) => `${item.id}@${item.version}`, "catalog sdks"),
+  };
+}
+
+function catalogQuery(filter: AssemblyCatalogFilter) {
+  return new URLSearchParams({ target: filter.target, delivery_mode: filter.delivery_mode, environment: filter.environment });
 }
 
 function assertToolSelection(value: unknown, field: "generator" | "sdk"): asserts value is TrustedToolSelection {
@@ -295,6 +484,16 @@ function parseOutputTargetCatalog(value: unknown): OutputTargetCatalog {
 }
 
 export const assemblyClient = {
+  async listOrdinaryCatalogOptions(filter: AssemblyCatalogFilter, options: AssemblyRequestOptions = {}) {
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-catalog-options?${catalogQuery(filter)}`, readInit(options));
+    return parseCatalogOptions(result, "ordinary", filter);
+  },
+
+  async listExperimentalCatalogOptions(filter: AssemblyCatalogFilter, options: AssemblyRequestOptions = {}) {
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/experimental/assembly-catalog-options?${catalogQuery(filter)}`, readInit(options));
+    return parseCatalogOptions(result, "experimental", filter);
+  },
+
   async listOutputTargets(environment: AssemblyEnvironment, options: AssemblyRequestOptions = {}) {
     const query = new URLSearchParams({ environment });
     const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-output-targets?${query}`, readInit(options));
