@@ -29,8 +29,10 @@ var (
 type Catalog struct {
 	packages        map[string][]PackageManifest
 	templates       map[string][]TemplateManifest
+	tools           map[string][]ToolManifest
 	packageSources  map[string]sourceDocument
 	templateSources map[string]sourceDocument
+	toolSources     map[string]sourceDocument
 	contracts       *machinecontract.Registry
 	permissions     PermissionCatalog
 	blocks          *BlockCatalog
@@ -126,8 +128,10 @@ func discover(root, manifestName string) ([]sourceDocument, error) {
 func build(packageDocuments, templateDocuments []sourceDocument, contracts *machinecontract.Registry, permissions PermissionCatalog, blocks *BlockCatalog, view catalogView) (*Catalog, error) {
 	catalog := &Catalog{
 		packages: make(map[string][]PackageManifest), templates: make(map[string][]TemplateManifest),
+		tools:          make(map[string][]ToolManifest),
 		packageSources: make(map[string]sourceDocument), templateSources: make(map[string]sourceDocument),
-		contracts: contracts, permissions: permissions, blocks: blocks, view: view,
+		toolSources: make(map[string]sourceDocument),
+		contracts:   contracts, permissions: permissions, blocks: blocks, view: view,
 	}
 	for _, document := range packageDocuments {
 		if err := contracts.Validate("package-manifest", document.contents); err != nil {

@@ -21,7 +21,7 @@ func TestRegistryCompilesEverySchemaAndValidatesFixtures(t *testing.T) {
 		"assembly-manifest", "assembly-plan", "assembly-run", "catalog-snapshot", "common",
 		"extension-manifest", "feature-block-catalog", "generated-project-lock", "generator-commit-journal", "generator-diagnostic", "generator-eject-plan",
 		"generator-request", "generator-result", "generator-rollback-point", "package-manifest",
-		"product-blueprint", "ui-template-manifest",
+		"product-blueprint", "tool-manifest", "ui-template-manifest",
 	}
 	if names := registry.Names(); !equalStrings(names, wantNames) {
 		t.Fatalf("schema names = %v, want %v", names, wantNames)
@@ -67,7 +67,7 @@ func TestRegistryCompilesEverySchemaAndValidatesFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validated < 17 {
+	if validated < 70 {
 		t.Fatalf("only %d machine contract fixtures were validated", validated)
 	}
 }

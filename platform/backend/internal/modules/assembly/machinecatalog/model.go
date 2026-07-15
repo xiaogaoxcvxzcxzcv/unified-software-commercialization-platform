@@ -103,6 +103,48 @@ type TemplateManifest struct {
 	ManifestSHA256         string         `json:"manifest_sha256"`
 }
 
+type ToolProtocol struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+type ToolExecution struct {
+	Mode      string `json:"mode"`
+	AdapterID string `json:"adapter_id,omitempty"`
+	Path      string `json:"path,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+}
+
+type ToolEvidence struct {
+	Type         string `json:"type"`
+	Target       string `json:"target"`
+	DeliveryMode string `json:"delivery_mode"`
+	Environment  string `json:"environment"`
+	Status       string `json:"status"`
+	Path         string `json:"path"`
+	SHA256       string `json:"sha256"`
+}
+
+type ToolManifest struct {
+	SchemaVersion          string         `json:"schema_version"`
+	ToolKind               string         `json:"tool_kind"`
+	ToolID                 string         `json:"tool_id"`
+	Version                string         `json:"version"`
+	Name                   string         `json:"name"`
+	CatalogScope           string         `json:"catalog_scope"`
+	Readiness              string         `json:"readiness"`
+	SupportedTargets       []string       `json:"supported_targets"`
+	SupportedDeliveryModes []string       `json:"supported_delivery_modes"`
+	SupportedEnvironments  []string       `json:"supported_environments"`
+	Protocol               ToolProtocol   `json:"protocol"`
+	PlatformContractRange  string         `json:"platform_contract_range"`
+	Execution              ToolExecution  `json:"execution"`
+	Evidence               []ToolEvidence `json:"evidence"`
+	ContentFiles           []ContentFile  `json:"content_files"`
+	ContentTreeSHA256      string         `json:"content_tree_sha256"`
+	ManifestSHA256         string         `json:"manifest_sha256"`
+}
+
 type ResolveRequest struct {
 	Packages      []Requirement
 	TemplateID    string
@@ -119,14 +161,29 @@ type Resolution struct {
 }
 
 type CatalogSnapshot struct {
-	SchemaVersion       string         `json:"schema_version"`
-	Revision            string         `json:"revision"`
-	Packages            []SnapshotItem `json:"packages"`
-	Templates           []SnapshotItem `json:"templates"`
-	PermissionCatalog   VersionedInput `json:"permission_catalog"`
-	FeatureBlockCatalog VersionedInput `json:"feature_block_catalog"`
-	SchemaCatalog       VersionedInput `json:"schema_catalog"`
-	SnapshotSHA256      string         `json:"snapshot_sha256"`
+	SchemaVersion       string             `json:"schema_version"`
+	Revision            string             `json:"revision"`
+	CatalogScope        string             `json:"catalog_scope"`
+	Packages            []SnapshotItem     `json:"packages"`
+	Templates           []SnapshotItem     `json:"templates"`
+	Generators          []ToolSnapshotItem `json:"generators"`
+	SDKs                []ToolSnapshotItem `json:"sdks"`
+	PermissionCatalog   VersionedInput     `json:"permission_catalog"`
+	FeatureBlockCatalog VersionedInput     `json:"feature_block_catalog"`
+	SchemaCatalog       VersionedInput     `json:"schema_catalog"`
+	SnapshotSHA256      string             `json:"snapshot_sha256"`
+}
+
+type ToolSnapshotItem struct {
+	ToolID                 string        `json:"tool_id"`
+	Version                string        `json:"version"`
+	ManifestSHA256         string        `json:"manifest_sha256"`
+	ContentTreeSHA256      string        `json:"content_tree_sha256"`
+	Protocol               ToolProtocol  `json:"protocol"`
+	Execution              ToolExecution `json:"execution"`
+	SupportedTargets       []string      `json:"supported_targets"`
+	SupportedDeliveryModes []string      `json:"supported_delivery_modes"`
+	SupportedEnvironments  []string      `json:"supported_environments"`
 }
 
 type VersionedInput struct {

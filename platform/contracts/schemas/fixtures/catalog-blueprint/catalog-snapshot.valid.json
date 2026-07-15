@@ -1,8 +1,11 @@
 {
   "schema_version": "1.0.0",
   "revision": "catalog-abcdef123456",
+  "catalog_scope": "ordinary",
   "packages": [],
   "templates": [],
+  "generators": [],
+  "sdks": [],
   "permission_catalog": { "version": "1.0.0", "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
   "feature_block_catalog": { "version": "1.0.0", "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
   "schema_catalog": { "version": "1.0.0", "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },

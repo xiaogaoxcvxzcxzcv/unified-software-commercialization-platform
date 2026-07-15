@@ -2,10 +2,10 @@
 
 ## 机器契约与运行时真相
 
-- Product Blueprint、Package/UI Template/Extension Manifest、Assembly Plan、Assembly Manifest 和 Generated Project Lock 必须通过对应版本的 JSON Schema。
+- Product Blueprint、Package/UI Template/Tool/Extension Manifest、Catalog Snapshot、Assembly Plan、Assembly Manifest 和 Generated Project Lock 必须通过对应版本的 JSON Schema。
 - 结构化机器契约是运行时唯一真相；Markdown 只解释目的与流程，生成器不得从 Markdown 提取依赖、默认值、权限或文件规则。
 - 需要比较、锁定或签名的 JSON 按 RFC 8785 规范化后计算 SHA-256。计划必须锁定蓝图、目录快照、包、模板、Schema、SDK 和生成器的精确版本与摘要。
-- Package Manifest 与 UI Template Manifest 的 `manifest_sha256` 使用“移除顶层 `manifest_sha256` 后的完整 JSON 文档”计算，结果格式为 `sha256:<64 位小写十六进制>`；`content_tree_sha256` 对按路径稳定排序的 `content_files` 计算并逐文件复核。目录加载时必须重新计算并恒定时间比较，不能信任文档自报摘要。
+- Package Manifest、UI Template Manifest 与 Tool Manifest 的 `manifest_sha256` 使用“移除顶层 `manifest_sha256` 后的完整 JSON 文档”计算，结果格式为 `sha256:<64 位小写十六进制>`；`content_tree_sha256` 对按路径稳定排序的 `content_files` 计算并逐文件复核。目录加载时必须重新计算并恒定时间比较，不能信任文档自报摘要。
 - 内容树是版本目录的闭包：除 Manifest 本身外，磁盘实际文件集合必须与 `content_files` 完全一致；拒绝未列文件、大小写归一碰撞、symlink/junction/reparse 等链接入口和目录逃逸。Package 的 `config_schema_path` 与 Template 的 `preview_assets` 必须列入 `content_files`，Template `source_root` 必须覆盖实际模板源文件。Template `entrypoint` 当前定义为生成目标路径，不冒充模板源文件。
 - 未知 Schema 主版本、未知安全字段、摘要不一致或执行时目录快照变化均拒绝，不能自动改用最新目录。
 
@@ -19,10 +19,21 @@
 - readiness 按 `target + delivery_mode + environment` 组合声明，不能用一个端的验证结果提升其他组合。解析结果必须锁定精确包/模板版本、Manifest 摘要、内容树摘要、依赖、冲突、目标端、交付形态、环境和 readiness。未知包、重复版本、依赖环、无可满足版本、冲突包、目标端或交付形态不兼容、模板缺少用户 Block、模板未声明包兼容以及摘要不一致全部拒绝。
 - 版本求解必须把 availability、包冲突、模板包兼容、Block 和 entrypoint 条件放进回溯；最高 SemVer 不满足时继续寻找仍满足全部约束的较低版本，不能先选最高版本再因后置条件失败而错误拒绝。
 
+### 受信 Generator / SDK 工具目录
+
+- 普通工具根固定为 `platform/tools/generators/` 与 `platform/tools/sdks/`；受控实验工具根固定为 `platform/experimental/tools/generators/` 与 `platform/experimental/tools/sdks/`。目录布局统一为 `<tool_id>/<strict-semver>/manifest.json`，不得与 SDK 开发源码目录混用。
+- Catalog Scope 只能由服务端 wiring 选择为 `ordinary` 或 `experimental`，并进入不可变 Catalog Snapshot。Blueprint、HTTP 请求和前端状态都不能提交 scope、目录路径、Manifest/内容/制品摘要、执行入口、adapter ID、shell 命令或宿主绝对路径。
+- 单个 Snapshot 和 Plan 只能属于一个 scope，禁止 ordinary/experimental 混合、同 ID/版本跨 scope 回退或普通入口探测实验条目。普通根只接受 `ordinary + available`，实验根只接受 `experimental + verified`。
+- Tool Manifest 必须锁定 `tool_kind`、ID、严格 SemVer、目标端、交付形态、环境、协议版本、平台机器契约版本范围、执行描述、证据摘要、完整 `content_files`、`content_tree_sha256` 与 `manifest_sha256`。
+- 执行描述只允许两类：服务端注册的 `builtin_adapter`，或 Manifest 内容树中锁定路径和 SHA-256 的 `node/native` 入口。当前内置注册表只包含 Generator 的 `assembly.pure-renderer` 和 SDK 的 `assembly.client-sdk`。客户端不能提供参数或命令；加载器拒绝未知内置适配器、绝对路径、未列入口、摘要漂移、额外文件、大小写碰撞、symlink/junction/reparse 和非普通文件。
+- G1 v1 的 Blueprint 选择一个 Generator 和一个 SDK；二者必须同时兼容蓝图中的每个 Application 的 target、delivery mode、environment 以及当前机器契约主版本。任一 Application 不兼容即整体失败，不从其他 scope 或未知版本回退。
+- Catalog Snapshot 分别列出 generator 与 SDK 的 Manifest 摘要、内容树摘要、协议和执行入口摘要；任一目录字节变化都改变 Snapshot/Plan 摘要，已确认 Plan 必须停止并重新规划。
+- 当前普通与实验工具根允许为空，空目录意味着没有可执行 Plan；真实工具版本只能在 G2C 对其实际执行器、SDK 制品、目标端样板和回归证据完成后入目录，fixture 或仅有 Manifest 不算可用工具。
+
 ## 创建蓝图
 
 - API：`POST /api/v1/admin/blueprints`
-- 输入：产品资料、一个或多个 Application、能力包版本、UI 模板、交付形态、渠道、品牌、Provider/secret reference 和扩展声明
+- 输入：产品资料、一个或多个 Application、至少一个能力包版本、UI 模板、交付形态、渠道、品牌、Provider/secret reference 和扩展声明
 - 输出：版本化 Product Blueprint 与校验摘要
 - 错误：未知包、依赖缺失、目标端不支持、模板不兼容、配置缺失
 - 安全：密钥只保存引用；创建前 Product 尚不存在，因此使用受服务端授权的 platform scope；管理员必须具有 `assembly.blueprint.manage`

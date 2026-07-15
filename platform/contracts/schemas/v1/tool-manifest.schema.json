@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/tool-manifest.schema.json",
+  "title": "Trusted Generator or SDK Tool Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool_kind",
+    "tool_id",
+    "version",
+    "name",
+    "catalog_scope",
+    "readiness",
+    "supported_targets",
+    "supported_delivery_modes",
+    "supported_environments",
+    "protocol",
+    "platform_contract_range",
+    "execution",
+    "evidence",
+    "content_files",
+    "content_tree_sha256",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "tool_kind": { "type": "string", "enum": ["generator", "sdk"] },
+    "tool_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "catalog_scope": { "$ref": "common.schema.json#/$defs/catalogVisibility" },
+    "readiness": { "$ref": "common.schema.json#/$defs/packageReadiness" },
+    "supported_targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/target" }
+    },
+    "supported_delivery_modes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/deliveryMode" }
+    },
+    "supported_environments": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/environment" }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" }
+      }
+    },
+    "platform_contract_range": { "$ref": "common.schema.json#/$defs/semverRange" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "content_files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/contentFile" }
+    },
+    "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "execution": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "adapter_id"],
+          "properties": {
+            "mode": { "const": "builtin_adapter" },
+            "adapter_id": { "$ref": "common.schema.json#/$defs/identifier" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "path", "sha256"],
+          "properties": {
+            "mode": { "enum": ["node", "native"] },
+            "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+            "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "target", "delivery_mode", "environment", "status", "path", "sha256"],
+      "properties": {
+        "type": { "type": "string", "enum": ["contract_report", "test_report", "smoke_report", "isolation_report", "artifact"] },
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "delivery_mode": { "$ref": "common.schema.json#/$defs/deliveryMode" },
+        "environment": { "$ref": "common.schema.json#/$defs/environment" },
+        "status": { "type": "string", "const": "passed" },
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

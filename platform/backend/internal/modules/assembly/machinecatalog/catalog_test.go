@@ -471,6 +471,76 @@ func buildCatalog(t *testing.T, packages, templates []sourceDocument, view catal
 	return catalog
 }
 
+func TestTrustedToolCatalogLoadsAndFailsClosed(t *testing.T) {
+	registry := loadContracts(t)
+	blocks := readyBlocks(t)
+
+	t.Run("loads sealed tool and snapshots scope", func(t *testing.T) {
+		root := t.TempDir()
+		generatorRoot := filepath.Join(root, "generators")
+		writeDiskDocument(t, generatorRoot, toolDocument(t, "generator", "platform.generator", "1.0.0", ordinaryView), "manifest.json")
+		catalog, err := LoadOrdinaryWithTools(filepath.Join(root, "packages"), filepath.Join(root, "templates"), generatorRoot, filepath.Join(root, "sdks"), registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tool, err := catalog.ResolveTool("generator", "platform.generator", "1.0.0", "web", "generated_source", "test")
+		if err != nil || tool.ManifestSHA256 == "" {
+			t.Fatalf("ResolveTool() = %#v, %v", tool, err)
+		}
+		snapshot, err := catalog.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.CatalogScope != "ordinary" || len(snapshot.Generators) != 1 || len(snapshot.SDKs) != 0 {
+			t.Fatalf("tool snapshot = %#v", snapshot)
+		}
+		if _, err := catalog.ResolveTool("generator", "platform.generator", "1.0.0", "desktop_webview", "generated_source", "test"); !errors.Is(err, ErrToolIncompatible) {
+			t.Fatalf("incompatible target error = %v, want %v", err, ErrToolIncompatible)
+		}
+	})
+
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+		want   error
+	}{
+		{name: "wrong scope", mutate: func(value map[string]any) { value["catalog_scope"] = "experimental" }, want: ErrCatalogState},
+		{name: "unregistered builtin adapter", mutate: func(value map[string]any) {
+			value["execution"] = map[string]any{"mode": "builtin_adapter", "adapter_id": "assembly.untrusted"}
+		}, want: ErrUnknownTool},
+		{name: "unsafe executable path", mutate: func(value map[string]any) {
+			value["execution"] = map[string]any{"mode": "node", "path": "../outside.js", "sha256": payloadDigest()}
+		}, want: nil},
+		{name: "unsealed evidence", mutate: func(value map[string]any) {
+			value["evidence"].([]any)[0].(map[string]any)["sha256"] = zeroDigest()
+		}, want: ErrChecksumMismatch},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			document := mutateDocument(t, toolDocument(t, "generator", "platform.generator", "1.0.0", ordinaryView), test.mutate, true)
+			writeDiskDocument(t, filepath.Join(root, "generators"), document, "manifest.json")
+			_, err := LoadOrdinaryWithTools(filepath.Join(root, "packages"), filepath.Join(root, "templates"), filepath.Join(root, "generators"), filepath.Join(root, "sdks"), registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+			if err == nil || (test.want != nil && !errors.Is(err, test.want)) {
+				t.Fatalf("LoadOrdinaryWithTools() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func toolDocument(t *testing.T, kind, id, version string, view catalogView) sourceDocument {
+	t.Helper()
+	value := map[string]any{
+		"schema_version": "1.0.0", "tool_kind": kind, "tool_id": id, "version": version, "name": id,
+		"catalog_scope": view.visibility, "readiness": view.readiness,
+		"supported_targets": []string{"web"}, "supported_delivery_modes": []string{"generated_source"}, "supported_environments": []string{"test"},
+		"protocol": map[string]any{"id": "assembly." + kind, "version": "1.0.0"}, "platform_contract_range": "^1.0.0",
+		"execution":     map[string]any{"mode": "builtin_adapter", "adapter_id": map[string]string{"generator": "assembly.pure-renderer", "sdk": "assembly.client-sdk"}[kind]},
+		"evidence":      []any{map[string]any{"type": "test_report", "target": "web", "delivery_mode": "generated_source", "environment": "test", "status": "passed", "path": "evidence/test-report.json", "sha256": payloadDigest()}},
+		"content_files": contentFiles("evidence/test-report.json"), "content_tree_sha256": zeroDigest(), "manifest_sha256": zeroDigest(),
+	}
+	return finalizeDocument(t, value, id, version)
+}
+
 func packageDocument(t *testing.T, packageID, version string, dependencies, conflicts []Requirement, clientBlocks []string, view catalogView) sourceDocument {
 	t.Helper()
 	compatibility := strings.TrimPrefix(packageID, "package.")

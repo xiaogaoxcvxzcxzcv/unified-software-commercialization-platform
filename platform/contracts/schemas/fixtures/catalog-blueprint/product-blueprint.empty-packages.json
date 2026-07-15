@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "blueprint_id": "bp_empty-packages",
+  "version": "1.0.0",
+  "product": { "code": "empty-packages", "name": "Empty Packages" },
+  "packages": [],
+  "applications": [
+    {
+      "application_id": "empty-packages.web",
+      "target": "web",
+      "channel": "official",
+      "environment": "test",
+      "ui": { "template_id": "standard-a", "version": "0.1.0", "delivery_mode": "generated_source" },
+      "output_path": "apps/web"
+    }
+  ],
+  "provider_refs": [],
+  "extensions": [],
+  "generator": { "id": "platform.generator", "version": "0.1.0" },
+  "sdk": { "id": "platform.sdk.typescript", "version": "0.1.0" },
+  "output_root": "generated-products/empty-packages"
+}

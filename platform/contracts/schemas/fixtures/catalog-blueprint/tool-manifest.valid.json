@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "tool_kind": "generator",
+  "tool_id": "platform.generator",
+  "version": "0.1.0",
+  "name": "Platform Generator",
+  "catalog_scope": "experimental",
+  "readiness": "verified",
+  "supported_targets": ["web", "desktop_webview"],
+  "supported_delivery_modes": ["generated_source"],
+  "supported_environments": ["test"],
+  "protocol": { "id": "assembly.generator", "version": "1.0.0" },
+  "platform_contract_range": "^1.0.0",
+  "execution": { "mode": "builtin_adapter", "adapter_id": "assembly.pure-renderer" },
+  "evidence": [
+    {
+      "type": "test_report",
+      "target": "web",
+      "delivery_mode": "generated_source",
+      "environment": "test",
+      "status": "passed",
+      "path": "evidence/test-report.json",
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "content_files": [
+    {
+      "path": "evidence/test-report.json",
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "file"
+    }
+  ],
+  "content_tree_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "manifest_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

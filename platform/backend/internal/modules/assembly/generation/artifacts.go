@@ -35,6 +35,7 @@ type assemblyManifestDocument struct {
 	Product          ArtifactProduct    `json:"product"`
 	Blueprint        ArtifactBlueprint  `json:"blueprint"`
 	CatalogChecksum  string             `json:"catalog_checksum"`
+	Generator        Tool               `json:"generator"`
 	Packages         []manifestPackage  `json:"packages"`
 	Templates        []manifestTemplate `json:"templates"`
 	SDKs             []manifestSDK      `json:"sdks"`
@@ -503,7 +504,7 @@ func buildAssemblyManifest(request Request, planDocument Plan, changes []FileCha
 	return assemblyManifestDocument{
 		SchemaVersion: "1.0.0", AssemblyID: request.ArtifactContext.AssemblyID, RunID: request.ArtifactContext.RunID,
 		Product: request.ArtifactContext.Product, Blueprint: request.ArtifactContext.Blueprint,
-		CatalogChecksum: request.ArtifactContext.CatalogChecksum, Packages: packages, Templates: templates, SDKs: sdks,
+		CatalogChecksum: request.ArtifactContext.CatalogChecksum, Generator: planDocument.Generator, Packages: packages, Templates: templates, SDKs: sdks,
 		Outputs: outputs, Evidence: evidence, SecretRefs: secretRefs, CreatedAt: request.ArtifactContext.CreatedAt,
 		ManifestChecksum: digestBytes(nil),
 	}

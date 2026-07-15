@@ -8,6 +8,26 @@ import (
 	"github.com/Masterminds/semver/v3"
 )
 
+func (c *Catalog) ResolveTool(kind, id, version, target, deliveryMode, environment string) (ToolManifest, error) {
+	if c == nil || (kind != "generator" && kind != "sdk") {
+		return ToolManifest{}, ErrUnknownTool
+	}
+	versions, exists := c.tools[toolKey(kind, id)]
+	if !exists {
+		return ToolManifest{}, fmt.Errorf("%w: %s %s@%s", ErrUnknownTool, kind, id, version)
+	}
+	for _, manifest := range versions {
+		if manifest.Version != version {
+			continue
+		}
+		if !contains(manifest.SupportedTargets, target) || !contains(manifest.SupportedDeliveryModes, deliveryMode) || !contains(manifest.SupportedEnvironments, environment) {
+			return ToolManifest{}, fmt.Errorf("%w: %s %s@%s does not support %s/%s/%s", ErrToolIncompatible, kind, id, version, target, deliveryMode, environment)
+		}
+		return manifest, nil
+	}
+	return ToolManifest{}, fmt.Errorf("%w: %s %s@%s", ErrUnknownTool, kind, id, version)
+}
+
 func (c *Catalog) Resolve(request ResolveRequest) (Resolution, error) {
 	if request.TemplateID == "" {
 		return Resolution{}, ErrUnknownTemplate

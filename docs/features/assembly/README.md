@@ -29,15 +29,16 @@ G1-05 已达到 `verified`。Go 生成器具备锁定源码读取、严格模板
 - Run 的 Plan、幂等摘要、`output_target_ref`、创建时间和步骤身份不可漂移，时间/attempt/步骤状态必须单调，completed/rolled_back 终态不可重写。
 - 向 Product 模块提供受信 Plan 能力集合校验，不跨表读取 Product、Application 或 Tenant 数据。
 
-G1-05 完成的是 Generator 与 Run 的后端执行闭包，不等于完整软件装配已经可交付。G1-06 已完成 SDK/Client UI 基座，G1-07 已实现 `standard-a` 实验候选但仍缺浏览器视觉证据；G1-07.1/G1-08/G1-10/G1-11 还需完成受信工具目录、管理后台向导与软件工作区、公开 lifecycle API 和可信 Extension Catalog。Product Blueprint 至少需要一个真实能力包，因此原 G1-09 基础样板不再独立执行，第一次真实样板装配进入 G2C。普通能力包、模板和受信工具目录仍为空，eject 当前只生成不可变计划而不直接改写源码。`staging` 环境在 Product/Application 环境模型扩展前失败关闭，不能静默映射为 production。
+G1-05 完成的是 Generator 与 Run 的后端执行闭包，不等于完整软件装配已经可交付。G1-06 已完成 SDK/Client UI 基座，G1-07 已完成 `standard-a` Web/desktop WebView 生成与浏览器视觉验收；G1-07.1/G1-08/G1-10/G1-11 还需完成受信工具目录、管理后台向导与软件工作区、公开 lifecycle API 和可信 Extension Catalog。Product Blueprint 至少需要一个真实能力包，因此原 G1-09 基础样板不再独立执行，第一次真实样板装配进入 G2C。普通能力包、模板和受信工具目录仍为空，eject 当前只生成不可变计划而不直接改写源码。`staging` 环境在 Product/Application 环境模型扩展前失败关闭，不能静默映射为 production。
 
 ## 只读机器目录
 
 - 普通能力包：`platform/capability-packages/<package_id>/<version>/manifest.json`。
 - 普通 UI 模板：`platform/templates/<template_id>/<version>/template.json`。
-- 受控实验目录：`platform/experimental/capability-packages/` 与 `platform/experimental/templates/`。
+- 普通工具：`platform/tools/generators/<tool_id>/<version>/manifest.json` 与 `platform/tools/sdks/<tool_id>/<version>/manifest.json`。
+- 受控实验目录：`platform/experimental/capability-packages/`、`platform/experimental/templates/`、`platform/experimental/tools/generators/` 与 `platform/experimental/tools/sdks/`。
 - Feature Block 运行时目录：`platform/contracts/catalogs/v1/feature-blocks.json`；两份 Markdown Feature Block Catalog 只做人类说明，由自动测试检查 ID 漂移。
-- Generator 与 SDK 必须来自服务端受信工具目录，蓝图中的 ID/版本只用于选择，不能自报 checksum 或可执行文件路径。
+- Generator 与 SDK 必须来自同一服务端 Catalog Scope 的受信工具目录，蓝图中的 ID/版本只用于精确选择，不能自报 scope、checksum、内容树、adapter、命令或可执行文件路径。G1 v1 的一个 Generator 和一个 SDK 必须兼容蓝图内全部 Application。
 
 目录不拥有数据库表，也不提供管理后台 CRUD。空普通目录是合法状态，表示当前没有完整能力包可供创建软件。实验入口只能由服务端受控流程调用，不能由前端参数、蓝图字段或管理员请求打开。
 

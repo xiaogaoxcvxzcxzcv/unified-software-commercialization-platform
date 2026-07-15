@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-- 当前阶段：F0-02 已在补救复验后重新达到 `verified`；F0-03 的本地、push、pull_request、脱敏报告与 required check `BLOCKED -> CLEAN` 动态证据均通过，`main` 必须经 PR 且 strict `quality-gate` 成功。当前唯一关口进入 G1-07 第一套 Web/桌面模板视觉收口；完整能力包尚未开始。
+- 当前阶段：F0 已退出；G1-07 Standard-A 模板与 G1-07.1 受信工具目录基础已 verified。当前唯一关口为 G1-08.1 创建软件 API Client 与状态模型；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口必须继续失败关闭。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程和内存演示 Client；它用于验证信息架构、产品/租户上下文与交互，不是生产数据源。

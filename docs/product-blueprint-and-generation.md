@@ -15,7 +15,7 @@ blueprint_id / version
 每个端的 UI Template + delivery mode
 Provider 和非秘密配置引用
 软件独有扩展
-生成器与 SDK 版本约束
+一个 Generator 与一个 SDK 的精确版本选择
 ```
 
 蓝图不保存真实支付密钥、JWT 密钥或数据库连接。所有产品、租户和权限范围仍由服务端建立可信上下文。
@@ -27,6 +27,8 @@ Provider 和非秘密配置引用
 能力包与 UI 模板的 `manifest_sha256` 统一对移除该顶层字段后的完整 Manifest 计算，避免自引用并确保不同 JSON 排版得到相同结果；`content_tree_sha256` 对稳定排序的内容文件清单计算，并逐文件复核原始字节摘要。机器目录加载器必须重新计算两类摘要，并在生成装配计划前完成权限引用、Feature Block、依赖、冲突、目标端、交付形态、环境和模板兼容校验。
 
 蓝图不能提交或提升目录 `visibility/readiness`。普通创建与受控实验装配使用不同的服务端目录入口，蓝图只记录精确选择；目录状态和证据始终来自版本化 Manifest 与锁定快照。
+
+蓝图同样不能提交工具 Catalog Scope、目录/入口路径、adapter ID、checksum、内容树、artifact 摘要或执行参数。G1 v1 中一个 Blueprint 只选择一个 Generator 和一个 SDK；服务端必须证明它们同时兼容每个 Application 的 target、delivery mode 和 environment，不能按第一个 Application 猜测，也不能跨 ordinary/experimental scope 回退。
 
 Product Blueprint 机器契约要求至少选择一个真实能力包。普通创建只能选择 `available`，受控实验只能选择目录中的 `verified candidate`；空包、假包、Schema fixture、进程内测试构造或仅有 UI 模板都不能冒充一次软件创建。当前没有候选包时，创建向导必须显示真实空状态并停止，第一次成功装配要等首批真实候选包进入受控目录。
 

@@ -5,6 +5,7 @@
   "product": { "product_id": "product.demo", "official_tenant_id": "tenant.official", "applications": [{ "plan_application_id": "application.web", "application_id": "app.web" }] },
   "blueprint": { "blueprint_id": "bp_demo-product", "version": 1, "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
   "catalog_checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "generator": { "generator_id": "platform.generator", "version": "1.0.0", "checksum": "sha256:abababababababababababababababababababababababababababababababab" },
   "packages": [{ "package_id": "package.account", "version": "1.0.0", "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }],
   "templates": [{ "template_id": "standard-web", "version": "1.0.0", "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }],
   "sdks": [{ "sdk_id": "sdk.typescript", "version": "1.0.0", "checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }],
