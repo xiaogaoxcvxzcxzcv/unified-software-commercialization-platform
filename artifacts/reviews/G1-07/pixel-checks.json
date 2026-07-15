@@ -1,0 +1,102 @@
+[
+    {
+        "file":  "web-desktop-1440x900-light.png",
+        "width":  1440,
+        "height":  900,
+        "samples":  5130,
+        "unique_sample_colors":  108,
+        "rgb_sum_min":  76,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-760x700-closed-light.png",
+        "width":  760,
+        "height":  700,
+        "samples":  2112,
+        "unique_sample_colors":  76,
+        "rgb_sum_min":  57,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-760x700-navigation-open.png",
+        "width":  760,
+        "height":  700,
+        "samples":  2112,
+        "unique_sample_colors":  83,
+        "rgb_sum_min":  238,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-mobile-390x844-light.png",
+        "width":  390,
+        "height":  844,
+        "samples":  1325,
+        "unique_sample_colors":  94,
+        "rgb_sum_min":  73,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-mobile-390x844-long-content.png",
+        "width":  390,
+        "height":  844,
+        "samples":  1325,
+        "unique_sample_colors":  117,
+        "rgb_sum_min":  73,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-mobile-390x844-empty-state.png",
+        "width":  390,
+        "height":  844,
+        "samples":  1325,
+        "unique_sample_colors":  83,
+        "rgb_sum_min":  73,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-mobile-390x844-dark.png",
+        "width":  390,
+        "height":  844,
+        "samples":  1325,
+        "unique_sample_colors":  100,
+        "rgb_sum_min":  46,
+        "rgb_sum_max":  742,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-minimum-320x568-light.png",
+        "width":  320,
+        "height":  568,
+        "samples":  720,
+        "unique_sample_colors":  84,
+        "rgb_sum_min":  73,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "desktop-webview-1280x800-light.png",
+        "width":  1280,
+        "height":  720,
+        "samples":  3600,
+        "unique_sample_colors":  92,
+        "rgb_sum_min":  69,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    },
+    {
+        "file":  "web-bare-generated-empty-state.png",
+        "width":  1280,
+        "height":  720,
+        "samples":  3600,
+        "unique_sample_colors":  63,
+        "rgb_sum_min":  66,
+        "rgb_sum_max":  765,
+        "nonblank":  true
+    }
+]

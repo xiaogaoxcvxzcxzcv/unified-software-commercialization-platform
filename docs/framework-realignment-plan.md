@@ -1,5 +1,9 @@
 # 框架对齐计划
 
+Status: supporting-record / non-executable
+
+> 本文件只保留框架对齐的裁决、背景和已完成迁移说明，不维护当前工作编号、顺序或验收状态。唯一具有执行权的开发表是 `end-to-end-development-plan.md`；发生差异时必须修改唯一主计划，禁止在本文复制或另起一套排期。
+
 ## 裁决
 
 不从头重写，不建立 `v2`、`new` 或另一套平行平台。现有代码大约 80% 是可复用工程地基，真正需要调整的是约 20% 的入口、模块装配和产品组织。Client UI/SDK 基座、Assembly Generator 和第一套实验模板候选现已实现；未完成项与严格顺序只看 `end-to-end-development-plan.md`。
