@@ -10,10 +10,10 @@
 
 ## 当前状态
 
-- 当前阶段：F0 已退出；G1-07 Standard-A 模板与 G1-07.1 受信工具目录基础已 verified。当前唯一关口为 G1-08.1 创建软件 API Client 与状态模型；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口必须继续失败关闭。
+- 当前阶段：F0 已退出；G1-07 Standard-A 模板、G1-07.1 受信工具目录基础和 G1-08.1 创建软件 API Client/状态模型已 verified。当前唯一关口为 G1-08.2 `/create` 多步创建向导；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口必须继续失败关闭。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
-- 管理后台已有可运行的 React + TypeScript 工程和内存演示 Client；它用于验证信息架构、产品/租户上下文与交互，不是生产数据源。
+- 管理后台已有可运行的 React + TypeScript 工程；管理员认证和 Assembly 创建流程 API Client/状态模型连接真实后端，现有产品/租户等业务页面仍使用内存演示 Client，不得混同为生产数据源。
 - Assembly 后端执行闭包、TypeScript SDK/Client UI 基座和 `standard-a` 实验模板候选已实现；软件创建向导、业务 Feature Block 和首个真实样板软件尚未实现。普通生产能力包/模板/工具目录为空，扩展目录未实现并失败关闭，当前不能声称“勾选能力即可得到完整前后台”。
 - product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
 - 后端、OpenAPI、SDK、Hosted UI 和真实 Provider 接入以代码、自动化测试及冒烟记录为完成依据，不能以菜单或文档存在代替实现。

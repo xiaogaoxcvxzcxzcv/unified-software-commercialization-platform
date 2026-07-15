@@ -10,17 +10,18 @@ import (
 )
 
 var (
-	ErrInvalidCommand       = errors.New("invalid assembly command")
-	ErrDocumentInvalid      = errors.New("assembly document is invalid")
-	ErrNotFound             = errors.New("assembly resource not found")
-	ErrConflict             = errors.New("assembly resource conflict")
-	ErrVersionConflict      = errors.New("assembly version conflict")
-	ErrIdempotencyConflict  = errors.New("assembly idempotency conflict")
-	ErrOperationInProgress  = errors.New("assembly operation is in progress")
-	ErrPlanUnavailable      = errors.New("assembly plan is unavailable")
-	ErrPlanNotExecutable    = errors.New("assembly plan is not executable")
-	ErrPlanNotConfirmed     = errors.New("assembly plan is not confirmed")
-	ErrInvalidRunTransition = errors.New("invalid assembly run transition")
+	ErrInvalidCommand          = errors.New("invalid assembly command")
+	ErrDocumentInvalid         = errors.New("assembly document is invalid")
+	ErrNotFound                = errors.New("assembly resource not found")
+	ErrConflict                = errors.New("assembly resource conflict")
+	ErrVersionConflict         = errors.New("assembly version conflict")
+	ErrIdempotencyConflict     = errors.New("assembly idempotency conflict")
+	ErrOperationInProgress     = errors.New("assembly operation is in progress")
+	ErrPlanUnavailable         = errors.New("assembly plan is unavailable")
+	ErrPlanNotExecutable       = errors.New("assembly plan is not executable")
+	ErrPlanNotConfirmed        = errors.New("assembly plan is not confirmed")
+	ErrOutputTargetUnavailable = errors.New("assembly output target is unavailable")
+	ErrInvalidRunTransition    = errors.New("invalid assembly run transition")
 )
 
 type ValidatedDocument struct {
@@ -32,6 +33,19 @@ type ValidatedDocument struct {
 
 type DocumentValidator interface {
 	Validate(string, json.RawMessage) (ValidatedDocument, error)
+}
+
+type OutputTargetVerifier interface {
+	VerifyOutputTarget(context.Context, string, string) error
+}
+
+type OutputTargetVerifierFunc func(context.Context, string, string) error
+
+func (verify OutputTargetVerifierFunc) VerifyOutputTarget(ctx context.Context, environment, outputTargetRef string) error {
+	if verify == nil {
+		return ErrOutputTargetUnavailable
+	}
+	return verify(ctx, environment, outputTargetRef)
 }
 
 type PlannedDocument struct {

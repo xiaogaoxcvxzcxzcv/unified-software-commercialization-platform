@@ -67,6 +67,17 @@
 
 ## 执行装配
 
+### 查询服务端授权输出目标
+
+- API：`GET /api/v1/admin/assembly-output-targets?environment={environment}`
+- 权限：`assembly.plan`，platform scope；这是创建前资源，不接受客户端 `product_id` 或 `tenant_id`
+- 输入：必填且唯一的 `environment`，只允许 `development | test | staging | production`
+- 输出：`environment`、固定为 `explicit` 的 `default_policy`、可空的 `default_output_target_ref`，以及只含 `{output_target_ref, display_name, summary, is_default}` 的列表
+- 脱敏：响应不得包含源码根、制品根、宿主绝对/相对路径、磁盘、UNC、用户名、环境变量或内部目录结构；展示字段来自受控服务端配置，不能由 Blueprint 或浏览器提交
+- 默认：同一环境至多一个服务端默认项；没有默认时返回 `null`，Client 不得把第一项、上次选择或任意 ref 当作默认
+- 失败关闭：未知、已移除、环境不匹配或当前未授权的 ref 在确认 Plan 前统一返回 `assembly.output_target_unavailable`，不泄露该 ref 是否在其他环境存在；列表读取后执行时必须再次解析当前目录。HTTP 组合 Adapter 与 Assembly Core 注入的 `OutputTargetVerifier` 双重校验，内部调用也不能绕过服务端 allowlist。
+- 恢复：本关 Client 的 retry 只重试可安全重放的读取或带同一幂等键的请求，并通过 GET 重新恢复已持久化 Blueprint/Plan/Run；失败 Run 的业务级 retry/resume/cancel 留在 G1-08.4/G1-10，不在前端伪造
+
 - API：`POST /api/v1/admin/blueprints/{blueprint_id}/assemble`
 - 输入：已确认计划版本、Plan checksum、确认摘要、幂等键和输出目标的受控引用 `output_target_ref`
 - 输出：run_id，最终生成 Assembly Manifest、Generated Project Lock 与测试报告引用
@@ -77,7 +88,8 @@
 - 失败恢复：记录完成步骤和补偿结果；不删除已存在的合法产品数据
 - Run 演进：`run_id`、`plan_id`、Plan checksum、幂等摘要、`output_target_ref`、创建时间和步骤身份不可变；更新时间、attempt 和步骤状态只能单调推进；completed/rolled_back 终态不可修改。
 - 文件提交：全部输出先写入同文件系统的受控 staging，完成 Schema、摘要、所有权、路径、链接和冲突检查后再原子提交；失败恢复旧 Manifest、lock 和受管理文件，不能留下混合版本
-- 输出根：`output_target_ref` 只能由服务端结构化配置解析为已存在且互不重叠的源码根和制品根；两者不得相同、互为父子、重复映射或经过 reparse/link。源码与机器证据分根保存，客户端永远不能提交宿主路径。
+- 输出根：`output_target_ref` 只能由服务端结构化配置按 Plan environment 解析为已存在且互不重叠的源码根和制品根；两者不得相同、互为父子、重复映射或经过 reparse/link。源码与机器证据分根保存，客户端永远不能提交宿主路径。
+- HTTP 产物引用：Run 外层响应使用 `manifest_url` 与 `lock_url` 表示同源管理 API URL；机器 Run 文档内的 `manifest_path`/`lock_path` 仍是受控制品相对路径。浏览器响应不得把两种语义混用。
 - 机器证据：成功执行必须在制品根原子发布 Schema 合法且摘要闭包一致的 Result、Assembly Manifest、Generated Project Lock、Rollback Point 和 committed Commit Journal；失败执行发布脱敏 Diagnostic、failed Result 和 rolled_back Journal。重复同一请求必须复核目标快照并返回同一证据，不能重写时间或标识。
 - Application 映射：Plan/Blueprint 的稳定 `plan_application_id` 与 Product Application 服务创建的运行时 `application_id` 分开记录；Manifest 以二元映射闭包到计划，不能把两个不同身份强行写成同一 ID。
 - 显式回滚：只接受 checksum 合法、状态为 committed 的 journal 与 rollback point；回滚前重新校验当前受管理文件，恢复上一 Manifest/lock/文件或删除初次生成文件，保留 custom，完成后把 journal 单调推进为 rolled_back。任一漂移或证据篡改均停止。

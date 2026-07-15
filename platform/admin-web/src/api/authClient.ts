@@ -9,6 +9,8 @@ interface AuthApiErrorOptions {
   retryable: boolean;
   requestId?: string;
   retryAfterSeconds?: number;
+  detail?: string;
+  fieldErrors?: ApiErrorEnvelope["field_errors"];
 }
 
 export class AuthApiError extends Error {
@@ -17,6 +19,8 @@ export class AuthApiError extends Error {
   readonly retryable: boolean;
   readonly requestId?: string;
   readonly retryAfterSeconds?: number;
+  readonly detail?: string;
+  readonly fieldErrors?: ApiErrorEnvelope["field_errors"];
 
   constructor(message: string, options: AuthApiErrorOptions) {
     super(message);
@@ -26,6 +30,8 @@ export class AuthApiError extends Error {
     this.retryable = options.retryable;
     this.requestId = options.requestId;
     this.retryAfterSeconds = options.retryAfterSeconds;
+    this.detail = options.detail;
+    this.fieldErrors = options.fieldErrors;
   }
 }
 
@@ -53,6 +59,8 @@ async function readError(response: Response) {
       retryable: payload.retryable,
       requestId: payload.request_id,
       retryAfterSeconds: payload.retry_after_seconds,
+      detail: payload.detail,
+      fieldErrors: payload.field_errors,
     });
   }
   return new AuthApiError("认证服务请求失败", {

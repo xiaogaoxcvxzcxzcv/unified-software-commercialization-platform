@@ -17,6 +17,10 @@ import (
 const testChecksum = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 type serviceStub struct {
+	outputTargets    OutputTargetList
+	outputTargetsErr error
+	listTargets      ListOutputTargetsCommand
+	listTargetCalls  int
 	blueprint        Blueprint
 	blueprintErr     error
 	createBlueprint  CreateBlueprintCommand
@@ -43,6 +47,12 @@ type serviceStub struct {
 	lockErr          error
 	getLock          GetLockCommand
 	getLockCalls     int
+}
+
+func (s *serviceStub) ListOutputTargets(_ context.Context, command ListOutputTargetsCommand) (OutputTargetList, error) {
+	s.listTargetCalls++
+	s.listTargets = command
+	return s.outputTargets, s.outputTargetsErr
 }
 
 func (s *serviceStub) CreateBlueprint(_ context.Context, command CreateBlueprintCommand) (Blueprint, error) {
@@ -138,6 +148,83 @@ func TestHandlerCreatesPreProductBlueprintInPlatformScope(t *testing.T) {
 	}
 	if !auth.proof || authorization.permission != blueprintManagePermission || authorization.target.Type != "platform" || authorization.target.ProductID != "" {
 		t.Fatalf("proof=%v permission=%q target=%+v", auth.proof, authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerListsOnlyRedactedOutputTargetsWithExplicitDefault(t *testing.T) {
+	defaultRef := "workspace.default"
+	service := &serviceStub{outputTargets: OutputTargetList{
+		Environment: "production", DefaultOutputTargetRef: &defaultRef,
+		Items: []OutputTarget{
+			{OutputTargetRef: "workspace.default", Environment: "production", DisplayName: "Production workspace", Summary: "Managed production source and evidence", IsDefault: true},
+			{OutputTargetRef: "workspace.secondary", Environment: "production", DisplayName: "Secondary workspace", Summary: "Managed secondary destination"},
+		},
+	}}
+	handler, auth, authorization := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/assembly-output-targets?environment=production", "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "target_root") || strings.Contains(body, "artifact_root") || strings.Contains(body, `C:\\`) || strings.Contains(body, `D:/`) {
+		t.Fatalf("response leaked a host path: %s", body)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["environment"] != "production" || decoded["default_policy"] != "explicit" || decoded["default_output_target_ref"] != defaultRef || len(decoded["items"].([]any)) != 2 {
+		t.Fatalf("response=%v", decoded)
+	}
+	if service.listTargetCalls != 1 || service.listTargets.Environment != "production" || service.listTargets.ActorID != "admin-1" || auth.proof || authorization.permission != assemblyPlanPermission || authorization.target.Type != "platform" {
+		t.Fatalf("command=%+v proof=%v permission=%q target=%+v", service.listTargets, auth.proof, authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerReturnsNullWhenOutputTargetHasNoExplicitDefault(t *testing.T) {
+	service := &serviceStub{outputTargets: OutputTargetList{Environment: "test", Items: []OutputTarget{}}}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/assembly-output-targets?environment=test", "", nil)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"default_output_target_ref":null`) || !strings.Contains(recorder.Body.String(), `"items":[]`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestHandlerFailsClosedWhenOutputTargetDisplayMetadataLooksLikeAHostPath(t *testing.T) {
+	service := &serviceStub{outputTargets: OutputTargetList{
+		Environment: "production",
+		Items:       []OutputTarget{{OutputTargetRef: "workspace.default", Environment: "production", DisplayName: "D:/private/source", Summary: "Managed output"}},
+	}}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/assembly-output-targets?environment=production", "", nil)
+	assertProblem(t, recorder, http.StatusInternalServerError, "internal_error")
+	if strings.Contains(recorder.Body.String(), "D:/private") {
+		t.Fatalf("internal response leaked display metadata: %s", recorder.Body.String())
+	}
+}
+
+func TestHandlerFailsClosedWhenOutputTargetDisplayMetadataContainsControlCharacter(t *testing.T) {
+	service := &serviceStub{outputTargets: OutputTargetList{
+		Environment: "production",
+		Items:       []OutputTarget{{OutputTargetRef: "workspace.default", Environment: "production", DisplayName: "Local\x00workspace", Summary: "Managed output"}},
+	}}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/assembly-output-targets?environment=production", "", nil)
+	assertProblem(t, recorder, http.StatusInternalServerError, "internal_error")
+	if strings.Contains(recorder.Body.String(), "Local") {
+		t.Fatalf("internal response leaked display metadata: %s", recorder.Body.String())
+	}
+}
+
+func TestHandlerRejectsOutputTargetListWithoutPlanPermission(t *testing.T) {
+	service := &serviceStub{}
+	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
+	authorization := &authorizerStub{decision: adminrequest.Decision{Allowed: false, ReasonCode: "permission_denied"}}
+	handler := New(service, adminrequest.New(auth, authorization, nil))
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/assembly-output-targets?environment=test", "", nil)
+	assertProblem(t, recorder, http.StatusForbidden, "admin_auth.permission_denied")
+	if service.listTargetCalls != 0 || authorization.permission != assemblyPlanPermission || auth.proof {
+		t.Fatalf("list calls=%d permission=%q proof=%v", service.listTargetCalls, authorization.permission, auth.proof)
 	}
 }
 
@@ -274,6 +361,15 @@ func TestHandlerRejectsQueriesNonCanonicalPathsAndMethodsBeforeAuthorization(t *
 		t.Fatal("invalid query reached authentication")
 	}
 	for _, target := range []string{
+		"https://api.example.test/api/v1/admin/assembly-output-targets",
+		"https://api.example.test/api/v1/admin/assembly-output-targets?environment=invalid",
+		"https://api.example.test/api/v1/admin/assembly-output-targets?environment=test&environment=production",
+		"https://api.example.test/api/v1/admin/assembly-output-targets?environment=test&extra=value",
+	} {
+		recorder = perform(handler, http.MethodGet, target, "", nil)
+		assertProblem(t, recorder, http.StatusBadRequest, "assembly.invalid_query")
+	}
+	for _, target := range []string{
 		"https://api.example.test/api/v1/admin/blueprints/",
 		"https://api.example.test/api/v1/admin/blueprints/%62p-video",
 		"https://api.example.test/api/v1/admin/blueprints/bp-video/plan/",
@@ -354,6 +450,7 @@ func TestHandlerMapsStableAssemblyErrors(t *testing.T) {
 		{ErrPlanUnavailable, http.StatusServiceUnavailable, "assembly.planner_unavailable"},
 		{ErrPlanNotExecutable, http.StatusUnprocessableEntity, "assembly.plan_not_executable"},
 		{ErrPlanNotConfirmed, http.StatusUnprocessableEntity, "assembly.plan_not_confirmed"},
+		{ErrOutputTargetUnavailable, http.StatusUnprocessableEntity, "assembly.output_target_unavailable"},
 		{errors.New("database unavailable"), http.StatusInternalServerError, "internal_error"},
 	}
 	for _, test := range tests {

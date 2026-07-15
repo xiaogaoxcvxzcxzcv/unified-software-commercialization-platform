@@ -38,8 +38,90 @@ func TestLoadAcceptsValidConfiguration(t *testing.T) {
 	if cfg.Database.MaxConnections != 20 {
 		t.Fatalf("MaxConnections = %d", cfg.Database.MaxConnections)
 	}
-	if cfg.Assembly.SchemaDirectory == "" || len(cfg.Assembly.OutputTargets) != 1 || cfg.Assembly.OutputTargets[0].Reference != "workspace.default" {
+	if cfg.Assembly.SchemaDirectory == "" || len(cfg.Assembly.OutputTargets) != 1 || cfg.Assembly.OutputTargets[0].Reference != "workspace.default" || cfg.Assembly.OutputTargets[0].Environment != "test" || !cfg.Assembly.OutputTargets[0].IsDefault {
 		t.Fatalf("Assembly = %#v", cfg.Assembly)
+	}
+}
+
+func TestLoadAllowsNoDefaultAndRejectsMultipleDefaultsPerEnvironment(t *testing.T) {
+	root := t.TempDir()
+	targets := []AssemblyOutputTarget{
+		{Reference: "workspace.first", Environment: "production", DisplayName: "First", Summary: "First managed target", IsDefault: true, TargetRoot: filepath.Join(root, "first-target"), ArtifactRoot: filepath.Join(root, "first-artifacts")},
+		{Reference: "workspace.second", Environment: "production", DisplayName: "Second", Summary: "Second managed target", IsDefault: true, TargetRoot: filepath.Join(root, "second-target"), ArtifactRoot: filepath.Join(root, "second-artifacts")},
+	}
+	encoded, err := json.Marshal(targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{"PLATFORM_DATABASE_URL": "postgres://user@localhost/platform?sslmode=disable", "PLATFORM_ADMIN_TOKEN_PEPPER": validTestPepper(), "PLATFORM_ASSEMBLY_OUTPUT_TARGETS": string(encoded)}
+	if _, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok }); err == nil || !strings.Contains(err.Error(), "multiple defaults") {
+		t.Fatalf("Load() error = %v", err)
+	}
+	targets[0].IsDefault, targets[1].IsDefault = false, false
+	encoded, _ = json.Marshal(targets)
+	values["PLATFORM_ASSEMBLY_OUTPUT_TARGETS"] = string(encoded)
+	if _, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok }); err != nil {
+		t.Fatalf("no explicit default must be valid: %v", err)
+	}
+}
+
+func TestLoadCountsOutputTargetDisplayLimitsByUnicodeCodePoint(t *testing.T) {
+	root := t.TempDir()
+	target := AssemblyOutputTarget{
+		Reference: "workspace.unicode", Environment: "test", DisplayName: strings.Repeat("中", 120), Summary: strings.Repeat("文", 240),
+		TargetRoot: filepath.Join(root, "target"), ArtifactRoot: filepath.Join(root, "artifacts"),
+	}
+	encode := func() string {
+		raw, err := json.Marshal([]AssemblyOutputTarget{target})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	values := map[string]string{"PLATFORM_DATABASE_URL": "postgres://user@localhost/platform?sslmode=disable", "PLATFORM_ADMIN_TOKEN_PEPPER": validTestPepper(), "PLATFORM_ASSEMBLY_OUTPUT_TARGETS": encode()}
+	if _, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok }); err != nil {
+		t.Fatalf("Unicode limits should accept 120/240 code points: %v", err)
+	}
+	target.DisplayName += "中"
+	values["PLATFORM_ASSEMBLY_OUTPUT_TARGETS"] = encode()
+	if _, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok }); err == nil {
+		t.Fatal("expected 121-code-point display name to fail")
+	}
+}
+
+func TestLoadRejectsPathLikeOutputTargetDisplayMetadata(t *testing.T) {
+	root := t.TempDir()
+	target := AssemblyOutputTarget{
+		Reference: "workspace.redacted", Environment: "test", DisplayName: "D:/private/source", Summary: "Managed output",
+		TargetRoot: filepath.Join(root, "target"), ArtifactRoot: filepath.Join(root, "artifacts"),
+	}
+	encoded, err := json.Marshal([]AssemblyOutputTarget{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{"PLATFORM_DATABASE_URL": "postgres://user@localhost/platform?sslmode=disable", "PLATFORM_ADMIN_TOKEN_PEPPER": validTestPepper(), "PLATFORM_ASSEMBLY_OUTPUT_TARGETS": string(encoded)}
+	if _, err := Load(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "display metadata") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoadRejectsControlCharacterInOutputTargetDisplayMetadata(t *testing.T) {
+	root := t.TempDir()
+	target := AssemblyOutputTarget{
+		Reference: "workspace.redacted", Environment: "test", DisplayName: "Local\x00workspace", Summary: "Managed output",
+		TargetRoot: filepath.Join(root, "target"), ArtifactRoot: filepath.Join(root, "artifacts"),
+	}
+	raw, err := json.Marshal([]AssemblyOutputTarget{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"PLATFORM_DATABASE_URL":            "postgres://user@localhost/platform?sslmode=disable",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":      validTestPepper(),
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": string(raw),
+	}
+	if _, err := Load(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "display metadata") {
+		t.Fatalf("expected control character display metadata rejection, got %v", err)
 	}
 }
 
@@ -61,6 +143,10 @@ func validAssemblyOutputTargets(t *testing.T, reference string) string {
 	root := t.TempDir()
 	targets := []AssemblyOutputTarget{{
 		Reference:    reference,
+		Environment:  "test",
+		DisplayName:  "Test workspace",
+		Summary:      "Server-managed test output",
+		IsDefault:    true,
 		TargetRoot:   filepath.Join(root, "assembly-target"),
 		ArtifactRoot: filepath.Join(root, "assembly-artifacts"),
 	}}

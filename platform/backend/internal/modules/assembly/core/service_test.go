@@ -148,7 +148,9 @@ func TestConfirmAndStartRequireLockedConfirmationChecksum(t *testing.T) {
 	}
 	planDocument := json.RawMessage(`{"conflicts":[],"risks":[{"risk_id":"risk.locked-plan"}],"confirmation":{"required":true,"blocking_conflict_count":0,"risk_count":1,"statements":["Confirm locked plan."],"summary_checksum":"` + confirmationChecksum + `"}}`)
 	repository := &repositoryStub{plan: Plan{PlanID: "plan.service-test", Version: 1, Executable: true, PlanSHA256: testDigestB, Document: planDocument, ConfirmedAt: &now}}
-	service := NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock())
+	service := NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock(), WithOutputTargetVerifier(OutputTargetVerifierFunc(
+		func(context.Context, string, string) error { return nil },
+	)))
 	_, err = service.ConfirmPlan(context.Background(), ConfirmPlanCommand{PlanID: repository.plan.PlanID, ConfirmationChecksum: testDigestB, ExpectedVersion: 1, ActorID: "admin", IdempotencyKey: "confirm-plan-key1", TraceID: "trace"})
 	if !errors.Is(err, ErrConflict) || repository.confirmCalls != 0 {
 		t.Fatalf("confirmation mismatch err=%v calls=%d", err, repository.confirmCalls)
@@ -160,6 +162,45 @@ func TestConfirmAndStartRequireLockedConfirmationChecksum(t *testing.T) {
 	_, err = service.StartAssembly(context.Background(), StartAssemblyCommand{PlanID: repository.plan.PlanID, PlanChecksum: testDigestB, ConfirmationChecksum: testDigestB, OutputTargetRef: "workspace.default", ExpectedPlanVersion: 1, ActorID: "admin", IdempotencyKey: "start-assembly-01", TraceID: "trace"})
 	if !errors.Is(err, ErrConflict) || repository.startCalls != 0 {
 		t.Fatalf("start confirmation mismatch err=%v calls=%d", err, repository.startCalls)
+	}
+}
+
+func TestStartAssemblyFailsClosedThroughServerOutputTargetVerifier(t *testing.T) {
+	now := fixedClock()()
+	confirmationChecksum, err := ConfirmationSummaryChecksum(0, 0, []string{"Confirm locked plan."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planDocument := json.RawMessage(`{"conflicts":[],"risks":[],"confirmation":{"required":true,"blocking_conflict_count":0,"risk_count":0,"statements":["Confirm locked plan."],"summary_checksum":"` + confirmationChecksum + `"}}`)
+	newRepository := func() *repositoryStub {
+		return &repositoryStub{plan: Plan{
+			PlanID: "plan.output-target", Version: 2, Environment: "production", Executable: true,
+			PlanSHA256: testDigestB, Document: planDocument, ConfirmedAt: &now,
+		}}
+	}
+	command := StartAssemblyCommand{
+		PlanID: "plan.output-target", PlanChecksum: testDigestB, ConfirmationChecksum: confirmationChecksum,
+		OutputTargetRef: "workspace.default", ExpectedPlanVersion: 2, ActorID: "admin",
+		IdempotencyKey: "start-output-target-01", TraceID: "trace",
+	}
+
+	repository := newRepository()
+	service := NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock())
+	if _, err := service.StartAssembly(context.Background(), command); !errors.Is(err, ErrOutputTargetUnavailable) || repository.startCalls != 0 {
+		t.Fatalf("missing verifier error=%v starts=%d", err, repository.startCalls)
+	}
+
+	repository = newRepository()
+	service = NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock(), WithOutputTargetVerifier(OutputTargetVerifierFunc(
+		func(_ context.Context, environment, outputTargetRef string) error {
+			if environment != "production" || outputTargetRef != "workspace.default" {
+				return ErrOutputTargetUnavailable
+			}
+			return nil
+		},
+	)))
+	if _, err := service.StartAssembly(context.Background(), command); err != nil || repository.startCalls != 1 {
+		t.Fatalf("verified target error=%v starts=%d", err, repository.startCalls)
 	}
 }
 

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminClient } from "../api/adminClient";
+import { assemblyClient } from "../api/assemblyClient";
 import { AuthApiError, authClient, authenticatedAdminRequest, getAdminCsrfToken, resetAdminAuthStateForTests } from "../api/authClient";
 import { App } from "../app/App";
 import type { AdminSession } from "../types";
@@ -386,6 +387,61 @@ describe("认证请求传输", () => {
       .rejects.toMatchObject({ status: 403, code: "admin_auth.csrf_failed" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/v1/admin/auth/refresh")).toBe(false);
+  });
+
+  it("replays an Assembly write with the exact body and caller-owned idempotency key after one refresh", async () => {
+    const refreshedSession = { ...session, session_version: 2, csrf_token: "csrf-after-assembly-refresh-123456789" };
+    let planCalls = 0;
+    const fetchMock = vi.fn().mockImplementation((path: string) => {
+      if (path === "/api/v1/admin/auth/login") {
+        return Promise.resolve(new Response(JSON.stringify(session), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (path === "/api/v1/admin/auth/refresh") {
+        return Promise.resolve(new Response(JSON.stringify(refreshedSession), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (path === "/api/v1/admin/blueprints/blueprint-1/plan" && ++planCalls === 1) {
+        return Promise.resolve(errorResponse(401, "admin_auth.session_expired"));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ plan_id: "plan-1" }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await authClient.login("admin@example.com", "password");
+
+    await assemblyClient.createPlan("blueprint-1", { blueprint_version: 1, environment: "test" }, { idempotencyKey: "assembly-plan-key-0001" });
+
+    const writes = fetchMock.mock.calls.filter(([path]) => path === "/api/v1/admin/blueprints/blueprint-1/plan");
+    expect(writes).toHaveLength(2);
+    const first = writes[0][1] as RequestInit;
+    const replay = writes[1][1] as RequestInit;
+    expect(first.body).toBe(replay.body);
+    expect(new Headers(first.headers).get("Idempotency-Key")).toBe("assembly-plan-key-0001");
+    expect(new Headers(replay.headers).get("Idempotency-Key")).toBe("assembly-plan-key-0001");
+    expect(new Headers(replay.headers).get("X-CSRF-Token")).toBe(refreshedSession.csrf_token);
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/v1/admin/auth/refresh")).toHaveLength(1);
+  });
+
+  it("preserves structured field errors from an admin API problem response", async () => {
+    const payload = {
+      status: 422,
+      code: "assembly.document_invalid",
+      title: "Invalid blueprint",
+      detail: "Blueprint validation failed",
+      request_id: "request-field-errors",
+      retryable: false,
+      field_errors: [{ field: "packages", code: "min_items", message: "Select a package" }],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), {
+      status: 422,
+      headers: { "Content-Type": "application/json" },
+    })));
+
+    await expect(authenticatedAdminRequest("/api/v1/admin/blueprints", { method: "POST" }, session.csrf_token))
+      .rejects.toMatchObject({
+        code: payload.code,
+        requestId: payload.request_id,
+        detail: payload.detail,
+        fieldErrors: payload.field_errors,
+      });
   });
 
   it("退出瞬时失败保留内存 CSRF 以便安全重试", async () => {
