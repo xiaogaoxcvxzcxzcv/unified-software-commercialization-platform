@@ -9,19 +9,13 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/assembly/core"
 	assemblyhttp "platform.local/capability-platform/backend/internal/modules/assembly/httptransport"
 	"platform.local/capability-platform/backend/internal/modules/assembly/machinecatalog"
-	"platform.local/capability-platform/backend/internal/workflows/assemblyexecution"
 )
 
 type assemblyAdminAdapter struct {
 	service             assemblyCoreService
-	executor            assemblyRunExecutor
 	outputTarget        map[string]assemblyhttp.OutputTarget
 	ordinaryCatalog     *machinecatalog.Catalog
 	experimentalCatalog *machinecatalog.Catalog
-}
-
-type assemblyRunExecutor interface {
-	Execute(context.Context, assemblyexecution.Command) (core.Run, error)
 }
 
 type assemblyCoreService interface {
@@ -36,22 +30,23 @@ type assemblyCoreService interface {
 	GetLock(context.Context, string) (core.GeneratedProjectLock, error)
 }
 
+type assemblyRecoveryService interface {
+	ListRuns(context.Context, core.RunListFilter) (core.RunPage, error)
+	RetryRun(context.Context, core.RetryRunCommand) (core.Run, error)
+}
+
 func newAssemblyAdminAdapter(service assemblyCoreService, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
-	return newAssemblyAdminAdapterWithExecutor(service, nil, outputTargets...)
+	return newAssemblyAdminAdapterWithCatalogs(service, nil, nil, outputTargets...)
 }
 
-func newAssemblyAdminAdapterWithExecutor(service assemblyCoreService, executor assemblyRunExecutor, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
-	return newAssemblyAdminAdapterWithCatalogs(service, executor, nil, nil, outputTargets...)
-}
-
-func newAssemblyAdminAdapterWithCatalogs(service assemblyCoreService, executor assemblyRunExecutor, ordinaryCatalog, experimentalCatalog *machinecatalog.Catalog, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
+func newAssemblyAdminAdapterWithCatalogs(service assemblyCoreService, ordinaryCatalog, experimentalCatalog *machinecatalog.Catalog, outputTargets ...assemblyhttp.OutputTarget) assemblyAdminAdapter {
 	targets := make(map[string]assemblyhttp.OutputTarget, len(outputTargets))
 	for _, target := range outputTargets {
 		if target.OutputTargetRef != "" && target.Environment != "" {
 			targets[outputTargetKey(target.Environment, target.OutputTargetRef)] = target
 		}
 	}
-	return assemblyAdminAdapter{service: service, executor: executor, outputTarget: targets, ordinaryCatalog: ordinaryCatalog, experimentalCatalog: experimentalCatalog}
+	return assemblyAdminAdapter{service: service, outputTarget: targets, ordinaryCatalog: ordinaryCatalog, experimentalCatalog: experimentalCatalog}
 }
 
 func (a assemblyAdminAdapter) ListCatalogOptions(_ context.Context, command assemblyhttp.ListCatalogOptionsCommand) (assemblyhttp.CatalogOptions, error) {
@@ -176,22 +171,33 @@ func (a assemblyAdminAdapter) StartAssembly(ctx context.Context, command assembl
 		OutputTargetRef: command.OutputTargetRef, ExpectedPlanVersion: confirmed.Version,
 		ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
 	})
-	if err == nil && a.executor != nil {
-		executed, executionErr := a.executor.Execute(ctx, assemblyexecution.Command{
-			RunID: run.RunID, ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
-		})
-		if executed.RunID != "" {
-			run = executed
-		}
-		if executionErr != nil && executed.RunID == "" {
-			return assemblyhttp.Run{}, executionErr
-		}
-	}
 	return assemblyRun(run), mapAssemblyError(err)
 }
 
 func (a assemblyAdminAdapter) GetRun(ctx context.Context, command assemblyhttp.GetRunCommand) (assemblyhttp.Run, error) {
 	value, err := a.service.GetRun(ctx, command.RunID)
+	return assemblyRun(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) ListRuns(ctx context.Context, command assemblyhttp.ListRunsCommand) (assemblyhttp.RunPage, error) {
+	service, ok := a.service.(assemblyRecoveryService)
+	if !ok {
+		return assemblyhttp.RunPage{}, assemblyhttp.ErrOperationInProgress
+	}
+	value, err := service.ListRuns(ctx, core.RunListFilter{PageSize: command.PageSize, Cursor: command.Cursor, Status: core.RunStatus(command.Status), ProductID: command.ProductID})
+	result := assemblyhttp.RunPage{Items: make([]assemblyhttp.RunSummary, len(value.Items)), NextCursor: value.NextCursor}
+	for i, item := range value.Items {
+		result.Items[i] = assemblyhttp.RunSummary{RunID: item.RunID, ProductID: item.ProductID, PlanID: item.PlanID, Version: item.Version, RootRunID: item.RootRunID, RetryOfRunID: item.RetryOfRunID, AttemptNumber: item.AttemptNumber, Status: string(item.Status), CurrentStepID: item.CurrentStepID, DiagnosticCount: item.DiagnosticCount, ReportCount: item.ReportCount, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, CompletedAt: item.CompletedAt}
+	}
+	return result, mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) RetryRun(ctx context.Context, command assemblyhttp.RetryRunCommand) (assemblyhttp.Run, error) {
+	service, ok := a.service.(assemblyRecoveryService)
+	if !ok {
+		return assemblyhttp.Run{}, assemblyhttp.ErrOperationInProgress
+	}
+	value, err := service.RetryRun(ctx, core.RetryRunCommand{RunID: command.RunID, ExpectedVersion: command.ExpectedVersion, ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID})
 	return assemblyRun(value), mapAssemblyError(err)
 }
 
@@ -215,16 +221,30 @@ func (a assemblyAdminAdapter) GetLock(ctx context.Context, command assemblyhttp.
 func assemblyBlueprint(value core.Blueprint) assemblyhttp.Blueprint {
 	return assemblyhttp.Blueprint{
 		BlueprintID: value.BlueprintID, Version: value.Revision, SchemaVersion: value.SchemaVersion,
-		Document: value.Document, Checksum: value.ContentSHA256, CreatedAt: value.CreatedAt, UpdatedAt: value.CreatedAt, AuditID: value.AuditID,
+		Document: value.Document, Checksum: value.ContentSHA256, Environments: value.Environments, CreatedAt: value.CreatedAt, UpdatedAt: value.CreatedAt, AuditID: value.AuditID,
 	}
 }
 
 func assemblyPlan(value core.Plan) assemblyhttp.Plan {
 	return assemblyhttp.Plan{
 		PlanID: value.PlanID, Version: value.Version, BlueprintID: value.BlueprintID, BlueprintVersion: value.BlueprintRevision,
-		SchemaVersion: value.SchemaVersion, Environment: value.Environment, Document: value.Document, Checksum: value.PlanSHA256,
+		SchemaVersion: value.SchemaVersion, Environment: value.Environment, Document: value.Document, Checksum: value.PlanSHA256, ConfirmationChecksum: value.ConfirmationChecksum, Review: mapPlanReview(value.Review),
 		Executable: value.Executable, Confirmed: value.ConfirmedAt != nil, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, AuditID: value.AuditID,
 	}
+}
+
+func mapPlanReview(value core.PlanReview) assemblyhttp.PlanReview {
+	result := assemblyhttp.PlanReview{Packages: make([]assemblyhttp.PlanReviewPackage, len(value.Packages)), Applications: make([]assemblyhttp.PlanReviewApplication, len(value.Applications)), Risks: make([]assemblyhttp.PlanReviewRisk, len(value.Risks)), BlockingConflictCount: value.BlockingConflictCount, Statements: value.Statements}
+	for i, v := range value.Packages {
+		result.Packages[i] = assemblyhttp.PlanReviewPackage{PackageID: v.PackageID, Version: v.Version}
+	}
+	for i, v := range value.Applications {
+		result.Applications[i] = assemblyhttp.PlanReviewApplication{ApplicationID: v.ApplicationID, Target: v.Target, Channel: v.Channel, DeliveryMode: v.DeliveryMode, TemplateID: v.TemplateID, TemplateVersion: v.TemplateVersion}
+	}
+	for i, v := range value.Risks {
+		result.Risks[i] = assemblyhttp.PlanReviewRisk{RiskID: v.RiskID, Level: v.Level, Category: v.Category, Summary: v.Summary, RequiresConfirmation: v.RequiresConfirmation}
+	}
+	return result
 }
 
 func assemblyRun(value core.Run) assemblyhttp.Run {
@@ -236,10 +256,33 @@ func assemblyRun(value core.Run) assemblyhttp.Run {
 		lockURL = "/api/v1/admin/generated-project-locks/" + value.LockID
 	}
 	return assemblyhttp.Run{
-		RunID: value.RunID, PlanID: value.PlanID, PlanVersion: value.PlanVersion, PlanChecksum: value.PlanSHA256,
+		RunID: value.RunID, ProductID: value.ProductID, Version: value.Version, RootRunID: value.RootRunID, RetryOfRunID: value.RetryOfRunID, AttemptNumber: value.AttemptNumber, PlanID: value.PlanID, PlanVersion: value.PlanVersion, PlanChecksum: value.PlanSHA256,
 		OutputTargetRef: value.OutputTargetRef, Status: string(value.Status), Document: value.Document, ManifestURL: manifestURL, LockURL: lockURL,
+		CurrentStepID: value.CurrentStepID, Steps: mapRunSteps(value.Steps), Recovery: assemblyhttp.RunRecovery{Retryable: value.Recovery.Retryable, RollbackRequired: value.Recovery.RollbackRequired, ResumeFromStepID: value.Recovery.ResumeFromStepID}, Diagnostics: mapRunDiagnostics(value.Diagnostics), Reports: mapRunReports(value.Reports),
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt, AuditID: value.AuditID,
 	}
+}
+
+func mapRunSteps(values []core.RunStep) []assemblyhttp.RunStep {
+	result := make([]assemblyhttp.RunStep, len(values))
+	for i, v := range values {
+		result[i] = assemblyhttp.RunStep{StepID: v.StepID, Kind: v.Kind, Status: v.Status, Attempt: v.Attempt, CompensationStatus: v.CompensationStatus, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt, DiagnosticIDs: v.DiagnosticIDs}
+	}
+	return result
+}
+func mapRunDiagnostics(values []core.RunDiagnostic) []assemblyhttp.RunDiagnostic {
+	result := make([]assemblyhttp.RunDiagnostic, len(values))
+	for i, v := range values {
+		result[i] = assemblyhttp.RunDiagnostic{DiagnosticID: v.DiagnosticID, Code: v.Code, Severity: v.Severity, Category: v.Category, Message: v.Message, Blocking: v.Blocking, Retryable: v.Retryable, Remediation: v.Remediation, RelatedPaths: v.RelatedPaths, CreatedAt: v.CreatedAt}
+	}
+	return result
+}
+func mapRunReports(values []core.RunReport) []assemblyhttp.RunReport {
+	result := make([]assemblyhttp.RunReport, len(values))
+	for i, v := range values {
+		result[i] = assemblyhttp.RunReport{ReportID: v.ReportID, ReportType: v.ReportType, Status: v.Status, Summary: v.Summary, Checksum: v.Checksum, CreatedAt: v.CreatedAt}
+	}
+	return result
 }
 
 func outputTargetKey(environment, reference string) string { return environment + "\x00" + reference }

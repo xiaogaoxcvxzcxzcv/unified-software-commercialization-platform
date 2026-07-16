@@ -21,11 +21,11 @@
 | 交付面 | 当前状态 | 已有成果 | 仍缺少 |
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 Full 18 项门禁；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
-| 产品蓝图与 Assembly | G1-05/G1-07/G1-07.1/G1-08.1/G1-08.2/G1-08.3 verified | G1-04 后端基础、确定性 Generator、Standard-A 模板、受信工具目录、创建 Client/状态模型、`/create` 五步向导和真实 Product 工作区已通过真实 PostgreSQL Full 门禁；普通目录只展示 available 组合，experimental 使用独立未默认授予权限；四个工具目录当前为空 | 当前 G1-08.4 装配记录与恢复；随后 lifecycle API、可信扩展目录 |
+| 产品蓝图与 Assembly | G1-05/G1-07/G1-07.1/G1-08.1-G1-08.4 verified | G1-04 后端基础、确定性 Generator、Standard-A 模板、受信工具目录、创建向导、真实 Product 工作区、durable Run 与装配记录/恢复已通过真实 PostgreSQL Full 门禁；普通目录只展示 available 组合，experimental 使用独立未默认授予权限；四个工具目录当前为空 | 当前 G1-10 lifecycle API；随后可信扩展目录 |
 | 完整能力包目录 | planned | 首批 package 边界和交付标准、Manifest/目录机器基础已登记并验证；普通与实验能力包目录均为空 | 真实独立 Package Manifest、九个交付面、目标端 E2E；当前没有 available 包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 真实样板软件 | planned | G2 黄金链和验收标准已确定 | 可运行样板仓库、独有工作台、account/entitlement 装配与回归证据 |
-| 管理后台 | demo + auth/G1-08.1/G1-08.2/G1-08.3 verified | React + TypeScript 可运行工程；平台/产品双上下文；管理员登录补救复验通过；Assembly 创建 Client/状态模型和五步向导、真实 Product/Application/Tenant/CapabilitySet 工作区、动态目录、失败关闭旧书签、86 项 Vitest、生产构建与 1440/390/320 浏览器验收通过 | 装配记录与恢复、其余真实业务 API Client、业务页面 E2E、平板视觉 QA |
+| 管理后台 | demo + auth/G1-08.1-G1-08.4 verified | React + TypeScript 可运行工程；平台/产品双上下文；管理员登录补救复验通过；Assembly 创建向导、真实 Product 工作区、装配记录/详情/恢复、动态目录和失败关闭旧书签已通过 100 项 Vitest、生产构建与 1440/390/320 浏览器验收 | lifecycle、其余真实业务 API Client、业务页面 E2E、平板视觉 QA |
 | Go 后端 | implemented + G1-05 verified | 中性 module path、Module Registrar/组合入口、模块化单体边界和 G1-03/G1-04 基础已通过 Full 门禁；Assembly generation 与 assemblyexecution 已实现最终机器证据、受信输出根、事务文件提交、Run 编排和持久回滚 | G1-06 以后客户端交付、账号/权益等完整能力包、公开升级管理 API、浏览器 Cookie 证据与生产部署验证 |
 | OpenAPI | implemented + G1-08.1/G1-08.3 verified | OpenAPI 3.1 公共契约，覆盖管理员认证、Product/Application/Tenant/CapabilitySet 只读投影、可信 Client Session、Access Control、Audit，以及 Blueprint/Plan/Run/Manifest/Generated Project Lock 和脱敏输出目标管理 API；含无依赖结构校验器，创建 Client 与产品工作区 Client 已按版本化契约实现 | 第三方 schema lint、其余业务生成 Client；公开 upgrade/eject/rollback 管理 API |
 | Client UI / Hosted UI | G1-06 foundation + G1-07 template verified | `@capability-platform/client-ui` v0.1.0 基座已验证；`standard-a` 已完成 Web/desktop WebView 生成、custom 路由、响应式 Shell、主题、离线安装、构建、浏览器视觉与键盘验收 | 业务 Feature Block、小程序/原生适配、真实 HostedInteraction 后端和浏览器/跨端 E2E |
@@ -40,7 +40,7 @@
 
 | 模块 | 当前状态 | 说明 |
 |---|---|---|
-| assembly | G1-05/G1-07/G1-07.1/G1-08.1/G1-08.2/G1-08.3 verified | 后端、Generator 文件安全、`standard-a` 视觉、受信工具目录、脱敏输出目标 API、管理 Client/状态模型、五步向导和创建后工作区跳转契约已验证；普通/实验 scope、权限、快照和环境绑定失败关闭；普通包、模板和真实工具版本仍为空 | 当前 G1-08.4 装配恢复；随后 lifecycle API、扩展目录；G2C 发布真实工具并装配样板 |
+| assembly | G1-05/G1-07/G1-07.1/G1-08.1-G1-08.4 verified | 后端、Generator 文件安全、`standard-a` 视觉、受信工具目录、创建向导、工作区跳转、durable dispatch/worker、Run 查询和显式 retry 已验证；普通/实验 scope、权限、快照和环境绑定失败关闭；普通包、模板和真实工具版本仍为空 | 当前 G1-10 lifecycle API；随后扩展目录；G2C 发布真实工具并装配样板 |
 | product / product-application | verified foundation + admin workspace verified | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过自动化；Product CapabilitySet 只接受受信 Plan；真实管理 Client、独立工作区、Application/CapabilitySet 只读投影和多 Product 浏览器切换已通过 | Product 编辑、客户端身份轮换、完整能力包装配与生产部署 |
 | tenant | verified foundation + admin read verified | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过自动化；真实管理 Client 和 Product 切换后的 Tenant 投影已通过浏览器验收 | agent 停用/恢复管理入口、真实业务模块租户回归与生产部署 |
 | identity | admin auth verified + user auth contracted | Cookie/受控 Bearer 登录、单调 session_version、会话轮换、严格 logout proof、同 family Cookie 原子退出、重放防护、受控客户端生命周期与真实 PostgreSQL/浏览器证据均已通过补救复验 | 最终用户密码、微信/OIDC、绑定与合并仍只有契约 |
@@ -75,6 +75,7 @@
 - G1-08.1：`verified`。Assembly 契约/OpenAPI、输出目标目录与环境绑定、顶层路由/Core 双重校验、管理 API Client、幂等认证重放和创建状态模型完成；管理后台 69 项、真实 PostgreSQL、浏览器同源 Cookie 请求与 Full 18 项门禁通过。首次浏览器 404 暴露的顶层路由漏挂已修复并加入回归。评审见 `artifacts/reviews/G1-08.1/create-software-client-state.md`。
 - G1-08.2：`verified`。`/create` 五步向导、普通/experimental 权限隔离、真实空目录、受控输出目标、计划审阅与确认边界完成；81 项管理后台测试、生产构建、真实 PostgreSQL Full 18 项和 1440/390/320 浏览器验收通过。评审见 `artifacts/reviews/G1-08.2/create-software-wizard.md`。
 - G1-08.3：`verified`。真实 Product/Application/Tenant/CapabilitySet 管理 Client、独立工作区、动态能力目录、旧书签失败关闭和创建后跳转契约完成；86 项管理后台测试、生产构建、真实 PostgreSQL Full 18 项和 1440/390/320 浏览器验收通过。产品切换竞态在浏览器日志中发现、修复并复验。评审见 `artifacts/reviews/G1-08.3/product-workspace.md`。
+- G1-08.4：`verified`。Run 与 durable dispatch 同事务提交、worker 租约/心跳/超时/退避重试、root/parent/attempt 恢复链、诊断/报告投影、列表/详情/retry API 和恢复 URL 完成；100 项管理后台测试、生产构建、真实 PostgreSQL Full 18 项和 1440/390/320 浏览器验收通过。真实目录为空时普通创建保持失败关闭，没有伪造 Run。评审见 `artifacts/reviews/G1-08.4/assembly-recovery.md`。
 - OpenAPI：路径与操作数量以 `node platform/contracts/openapi/validate.mjs` 的最近输出为准；仓库校验器覆盖管理员认证必需操作。
 - 管理后台产品/租户隔离 P1 代码审查：通过；G1-08.3 工作区桌面与 390/320 移动视觉 QA 通过，平板专项仍未验证。
 - 能力索引：数量以自动唯一性检查的最近输出为准；包含四项管理员认证能力且无重复。

@@ -8,6 +8,9 @@
   "properties": {
     "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
     "run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "root_run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "retry_of_run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "attempt_number": { "type": "integer", "minimum": 1 },
     "plan_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "plan_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
     "idempotency_key_digest": { "$ref": "common.schema.json#/$defs/sha256" },
@@ -33,6 +36,13 @@
     "completed_at": { "type": "string", "format": "date-time" }
   },
   "allOf": [
+    {
+      "dependentRequired": {
+        "root_run_id": ["attempt_number"],
+        "attempt_number": ["root_run_id"],
+        "retry_of_run_id": ["root_run_id", "attempt_number"]
+      }
+    },
     {
       "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
       "then": { "required": ["manifest_path", "lock_path", "completed_at"], "properties": { "diagnostic_ids": { "maxItems": 0 } } }

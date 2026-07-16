@@ -110,6 +110,11 @@ func (s *Service) Execute(ctx context.Context, command Command) (core.Run, error
 	if run.Status != core.RunStatusPlanned {
 		return run, ErrPrecondition
 	}
+	// Recovery attempts must address downstream services with the immutable
+	// root operation identity; the retrying administrator is recorded only by
+	// the retry audit event.
+	command.ActorID = run.CreatedBy
+	command.IdempotencyKey = executionKey(run.RootRunID)
 	plan, err := s.assembly.GetPlan(ctx, run.PlanID)
 	if err != nil {
 		return core.Run{}, err
@@ -218,7 +223,11 @@ func (s *Service) Execute(ctx context.Context, command Command) (core.Run, error
 		if len(diagnosticIDs) == 0 {
 			diagnosticIDs = []string{"diagnostic.generator-failed"}
 		}
-		return s.failRunWithDiagnostics(ctx, command, run, "step.generate", diagnosticIDs, outcome.Commit.TargetUnchanged, executionErr)
+		diagnostics, reports, projectionErr := generatorFailureEvidence(outcome.Failure, s.now().UTC())
+		if projectionErr != nil {
+			return s.failRun(ctx, command, run, "step.generate", "diagnostic.generator-evidence", false, errors.Join(executionErr, projectionErr))
+		}
+		return s.failRunWithEvidence(ctx, command, run, "step.generate", diagnosticIDs, outcome.Commit.TargetUnchanged, diagnostics, reports, executionErr)
 	}
 	run, err = s.updateRun(ctx, command, run, transitionSpec{
 		Status: core.RunStatusValidating, CurrentStepID: "step.validate", Completed: []string{"step.generate"}, Running: []string{"step.validate"},
@@ -266,7 +275,7 @@ func (s *Service) updateRun(ctx context.Context, command Command, run core.Run, 
 }
 
 func (s *Service) failRun(ctx context.Context, command Command, run core.Run, stepID, diagnosticID string, retryable bool, cause error) (core.Run, error) {
-	failed, err := s.failRunWithDiagnostics(ctx, command, run, stepID, []string{diagnosticID}, true, cause)
+	failed, err := s.failRunWithDiagnostics(ctx, command, run, stepID, []string{diagnosticID}, retryable, cause)
 	if err != nil {
 		return failed, err
 	}
@@ -277,6 +286,10 @@ func (s *Service) failRun(ctx context.Context, command Command, run core.Run, st
 }
 
 func (s *Service) failRunWithDiagnostics(ctx context.Context, command Command, run core.Run, stepID string, diagnosticIDs []string, targetUnchanged bool, cause error) (core.Run, error) {
+	return s.failRunWithEvidence(ctx, command, run, stepID, diagnosticIDs, targetUnchanged, nil, nil, cause)
+}
+
+func (s *Service) failRunWithEvidence(ctx context.Context, command Command, run core.Run, stepID string, diagnosticIDs []string, targetUnchanged bool, diagnostics []core.RunDiagnostic, reports []core.RunReport, cause error) (core.Run, error) {
 	document, err := nextRunDocument(run, s.now().UTC(), transitionSpec{
 		Status: core.RunStatusFailed, CurrentStepID: stepID, Failed: []string{stepID}, DiagnosticIDs: diagnosticIDs,
 		Recovery: core.RunRecovery{Retryable: targetUnchanged, RollbackRequired: !targetUnchanged, ResumeFromStepID: stepID}, Terminal: true,
@@ -286,14 +299,55 @@ func (s *Service) failRunWithDiagnostics(ctx context.Context, command Command, r
 	}
 	updated, updateErr := s.assembly.UpdateRun(ctx, core.UpdateRunCommand{
 		RunID: run.RunID, ExpectedVersion: run.Version, Document: document, ActorID: command.ActorID,
-		IdempotencyKey: derivedKey(command.IdempotencyKey, "failed:"+stepID), TraceID: command.TraceID,
+		IdempotencyKey: derivedKey(command.IdempotencyKey, "failed:"+stepID), TraceID: command.TraceID, Diagnostics: diagnostics, Reports: reports,
 	})
 	return updated, errors.Join(cause, updateErr)
+}
+
+func generatorFailureEvidence(failure generation.FailureArtifacts, now time.Time) ([]core.RunDiagnostic, []core.RunReport, error) {
+	diagnostics := make([]core.RunDiagnostic, 0, len(failure.Diagnostics))
+	for _, raw := range failure.Diagnostics {
+		var value struct {
+			DiagnosticID string   `json:"diagnostic_id"`
+			Code         string   `json:"code"`
+			Severity     string   `json:"severity"`
+			Category     string   `json:"category"`
+			Message      string   `json:"message"`
+			Blocking     bool     `json:"blocking"`
+			Retryable    bool     `json:"retryable"`
+			Path         string   `json:"path"`
+			RelatedPaths []string `json:"related_paths"`
+			Remediation  []string `json:"remediation"`
+		}
+		if json.Unmarshal(raw, &value) != nil {
+			return nil, nil, ErrInvalidRunDocument
+		}
+		code := strings.ToLower(strings.ReplaceAll(value.Code, "_", "."))
+		category := strings.ToLower(strings.ReplaceAll(value.Category, "_", "."))
+		paths := append([]string(nil), value.RelatedPaths...)
+		if value.Path != "" {
+			paths = append(paths, value.Path)
+		}
+		diagnostics = append(diagnostics, core.RunDiagnostic{DiagnosticID: value.DiagnosticID, Code: code, Severity: value.Severity, Category: category, Message: value.Message, Blocking: value.Blocking, Retryable: value.Retryable, Remediation: append([]string(nil), value.Remediation...), RelatedPaths: paths, CreatedAt: now})
+	}
+	sort.Slice(diagnostics, func(i, j int) bool { return diagnostics[i].DiagnosticID < diagnostics[j].DiagnosticID })
+	var result struct {
+		Status         string `json:"status"`
+		ResultChecksum string `json:"result_checksum"`
+	}
+	if json.Unmarshal(failure.Result, &result) != nil || result.ResultChecksum == "" {
+		return nil, nil, ErrInvalidRunDocument
+	}
+	report := core.RunReport{ReportID: "report.generator-result", ReportType: "generator_result", Status: "failed", Summary: "Generator execution failed; validated failure evidence is available", Checksum: result.ResultChecksum, CreatedAt: now}
+	return diagnostics, []core.RunReport{report}, nil
 }
 
 type runMachineDocument struct {
 	SchemaVersion        string           `json:"schema_version"`
 	RunID                string           `json:"run_id"`
+	RootRunID            string           `json:"root_run_id"`
+	RetryOfRunID         string           `json:"retry_of_run_id,omitempty"`
+	AttemptNumber        int              `json:"attempt_number"`
 	PlanID               string           `json:"plan_id"`
 	PlanChecksum         string           `json:"plan_checksum"`
 	IdempotencyKeyDigest string           `json:"idempotency_key_digest"`
@@ -349,7 +403,7 @@ func nextRunDocument(run core.Run, now time.Time, spec transitionSpec) (json.Raw
 		current = &value
 	}
 	document := runMachineDocument{
-		SchemaVersion: "1.0.0", RunID: run.RunID, PlanID: run.PlanID, PlanChecksum: run.PlanSHA256,
+		SchemaVersion: "1.0.0", RunID: run.RunID, RootRunID: run.RootRunID, RetryOfRunID: run.RetryOfRunID, AttemptNumber: run.AttemptNumber, PlanID: run.PlanID, PlanChecksum: run.PlanSHA256,
 		IdempotencyKeyDigest: run.IdempotencyKeyDigest, OutputTargetRef: run.OutputTargetRef, Status: spec.Status,
 		Steps: steps, CurrentStepID: current, DiagnosticIDs: append([]string{}, spec.DiagnosticIDs...),
 		ManifestPath: spec.ManifestPath, LockPath: spec.LockPath, Recovery: spec.Recovery,
@@ -364,6 +418,11 @@ func nextRunDocument(run core.Run, now time.Time, spec transitionSpec) (json.Raw
 		return nil, ErrInvalidRunDocument
 	}
 	return raw, nil
+}
+
+func executionKey(rootRunID string) string {
+	digest := sha256.Sum256([]byte("assembly-execution-root:" + rootRunID))
+	return "dispatch_" + hex.EncodeToString(digest[:])
 }
 
 func executionEnvironment(value string) (string, productapplication.Environment, error) {

@@ -37,12 +37,13 @@ func (p plannerStub) BuildPlan(context.Context, Blueprint, string) (PlannedDocum
 }
 
 type repositoryStub struct {
-	blueprint                                                                                   Blueprint
-	plan                                                                                        Plan
-	run                                                                                         Run
-	createBlueprintCalls, createPlanCalls, confirmCalls, startCalls, updateCalls, completeCalls int
-	lastUpdate                                                                                  UpdateRunRecord
-	lastComplete                                                                                CompleteRunRecord
+	blueprint                                                                                               Blueprint
+	plan                                                                                                    Plan
+	run                                                                                                     Run
+	createBlueprintCalls, createPlanCalls, confirmCalls, startCalls, updateCalls, completeCalls, retryCalls int
+	lastUpdate                                                                                              UpdateRunRecord
+	lastComplete                                                                                            CompleteRunRecord
+	lastRetry                                                                                               RetryRunRecord
 }
 
 func (r *repositoryStub) CreateBlueprint(_ context.Context, record CreateBlueprintRecord) (Blueprint, error) {
@@ -78,6 +79,15 @@ func (r *repositoryStub) StartRun(_ context.Context, record StartRunRecord) (Run
 	r.startCalls++
 	r.run = record.Run
 	return record.Run, nil
+}
+func (r *repositoryStub) RetryRun(_ context.Context, record RetryRunRecord) (Run, error) {
+	r.retryCalls++
+	r.lastRetry = record
+	r.run = record.Run
+	return record.Run, nil
+}
+func (r *repositoryStub) ListRuns(context.Context, RunListFilter) (RunPage, error) {
+	return RunPage{}, nil
 }
 func (r *repositoryStub) GetRun(context.Context, string, string) (Run, error) {
 	if r.run.RunID == "" {
@@ -120,9 +130,44 @@ func TestCreateBlueprintValidatesBeforePersistenceAndUsesPlatformScope(t *testin
 		t.Fatalf("invalid blueprint err=%v calls=%d", err, repository.createBlueprintCalls)
 	}
 	service.validator = validatorStub{}
-	created, err := service.CreateBlueprint(context.Background(), CreateBlueprintCommand{Document: json.RawMessage(`{"blueprint_id":"bp_service-test","version":"1.0.0"}`), ActorID: "admin", IdempotencyKey: "blueprint-key-0002", TraceID: "trace"})
+	created, err := service.CreateBlueprint(context.Background(), CreateBlueprintCommand{Document: json.RawMessage(`{"blueprint_id":"bp_service-test","version":"1.0.0","applications":[{"environment":"test"}]}`), ActorID: "admin", IdempotencyKey: "blueprint-key-0002", TraceID: "trace"})
 	if err != nil || created.ProductID != "" || created.BlueprintID != "bp_service-test" {
 		t.Fatalf("created blueprint=%+v err=%v", created, err)
+	}
+}
+
+func TestRetryRunCreatesLinkedImmutableAttemptAndPreservesRootActor(t *testing.T) {
+	now := fixedClock()()
+	document := json.RawMessage(`{"schema_version":"1.0.0","run_id":"run-parent","root_run_id":"run-root","attempt_number":2,"plan_id":"plan-retry","plan_checksum":"` + testDigestA + `","idempotency_key_digest":"` + testDigestB + `","output_target_ref":"workspace.default","status":"failed","steps":[{"step_id":"step.provision","kind":"provision","status":"failed","attempt":1,"compensation_status":"pending","diagnostic_ids":["diagnostic.transient"]}],"current_step_id":"step.provision","diagnostic_ids":["diagnostic.transient"],"recovery":{"retryable":true,"rollback_required":false,"resume_from_step_id":"step.provision"},"created_at":"` + now.Format(time.RFC3339Nano) + `","updated_at":"` + now.Format(time.RFC3339Nano) + `","completed_at":"` + now.Format(time.RFC3339Nano) + `"}`)
+	repository := &repositoryStub{run: Run{RunID: "run-parent", RootRunID: "run-root", RetryOfRunID: "run-root", AttemptNumber: 2, PlanID: "plan-retry", PlanVersion: 2, Version: 7, PlanSHA256: testDigestA, Document: document, IdempotencyKeyDigest: testDigestB, OutputTargetRef: "workspace.default", Status: RunStatusFailed, Recovery: RunRecovery{Retryable: true, ResumeFromStepID: "step.provision"}, CreatedBy: "admin-root", CreatedAt: now, UpdatedAt: now, CompletedAt: &now, Steps: []RunStep{{StepID: "step.provision", Kind: "provision", Status: "failed", Attempt: 1, CompensationStatus: "pending", DiagnosticIDs: []string{"diagnostic.transient"}}}}}
+	service := NewService(repository, validatorStub{}, nil, func(prefix string) (string, error) {
+		if prefix == "run_" {
+			return "run-retry", nil
+		}
+		return prefix + "id", nil
+	}, fixedClock())
+	created, err := service.RetryRun(context.Background(), RetryRunCommand{RunID: "run-parent", ExpectedVersion: 7, ActorID: "admin-operator", IdempotencyKey: "retry-key-0000001", TraceID: "trace-retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.RootRunID != "run-root" || created.RetryOfRunID != "run-parent" || created.AttemptNumber != 3 || created.CreatedBy != "admin-root" {
+		t.Fatalf("created=%+v", created)
+	}
+	if repository.retryCalls != 1 || repository.lastRetry.Event.Payload.ActorID != "admin-operator" {
+		t.Fatalf("retry=%+v", repository.lastRetry)
+	}
+}
+
+func TestValidateRunEvidenceRejectsUnsafeProjection(t *testing.T) {
+	now := fixedClock()()
+	run := Run{Status: RunStatusFailed, DiagnosticIDs: []string{"diagnostic.safe"}, Recovery: RunRecovery{Retryable: true}}
+	_, _, err := validateRunEvidence(run, []RunDiagnostic{{DiagnosticID: "diagnostic.safe", Code: "generator.failed", Severity: "error", Category: "generation", Message: "safe message", Blocking: true, Retryable: true, Remediation: []string{"retry"}, RelatedPaths: []string{"C:/secret/file"}}}, nil, now)
+	if !errors.Is(err, ErrDocumentInvalid) {
+		t.Fatalf("unsafe path err=%v", err)
+	}
+	_, _, err = validateRunEvidence(run, []RunDiagnostic{{DiagnosticID: "diagnostic.safe", Code: "GENERATOR_FAILED", Severity: "error", Category: "generation", Message: "safe message", Blocking: true, Retryable: true, Remediation: []string{"retry"}, RelatedPaths: []string{}}}, nil, now)
+	if !errors.Is(err, ErrDocumentInvalid) {
+		t.Fatalf("uppercase code err=%v", err)
 	}
 }
 
@@ -238,6 +283,9 @@ func TestFailedRunUsesServerAuditTimeAndFailureResult(t *testing.T) {
 	}
 	if repository.lastUpdate.Event.OccurredAt != serverNow || repository.lastUpdate.Event.Payload.Result != "failure" || repository.lastUpdate.Event.Payload.ReasonCode != "assembly.run_failed" {
 		t.Fatalf("failed event=%+v", repository.lastUpdate.Event)
+	}
+	if len(repository.lastUpdate.Diagnostics) != 1 || repository.lastUpdate.Diagnostics[0].DiagnosticID != "diagnostic.safe" || repository.lastUpdate.Diagnostics[0].CreatedAt != serverNow {
+		t.Fatalf("diagnostics=%+v", repository.lastUpdate.Diagnostics)
 	}
 }
 

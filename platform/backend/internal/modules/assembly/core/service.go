@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"platform.local/capability-platform/backend/internal/modules/assembly/machinecontract"
@@ -18,6 +19,8 @@ import (
 var (
 	digestPattern     = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 	identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+	stableCodePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+	drivePathPattern  = regexp.MustCompile(`^[A-Za-z]:`)
 )
 
 type IDGenerator func(string) (string, error)
@@ -64,8 +67,11 @@ func (s *Service) CreateBlueprint(ctx context.Context, command CreateBlueprintCo
 		return Blueprint{}, err
 	}
 	var header struct {
-		BlueprintID string `json:"blueprint_id"`
-		Version     string `json:"version"`
+		BlueprintID  string `json:"blueprint_id"`
+		Version      string `json:"version"`
+		Applications []struct {
+			Environment string `json:"environment"`
+		} `json:"applications"`
 	}
 	if err := json.Unmarshal(validated.CanonicalJSON, &header); err != nil || header.BlueprintID == "" || header.Version == "" {
 		return Blueprint{}, ErrDocumentInvalid
@@ -75,7 +81,11 @@ func (s *Service) CreateBlueprint(ctx context.Context, command CreateBlueprintCo
 	if err != nil {
 		return Blueprint{}, err
 	}
-	blueprint := Blueprint{BlueprintID: header.BlueprintID, Revision: 1, DocumentVersion: header.Version, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, ContentSHA256: validated.SHA256, CreatedBy: command.ActorID, CreatedAt: now, AuditID: auditID}
+	environments, err := projectBlueprintEnvironments(header.Applications)
+	if err != nil {
+		return Blueprint{}, err
+	}
+	blueprint := Blueprint{BlueprintID: header.BlueprintID, Revision: 1, DocumentVersion: header.Version, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, ContentSHA256: validated.SHA256, Environments: environments, CreatedBy: command.ActorID, CreatedAt: now, AuditID: auditID}
 	idem, err := makeIdempotency("assembly.create_blueprint", command.ActorID, "platform", command.IdempotencyKey, struct {
 		BlueprintSHA256 string `json:"blueprint_sha256"`
 	}{validated.SHA256}, now)
@@ -90,7 +100,23 @@ func (s *Service) GetBlueprint(ctx context.Context, blueprintID string, revision
 	if s.repository == nil || blueprintID == "" || revision < 0 {
 		return Blueprint{}, ErrInvalidCommand
 	}
-	return s.repository.GetBlueprint(ctx, "", blueprintID, revision)
+	value, err := s.repository.GetBlueprint(ctx, "", blueprintID, revision)
+	if err != nil {
+		return Blueprint{}, err
+	}
+	var body struct {
+		Applications []struct {
+			Environment string `json:"environment"`
+		} `json:"applications"`
+	}
+	if json.Unmarshal(value.Document, &body) != nil {
+		return Blueprint{}, ErrDocumentInvalid
+	}
+	value.Environments, err = projectBlueprintEnvironments(body.Applications)
+	if err != nil {
+		return Blueprint{}, err
+	}
+	return value, nil
 }
 
 type CreatePlanCommand struct {
@@ -121,7 +147,8 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 	if err != nil {
 		return Plan{}, err
 	}
-	if _, err := planConfirmationChecksum(validated.CanonicalJSON); err != nil {
+	confirmationChecksum, err := planConfirmationChecksum(validated.CanonicalJSON)
+	if err != nil {
 		return Plan{}, err
 	}
 	var body struct {
@@ -148,12 +175,16 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 		return Plan{}, ErrDocumentInvalid
 	}
 	capabilities = documentCapabilities
+	review, err := projectPlanReview(validated.CanonicalJSON)
+	if err != nil {
+		return Plan{}, err
+	}
 	now := s.now().UTC()
 	auditID, eventID, err := s.newAuditAndEventIDs()
 	if err != nil {
 		return Plan{}, err
 	}
-	plan := Plan{PlanID: body.PlanID, ProductID: blueprint.ProductID, BlueprintID: blueprint.BlueprintID, BlueprintRevision: blueprint.Revision, Version: 1, Environment: body.Environment, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, BlueprintSHA256: blueprint.ContentSHA256, CatalogRevision: body.CatalogSnapshot.Revision, CatalogSnapshotSHA256: body.CatalogSnapshot.Checksum, PlanSHA256: planChecksum, Executable: body.Executable, Capabilities: capabilities, CreatedBy: command.ActorID, CreatedAt: now, UpdatedAt: now, AuditID: auditID}
+	plan := Plan{PlanID: body.PlanID, ProductID: blueprint.ProductID, BlueprintID: blueprint.BlueprintID, BlueprintRevision: blueprint.Revision, Version: 1, Environment: body.Environment, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, BlueprintSHA256: blueprint.ContentSHA256, CatalogRevision: body.CatalogSnapshot.Revision, CatalogSnapshotSHA256: body.CatalogSnapshot.Checksum, PlanSHA256: planChecksum, ConfirmationChecksum: confirmationChecksum, Review: review, Executable: body.Executable, Capabilities: capabilities, CreatedBy: command.ActorID, CreatedAt: now, UpdatedAt: now, AuditID: auditID}
 	idem, err := makeIdempotency("assembly.create_plan", command.ActorID, blueprint.BlueprintID, command.IdempotencyKey, struct{ BlueprintSHA256, Environment string }{blueprint.ContentSHA256, command.Environment}, now)
 	if err != nil {
 		return Plan{}, err
@@ -166,7 +197,104 @@ func (s *Service) GetPlan(ctx context.Context, planID string) (Plan, error) {
 	if s.repository == nil || planID == "" {
 		return Plan{}, ErrInvalidCommand
 	}
-	return s.repository.GetPlan(ctx, "", planID)
+	value, err := s.repository.GetPlan(ctx, "", planID)
+	if err != nil {
+		return Plan{}, err
+	}
+	value.ConfirmationChecksum, err = planConfirmationChecksum(value.Document)
+	if err != nil {
+		return Plan{}, err
+	}
+	value.Review, err = projectPlanReview(value.Document)
+	if err != nil {
+		return Plan{}, err
+	}
+	return value, nil
+}
+
+func projectBlueprintEnvironments(applications []struct {
+	Environment string `json:"environment"`
+}) ([]string, error) {
+	seen := map[string]bool{}
+	for _, app := range applications {
+		switch app.Environment {
+		case "development", "test", "staging", "production":
+			seen[app.Environment] = true
+		default:
+			return nil, ErrDocumentInvalid
+		}
+	}
+	order := []string{"development", "test", "staging", "production"}
+	result := make([]string, 0, len(seen))
+	for _, value := range order {
+		if seen[value] {
+			result = append(result, value)
+		}
+	}
+	if len(result) == 0 {
+		return nil, ErrDocumentInvalid
+	}
+	return result, nil
+}
+
+func projectPlanReview(document json.RawMessage) (PlanReview, error) {
+	var body struct {
+		Packages []struct {
+			PackageID string `json:"package_id"`
+			Version   string `json:"version"`
+		} `json:"packages"`
+		Applications []struct {
+			ApplicationID string `json:"application_id"`
+			Target        string `json:"target"`
+			Channel       string `json:"channel"`
+			DeliveryMode  string `json:"delivery_mode"`
+			Template      struct {
+				TemplateID string `json:"template_id"`
+				Version    string `json:"version"`
+			} `json:"template"`
+		} `json:"applications"`
+		Risks []struct {
+			RiskID               string `json:"risk_id"`
+			Level                string `json:"level"`
+			Category             string `json:"category"`
+			Summary              string `json:"summary"`
+			RequiresConfirmation bool   `json:"requires_confirmation"`
+		} `json:"risks"`
+		Conflicts []struct {
+			Blocking bool `json:"blocking"`
+		} `json:"conflicts"`
+		Confirmation struct {
+			Statements []string `json:"statements"`
+		} `json:"confirmation"`
+	}
+	if json.Unmarshal(document, &body) != nil || len(body.Applications) == 0 || len(body.Confirmation.Statements) == 0 {
+		return PlanReview{}, ErrDocumentInvalid
+	}
+	result := PlanReview{Packages: make([]PlanReviewPackage, len(body.Packages)), Applications: make([]PlanReviewApplication, len(body.Applications)), Risks: make([]PlanReviewRisk, len(body.Risks)), Statements: append([]string(nil), body.Confirmation.Statements...)}
+	for i, v := range body.Packages {
+		if v.PackageID == "" || v.Version == "" {
+			return PlanReview{}, ErrDocumentInvalid
+		}
+		result.Packages[i] = PlanReviewPackage{v.PackageID, v.Version}
+	}
+	for i, v := range body.Applications {
+		if v.ApplicationID == "" || v.Target == "" || v.Channel == "" || v.DeliveryMode == "" || v.Template.TemplateID == "" || v.Template.Version == "" {
+			return PlanReview{}, ErrDocumentInvalid
+		}
+		result.Applications[i] = PlanReviewApplication{v.ApplicationID, v.Target, v.Channel, v.DeliveryMode, v.Template.TemplateID, v.Template.Version}
+	}
+	for i, v := range body.Risks {
+		if v.RiskID == "" || v.Summary == "" {
+			return PlanReview{}, ErrDocumentInvalid
+		}
+		result.Risks[i] = PlanReviewRisk{v.RiskID, v.Level, v.Category, v.Summary, v.RequiresConfirmation}
+	}
+	for _, v := range body.Conflicts {
+		if v.Blocking {
+			result.BlockingConflictCount++
+		}
+	}
+	return result, nil
 }
 
 type ConfirmPlanCommand struct {
@@ -281,6 +409,79 @@ func (s *Service) GetRun(ctx context.Context, runID string) (Run, error) {
 	return s.repository.GetRun(ctx, "", runID)
 }
 
+func (s *Service) ListRuns(ctx context.Context, filter RunListFilter) (RunPage, error) {
+	if s.repository == nil || filter.PageSize < 1 || filter.PageSize > 100 {
+		return RunPage{}, ErrInvalidCommand
+	}
+	switch filter.Status {
+	case "", RunStatusPlanned, RunStatusProvisioning, RunStatusGenerating, RunStatusValidating, RunStatusCompleted, RunStatusFailed, RunStatusRollingBack, RunStatusRolledBack:
+	default:
+		return RunPage{}, ErrInvalidCommand
+	}
+	repository, ok := s.repository.(RecoveryRepository)
+	if !ok {
+		return RunPage{}, ErrOperationInProgress
+	}
+	return repository.ListRuns(ctx, filter)
+}
+
+type RetryRunCommand struct {
+	RunID, ActorID, IdempotencyKey, TraceID string
+	ExpectedVersion                         int64
+}
+
+func (s *Service) RetryRun(ctx context.Context, command RetryRunCommand) (Run, error) {
+	if s.repository == nil || s.validator == nil || s.idGenerator == nil || command.RunID == "" || command.ActorID == "" || command.ExpectedVersion < 1 || command.IdempotencyKey == "" || command.TraceID == "" {
+		return Run{}, ErrInvalidCommand
+	}
+	parent, err := s.repository.GetRun(ctx, "", command.RunID)
+	if err != nil {
+		return Run{}, err
+	}
+	if parent.Version != command.ExpectedVersion {
+		return Run{}, ErrVersionConflict
+	}
+	if parent.Status != RunStatusFailed || !parent.Recovery.Retryable || parent.Recovery.RollbackRequired {
+		return Run{}, ErrConflict
+	}
+	runID, err := s.idGenerator("run_")
+	if err != nil {
+		return Run{}, err
+	}
+	now := s.now().UTC()
+	keyDigest := digestString(command.IdempotencyKey)
+	document, err := retryRunDocument(runID, parent, keyDigest, now)
+	if err != nil {
+		return Run{}, err
+	}
+	validated, err := s.validator.Validate("assembly-run", document)
+	if err != nil {
+		return Run{}, err
+	}
+	auditID, eventID, err := s.newAuditAndEventIDs()
+	if err != nil {
+		return Run{}, err
+	}
+	run, err := parseRunDocument(validated, parent.ProductID, parent.PlanVersion, parent.CreatedBy, auditID)
+	if err != nil {
+		return Run{}, err
+	}
+	run.RootRunID, run.RetryOfRunID, run.AttemptNumber = parent.RootRunID, parent.RunID, parent.AttemptNumber+1
+	idem, err := makeIdempotency("assembly.retry_run", command.ActorID, parent.RunID, command.IdempotencyKey, struct {
+		ExpectedVersion int64
+		RootRunID       string
+	}{command.ExpectedVersion, parent.RootRunID}, now)
+	if err != nil {
+		return Run{}, err
+	}
+	event := assemblyEvent(eventID, auditID, "assembly.retried.v1", "assembly.retried", "assembly_run", run.RunID, run.ProductID, command.ActorID, command.TraceID, "assembly.execute", now, "high", map[string]any{"retry_of_run_id": parent.RunID, "root_run_id": parent.RootRunID, "attempt_number": run.AttemptNumber})
+	repository, ok := s.repository.(RecoveryRepository)
+	if !ok {
+		return Run{}, ErrOperationInProgress
+	}
+	return repository.RetryRun(ctx, RetryRunRecord{ParentRun: parent, Run: run, ExpectedVersion: command.ExpectedVersion, Idempotency: idem, Event: event})
+}
+
 type BindProductCommand struct {
 	ProductID, RunID, ActorID, IdempotencyKey, TraceID string
 	ExpectedVersion                                    int64
@@ -310,6 +511,8 @@ type UpdateRunCommand struct {
 	RunID, ActorID, IdempotencyKey, TraceID string
 	ExpectedVersion                         int64
 	Document                                json.RawMessage
+	Diagnostics                             []RunDiagnostic
+	Reports                                 []RunReport
 }
 
 func (s *Service) UpdateRun(ctx context.Context, command UpdateRunCommand) (Run, error) {
@@ -335,6 +538,10 @@ func (s *Service) UpdateRun(ctx context.Context, command UpdateRunCommand) (Run,
 	if err := validateRunEvolution(current, next); err != nil {
 		return Run{}, ErrInvalidRunTransition
 	}
+	diagnostics, reports, err := validateRunEvidence(next, command.Diagnostics, command.Reports, s.now().UTC())
+	if err != nil {
+		return Run{}, err
+	}
 	next.Version = current.Version + 1
 	now := s.now().UTC()
 	idem, err := makeIdempotency("assembly.update_run", command.ActorID, current.RunID, command.IdempotencyKey, struct {
@@ -353,7 +560,72 @@ func (s *Service) UpdateRun(ctx context.Context, command UpdateRunCommand) (Run,
 		event.Payload.Result = "failure"
 		event.Payload.ReasonCode = "assembly.run_failed"
 	}
-	return s.repository.UpdateRun(ctx, UpdateRunRecord{Run: next, ExpectedVersion: command.ExpectedVersion, Idempotency: idem, Event: event})
+	return s.repository.UpdateRun(ctx, UpdateRunRecord{Run: next, ExpectedVersion: command.ExpectedVersion, Diagnostics: diagnostics, Reports: reports, Idempotency: idem, Event: event})
+}
+
+func validateRunEvidence(run Run, diagnostics []RunDiagnostic, reports []RunReport, now time.Time) ([]RunDiagnostic, []RunReport, error) {
+	if run.Status == RunStatusFailed && len(diagnostics) == 0 {
+		diagnostics = make([]RunDiagnostic, len(run.DiagnosticIDs))
+		for i, id := range run.DiagnosticIDs {
+			code := strings.TrimPrefix(strings.ReplaceAll(id, "-", "_"), "diagnostic.")
+			diagnostics[i] = RunDiagnostic{DiagnosticID: id, Code: "assembly." + code, Severity: "error", Category: "assembly", Message: "Assembly step failed; resolve the prerequisite before retrying", Blocking: true, Retryable: run.Recovery.Retryable, Remediation: []string{"Resolve the reported prerequisite", "Retry the failed assembly run"}, RelatedPaths: []string{}, CreatedAt: now}
+		}
+	}
+	ids := map[string]bool{}
+	for _, id := range run.DiagnosticIDs {
+		ids[id] = true
+	}
+	seen := map[string]bool{}
+	for i := range diagnostics {
+		d := &diagnostics[i]
+		if !ids[d.DiagnosticID] || seen[d.DiagnosticID] || !identifierPattern.MatchString(d.DiagnosticID) || !stableCodePattern.MatchString(d.Code) || !stableCodePattern.MatchString(d.Category) || (d.Severity != "info" && d.Severity != "warning" && d.Severity != "error") || len(d.Message) < 1 || len(d.Message) > 500 || strings.ContainsAny(d.Message, "\r\n\t") {
+			return nil, nil, ErrDocumentInvalid
+		}
+		seen[d.DiagnosticID] = true
+		if d.CreatedAt.IsZero() {
+			d.CreatedAt = now
+		}
+		if d.Remediation == nil {
+			d.Remediation = []string{}
+		}
+		if d.RelatedPaths == nil {
+			d.RelatedPaths = []string{}
+		}
+		if len(d.Remediation) > 20 || len(d.RelatedPaths) > 100 {
+			return nil, nil, ErrDocumentInvalid
+		}
+		for _, item := range d.Remediation {
+			if len(item) < 1 || len(item) > 300 || strings.ContainsAny(item, "\r\n\t") {
+				return nil, nil, ErrDocumentInvalid
+			}
+		}
+		pathSeen := map[string]bool{}
+		for _, p := range d.RelatedPaths {
+			if pathSeen[p] || !safeRelativeEvidencePath(p) {
+				return nil, nil, ErrDocumentInvalid
+			}
+			pathSeen[p] = true
+		}
+	}
+	if run.Status == RunStatusFailed && len(seen) != len(ids) {
+		return nil, nil, ErrDocumentInvalid
+	}
+	reportSeen := map[string]bool{}
+	for i := range reports {
+		r := &reports[i]
+		if reportSeen[r.ReportID] || !identifierPattern.MatchString(r.ReportID) || !stableCodePattern.MatchString(r.ReportType) || (r.Status != "passed" && r.Status != "failed" && r.Status != "partial") || len(r.Summary) < 1 || len(r.Summary) > 500 || strings.ContainsAny(r.Summary, "\r\n\t") || (r.Checksum != "" && !digestPattern.MatchString(r.Checksum)) {
+			return nil, nil, ErrDocumentInvalid
+		}
+		if r.CreatedAt.IsZero() {
+			r.CreatedAt = now
+		}
+		reportSeen[r.ReportID] = true
+	}
+	return diagnostics, reports, nil
+}
+
+func safeRelativeEvidencePath(value string) bool {
+	return value != "" && !strings.Contains(value, "\\") && !strings.HasPrefix(value, "/") && !drivePathPattern.MatchString(value) && !strings.Contains("/"+value+"/", "/../")
 }
 
 type CompleteAssemblyCommand struct {
@@ -629,13 +901,50 @@ func initialRunDocument(runID string, plan Plan, keyDigest, outputTargetRef stri
 		{"step_id": "step.validate", "kind": "validate", "status": "pending", "attempt": 0, "compensation_status": "not_required", "diagnostic_ids": []string{}},
 		{"step_id": "step.commit", "kind": "commit", "status": "pending", "attempt": 0, "compensation_status": "pending", "diagnostic_ids": []string{}},
 	}
-	document := map[string]any{"schema_version": "1.0.0", "run_id": runID, "plan_id": plan.PlanID, "plan_checksum": plan.PlanSHA256, "idempotency_key_digest": keyDigest, "output_target_ref": outputTargetRef, "status": "planned", "steps": steps, "current_step_id": nil, "diagnostic_ids": []string{}, "recovery": map[string]any{"retryable": true, "rollback_required": false, "resume_from_step_id": "step.provision"}, "created_at": now.Format(time.RFC3339Nano), "updated_at": now.Format(time.RFC3339Nano)}
+	document := map[string]any{"schema_version": "1.0.0", "run_id": runID, "root_run_id": runID, "attempt_number": 1, "plan_id": plan.PlanID, "plan_checksum": plan.PlanSHA256, "idempotency_key_digest": keyDigest, "output_target_ref": outputTargetRef, "status": "planned", "steps": steps, "current_step_id": nil, "diagnostic_ids": []string{}, "recovery": map[string]any{"retryable": true, "rollback_required": false, "resume_from_step_id": "step.provision"}, "created_at": now.Format(time.RFC3339Nano), "updated_at": now.Format(time.RFC3339Nano)}
 	return json.Marshal(document)
+}
+
+func retryRunDocument(runID string, parent Run, keyDigest string, now time.Time) (json.RawMessage, error) {
+	var body map[string]any
+	if err := json.Unmarshal(parent.Document, &body); err != nil {
+		return nil, ErrDocumentInvalid
+	}
+	steps, ok := body["steps"].([]any)
+	if !ok {
+		return nil, ErrDocumentInvalid
+	}
+	for _, raw := range steps {
+		step, ok := raw.(map[string]any)
+		if !ok {
+			return nil, ErrDocumentInvalid
+		}
+		step["status"], step["attempt"], step["diagnostic_ids"] = "pending", 0, []string{}
+		delete(step, "started_at")
+		delete(step, "finished_at")
+		if step["kind"] == "validate" {
+			step["compensation_status"] = "not_required"
+		} else {
+			step["compensation_status"] = "pending"
+		}
+	}
+	body["run_id"], body["root_run_id"], body["retry_of_run_id"] = runID, parent.RootRunID, parent.RunID
+	body["attempt_number"], body["idempotency_key_digest"] = parent.AttemptNumber+1, keyDigest
+	body["status"], body["current_step_id"], body["diagnostic_ids"] = "planned", nil, []string{}
+	body["recovery"] = map[string]any{"retryable": true, "rollback_required": false, "resume_from_step_id": "step.provision"}
+	body["created_at"], body["updated_at"] = now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)
+	delete(body, "completed_at")
+	delete(body, "manifest_path")
+	delete(body, "lock_path")
+	return json.Marshal(body)
 }
 
 func parseRunDocument(validated ValidatedDocument, productID string, planVersion int64, actorID, auditID string) (Run, error) {
 	var body struct {
 		RunID                string      `json:"run_id"`
+		RootRunID            string      `json:"root_run_id"`
+		RetryOfRunID         string      `json:"retry_of_run_id"`
+		AttemptNumber        int         `json:"attempt_number"`
 		PlanID               string      `json:"plan_id"`
 		PlanChecksum         string      `json:"plan_checksum"`
 		IdempotencyKeyDigest string      `json:"idempotency_key_digest"`
@@ -656,7 +965,13 @@ func parseRunDocument(validated ValidatedDocument, productID string, planVersion
 	if body.CurrentStepID != nil {
 		currentStep = *body.CurrentStepID
 	}
-	return Run{RunID: body.RunID, ProductID: productID, PlanID: body.PlanID, PlanVersion: planVersion, Version: 1, PlanSHA256: body.PlanChecksum, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, DocumentSHA256: validated.SHA256, IdempotencyKeyDigest: body.IdempotencyKeyDigest, OutputTargetRef: body.OutputTargetRef, Status: body.Status, CurrentStepID: currentStep, Steps: body.Steps, DiagnosticIDs: body.DiagnosticIDs, Recovery: body.Recovery, CreatedBy: actorID, CreatedAt: body.CreatedAt.UTC(), UpdatedAt: body.UpdatedAt.UTC(), CompletedAt: body.CompletedAt, AuditID: auditID}, nil
+	if body.RootRunID == "" {
+		body.RootRunID = body.RunID
+	}
+	if body.AttemptNumber == 0 {
+		body.AttemptNumber = 1
+	}
+	return Run{RunID: body.RunID, ProductID: productID, RootRunID: body.RootRunID, RetryOfRunID: body.RetryOfRunID, AttemptNumber: body.AttemptNumber, PlanID: body.PlanID, PlanVersion: planVersion, Version: 1, PlanSHA256: body.PlanChecksum, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, DocumentSHA256: validated.SHA256, IdempotencyKeyDigest: body.IdempotencyKeyDigest, OutputTargetRef: body.OutputTargetRef, Status: body.Status, CurrentStepID: currentStep, Steps: body.Steps, DiagnosticIDs: body.DiagnosticIDs, Recovery: body.Recovery, CreatedBy: actorID, CreatedAt: body.CreatedAt.UTC(), UpdatedAt: body.UpdatedAt.UTC(), CompletedAt: body.CompletedAt, AuditID: auditID}, nil
 }
 
 func validTransition(current, next RunStatus) bool {
@@ -675,8 +990,21 @@ func validTransition(current, next RunStatus) bool {
 }
 
 func validateRunEvolution(current, next Run) error {
+	if current.RootRunID == "" {
+		current.RootRunID = current.RunID
+	}
+	if current.AttemptNumber == 0 {
+		current.AttemptNumber = 1
+	}
+	if next.RootRunID == "" {
+		next.RootRunID = next.RunID
+	}
+	if next.AttemptNumber == 0 {
+		next.AttemptNumber = 1
+	}
 	if current.Status == RunStatusCompleted || current.Status == RunStatusRolledBack ||
 		next.RunID != current.RunID || next.PlanID != current.PlanID ||
+		next.RootRunID != current.RootRunID || next.RetryOfRunID != current.RetryOfRunID || next.AttemptNumber != current.AttemptNumber ||
 		!digestsEqual(next.PlanSHA256, current.PlanSHA256) ||
 		!digestsEqual(next.IdempotencyKeyDigest, current.IdempotencyKeyDigest) ||
 		next.OutputTargetRef != current.OutputTargetRef || !next.CreatedAt.Equal(current.CreatedAt) ||

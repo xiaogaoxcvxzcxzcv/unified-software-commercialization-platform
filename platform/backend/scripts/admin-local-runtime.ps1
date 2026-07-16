@@ -24,6 +24,8 @@ $ArtifactRoot = Join-Path $RuntimeRoot 'local-assembly-artifacts'
 $InstanceName = "backend-local-$Port"
 $CurrentExecutable = Join-Path $RuntimeRoot "$InstanceName.exe"
 $NextExecutable = Join-Path $RuntimeRoot "$InstanceName-next.exe"
+$CurrentMigrationExecutable = Join-Path $RuntimeRoot "$InstanceName-migrate.exe"
+$NextMigrationExecutable = Join-Path $RuntimeRoot "$InstanceName-migrate-next.exe"
 $PidFile = Join-Path $RuntimeRoot "$InstanceName.pid"
 $SettingsFile = Join-Path $RuntimeRoot "$InstanceName-settings.json"
 $StdoutLog = Join-Path $RuntimeRoot "$InstanceName.stdout.log"
@@ -88,6 +90,7 @@ function Stop-ManagedBackend {
 
 function Build-Backend {
     Remove-Item -LiteralPath $NextExecutable -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $NextMigrationExecutable -Force -ErrorAction SilentlyContinue
     $previousGoCache = $env:GOCACHE
     $previousGoModCache = $env:GOMODCACHE
     $previousGoTelemetry = $env:GOTELEMETRY
@@ -99,6 +102,8 @@ function Build-Backend {
         try {
             & go build -o $NextExecutable ./cmd/server
             if ($LASTEXITCODE -ne 0) { throw 'Backend build failed.' }
+            & go build -o $NextMigrationExecutable ./cmd/migrate
+            if ($LASTEXITCODE -ne 0) { throw 'Migration build failed.' }
         }
         finally { Pop-Location }
     }
@@ -122,6 +127,7 @@ function Start-ManagedBackend {
     }
 
     Move-Item -LiteralPath $NextExecutable -Destination $CurrentExecutable -Force
+    Move-Item -LiteralPath $NextMigrationExecutable -Destination $CurrentMigrationExecutable -Force
     $password = ([IO.File]::ReadAllText($DatabasePasswordFile)).Trim()
     $pepper = ([IO.File]::ReadAllText($TokenPepperFile)).Trim()
     $encodedPassword = [Uri]::EscapeDataString($password)
@@ -155,6 +161,8 @@ function Start-ManagedBackend {
         $env:PLATFORM_ADMIN_BEARER_ENABLED = 'false'
         $env:PLATFORM_ADMIN_ACCESS_TTL = "${AccessTTLSeconds}s"
         $env:PLATFORM_ASSEMBLY_OUTPUT_TARGETS = $targets
+        & $CurrentMigrationExecutable up
+        if ($LASTEXITCODE -ne 0) { throw 'Database migration failed.' }
         $process = Start-Process `
             -FilePath $CurrentExecutable `
             -WorkingDirectory $BackendRoot `

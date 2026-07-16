@@ -53,6 +53,17 @@ type serviceStub struct {
 	getLock               GetLockCommand
 	getLockCalls          int
 }
+type recoveryServiceStub struct {
+	*serviceStub
+	page RunPage
+}
+
+func (s *recoveryServiceStub) ListRuns(context.Context, ListRunsCommand) (RunPage, error) {
+	return s.page, nil
+}
+func (s *recoveryServiceStub) RetryRun(context.Context, RetryRunCommand) (Run, error) {
+	return Run{}, ErrNotFound
+}
 
 func (s *serviceStub) ListCatalogOptions(_ context.Context, command ListCatalogOptionsCommand) (CatalogOptions, error) {
 	s.listCatalogCalls++
@@ -407,6 +418,65 @@ func TestHandlerReadsBlueprintPlanRunManifestAndLockStatus(t *testing.T) {
 	}
 }
 
+func TestRunResponseUsesStrictSnakeCaseNestedContract(t *testing.T) {
+	now := time.Date(2026, 7, 16, 8, 0, 0, 0, time.UTC)
+	value := normalizeRunProjection(Run{RunID: "run-contract", PlanID: "plan-contract", PlanVersion: 2, PlanChecksum: testChecksum, OutputTargetRef: "workspace.default", Status: "failed", Document: json.RawMessage(`{"schema_version":"1.0.0"}`), CreatedAt: now, UpdatedAt: now, CompletedAt: &now, AuditID: "audit-contract", Steps: []RunStep{{StepID: "step.provision", Kind: "provision", Status: "failed", Attempt: 1, CompensationStatus: "pending", DiagnosticIDs: []string{"diagnostic.transient"}}}, Recovery: RunRecovery{Retryable: true, ResumeFromStepID: "step.provision"}, Diagnostics: []RunDiagnostic{{DiagnosticID: "diagnostic.transient", Code: "diagnostic.transient", Severity: "error", Category: "assembly", Message: "Transient assembly prerequisite failed", Blocking: true, Retryable: true, Remediation: []string{"Retry later"}, RelatedPaths: []string{}}}, Reports: []RunReport{{ReportID: "report.validation", ReportType: "assembly_validation", Status: "failed", Summary: "Validation did not complete", CreatedAt: now}}})
+	raw, err := json.Marshal(runResponseFrom(value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, forbidden := range []string{"StepID", "Retryable\"", "ReportType", "created_at\":\"2026-07-16T08:00:00Z\",\"diagnostic"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("forbidden key %q in %s", forbidden, text)
+		}
+	}
+	for _, required := range []string{"\"step_id\"", "\"retryable\"", "\"type\":\"assembly_validation\"", "\"checksum\":null"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("missing %q in %s", required, text)
+		}
+	}
+}
+
+func TestHandlerListsAssemblyRunSummariesWithoutDocuments(t *testing.T) {
+	now := time.Date(2026, 7, 16, 8, 0, 0, 0, time.UTC)
+	service := &recoveryServiceStub{serviceStub: &serviceStub{}, page: RunPage{Items: []RunSummary{{RunID: "run-summary", PlanID: "plan-summary", Version: 3, RootRunID: "run-summary", AttemptNumber: 1, Status: "failed", DiagnosticCount: 2, ReportCount: 1, CreatedAt: now, UpdatedAt: now, CompletedAt: &now}}, NextCursor: "cursor-next"}}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/assembly-runs?page_size=25", "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, required := range []string{`"diagnostic_count":2`, `"report_count":1`, `"next_cursor":"cursor-next"`} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("missing %s in %s", required, body)
+		}
+	}
+	if strings.Contains(body, "document") {
+		t.Fatalf("summary leaked document: %s", body)
+	}
+}
+
+func TestBlueprintAndPlanResponsesExposeRecoveryProjections(t *testing.T) {
+	blueprintRaw, err := json.Marshal(blueprintResponseFrom(validBlueprintResult("bp-recovery")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(blueprintRaw), `"environments":["test"]`) {
+		t.Fatalf("blueprint=%s", blueprintRaw)
+	}
+	planRaw, err := json.Marshal(planResponseFrom(validPlanResult("plan-recovery", "bp-recovery")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(planRaw)
+	for _, required := range []string{`"confirmation_checksum":"` + testChecksum + `"`, `"review":`, `"application_id":"application.web"`, `"template_version":"1.0.0"`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("missing %s in %s", required, text)
+		}
+	}
+}
+
 func TestHandlerReturnsManifestAndLockRecoveryMetadata(t *testing.T) {
 	service := &serviceStub{
 		manifest: validManifestResult("assembly-1", "run-1"),
@@ -562,7 +632,7 @@ func TestHandlerMapsStableAssemblyErrors(t *testing.T) {
 	}
 }
 
-func allowedHandler(service *serviceStub) (*Handler, *authenticatorStub, *authorizerStub) {
+func allowedHandler(service Service) (*Handler, *authenticatorStub, *authorizerStub) {
 	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
 	authorization := &authorizerStub{decision: adminrequest.Decision{Allowed: true}}
 	return New(service, adminrequest.New(auth, authorization, nil)), auth, authorization
@@ -570,12 +640,12 @@ func allowedHandler(service *serviceStub) (*Handler, *authenticatorStub, *author
 
 func validBlueprintResult(id string) Blueprint {
 	now := time.Date(2026, 7, 13, 20, 0, 0, 0, time.UTC)
-	return Blueprint{BlueprintID: id, Version: 1, SchemaVersion: "1.0.0", Document: json.RawMessage(`{"schema_version":"1.0.0"}`), Checksum: testChecksum, CreatedAt: now, UpdatedAt: now, AuditID: "audit-blueprint"}
+	return Blueprint{BlueprintID: id, Version: 1, SchemaVersion: "1.0.0", Environments: []string{"test"}, Document: json.RawMessage(`{"schema_version":"1.0.0"}`), Checksum: testChecksum, CreatedAt: now, UpdatedAt: now, AuditID: "audit-blueprint"}
 }
 
 func validPlanResult(id, blueprintID string) Plan {
 	now := time.Date(2026, 7, 13, 20, 1, 0, 0, time.UTC)
-	return Plan{PlanID: id, Version: 1, BlueprintID: blueprintID, BlueprintVersion: 1, SchemaVersion: "1.0.0", Environment: "test", Document: json.RawMessage(`{"schema_version":"1.0.0","applications":[]}`), Checksum: testChecksum, Executable: true, CreatedAt: now, UpdatedAt: now, AuditID: "audit-plan"}
+	return Plan{PlanID: id, Version: 1, BlueprintID: blueprintID, BlueprintVersion: 1, SchemaVersion: "1.0.0", Environment: "test", ConfirmationChecksum: testChecksum, Review: PlanReview{Applications: []PlanReviewApplication{{ApplicationID: "application.web", Target: "web", Channel: "official", DeliveryMode: "generated_source", TemplateID: "template.web", TemplateVersion: "1.0.0"}}, Statements: []string{"Confirm assembly"}}, Document: json.RawMessage(`{"schema_version":"1.0.0","applications":[]}`), Checksum: testChecksum, Executable: true, CreatedAt: now, UpdatedAt: now, AuditID: "audit-plan"}
 }
 
 func validRunResult(id, planID string) Run {

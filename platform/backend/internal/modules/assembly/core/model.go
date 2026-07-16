@@ -65,6 +65,7 @@ type Blueprint struct {
 	SchemaVersion   string          `json:"schema_version"`
 	Document        json.RawMessage `json:"document"`
 	ContentSHA256   string          `json:"content_sha256"`
+	Environments    []string        `json:"environments"`
 	CreatedBy       string          `json:"created_by"`
 	CreatedAt       time.Time       `json:"created_at"`
 	AuditID         string          `json:"audit_id,omitempty"`
@@ -83,6 +84,8 @@ type Plan struct {
 	CatalogRevision       string                   `json:"catalog_revision"`
 	CatalogSnapshotSHA256 string                   `json:"catalog_snapshot_sha256"`
 	PlanSHA256            string                   `json:"plan_sha256"`
+	ConfirmationChecksum  string                   `json:"confirmation_checksum"`
+	Review                PlanReview               `json:"review"`
 	Executable            bool                     `json:"executable"`
 	ConfirmedAt           *time.Time               `json:"confirmed_at,omitempty"`
 	ConfirmedBy           string                   `json:"confirmed_by,omitempty"`
@@ -91,6 +94,19 @@ type Plan struct {
 	CreatedAt             time.Time                `json:"created_at"`
 	UpdatedAt             time.Time                `json:"updated_at"`
 	AuditID               string                   `json:"audit_id,omitempty"`
+}
+type PlanReviewPackage struct{ PackageID, Version string }
+type PlanReviewApplication struct{ ApplicationID, Target, Channel, DeliveryMode, TemplateID, TemplateVersion string }
+type PlanReviewRisk struct {
+	RiskID, Level, Category, Summary string
+	RequiresConfirmation             bool
+}
+type PlanReview struct {
+	Packages              []PlanReviewPackage
+	Applications          []PlanReviewApplication
+	Risks                 []PlanReviewRisk
+	BlockingConflictCount int
+	Statements            []string
 }
 
 type RunStatus string
@@ -123,9 +139,34 @@ type RunRecovery struct {
 	ResumeFromStepID string `json:"resume_from_step_id,omitempty"`
 }
 
+type RunDiagnostic struct {
+	DiagnosticID string    `json:"diagnostic_id"`
+	Code         string    `json:"code"`
+	Severity     string    `json:"severity"`
+	Category     string    `json:"category"`
+	Message      string    `json:"message"`
+	Blocking     bool      `json:"blocking"`
+	Retryable    bool      `json:"retryable"`
+	Remediation  []string  `json:"remediation"`
+	RelatedPaths []string  `json:"related_paths"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type RunReport struct {
+	ReportID   string    `json:"report_id"`
+	ReportType string    `json:"report_type"`
+	Status     string    `json:"status"`
+	Summary    string    `json:"summary"`
+	Checksum   string    `json:"checksum,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Run struct {
 	RunID                string          `json:"run_id"`
 	ProductID            string          `json:"product_id"`
+	RootRunID            string          `json:"root_run_id"`
+	RetryOfRunID         string          `json:"retry_of_run_id,omitempty"`
+	AttemptNumber        int             `json:"attempt_number"`
 	PlanID               string          `json:"plan_id"`
 	PlanVersion          int64           `json:"plan_version"`
 	Version              int64           `json:"version"`
@@ -140,6 +181,8 @@ type Run struct {
 	Steps                []RunStep       `json:"steps"`
 	DiagnosticIDs        []string        `json:"diagnostic_ids,omitempty"`
 	Recovery             RunRecovery     `json:"recovery"`
+	Diagnostics          []RunDiagnostic `json:"diagnostics"`
+	Reports              []RunReport     `json:"reports"`
 	ManifestID           string          `json:"manifest_id,omitempty"`
 	LockID               string          `json:"lock_id,omitempty"`
 	CreatedBy            string          `json:"created_by"`
@@ -147,6 +190,36 @@ type Run struct {
 	UpdatedAt            time.Time       `json:"updated_at"`
 	CompletedAt          *time.Time      `json:"completed_at,omitempty"`
 	AuditID              string          `json:"audit_id,omitempty"`
+}
+
+type RunListFilter struct {
+	PageSize  int
+	Cursor    string
+	Status    RunStatus
+	ProductID string
+}
+
+type RunPage struct {
+	Items      []RunSummary
+	NextCursor string
+}
+
+type RunSummary struct {
+	RunID, ProductID, PlanID, RootRunID, RetryOfRunID string
+	Version                                           int64
+	AttemptNumber                                     int
+	Status                                            RunStatus
+	CurrentStepID                                     string
+	DiagnosticCount, ReportCount                      int
+	CreatedAt, UpdatedAt                              time.Time
+	CompletedAt                                       *time.Time
+}
+
+type Dispatch struct {
+	RunID        string
+	RootRunID    string
+	CreatedBy    string
+	AttemptCount int
 }
 
 type Manifest struct {
@@ -238,6 +311,13 @@ type StartRunRecord struct {
 	Idempotency Idempotency
 	Event       OutboxEvent
 }
+type RetryRunRecord struct {
+	ParentRun       Run
+	Run             Run
+	ExpectedVersion int64
+	Idempotency     Idempotency
+	Event           OutboxEvent
+}
 type BindProductRecord struct {
 	ProductID, RunID string
 	ExpectedVersion  int64
@@ -248,6 +328,8 @@ type BindProductRecord struct {
 type UpdateRunRecord struct {
 	Run             Run
 	ExpectedVersion int64
+	Diagnostics     []RunDiagnostic
+	Reports         []RunReport
 	Idempotency     Idempotency
 	Event           OutboxEvent
 }
@@ -276,4 +358,9 @@ type Repository interface {
 	ClaimOutbox(context.Context, time.Time, int) ([]ClaimedOutboxEvent, error)
 	MarkOutboxPublished(context.Context, string, time.Time) error
 	MarkOutboxFailed(context.Context, string, string, time.Time, bool) error
+}
+
+type RecoveryRepository interface {
+	RetryRun(context.Context, RetryRunRecord) (Run, error)
+	ListRuns(context.Context, RunListFilter) (RunPage, error)
 }

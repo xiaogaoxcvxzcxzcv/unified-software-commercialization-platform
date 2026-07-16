@@ -208,8 +208,9 @@ func main() {
 		logger.Error("assembly output workspace initialization failed", "error", err)
 		os.Exit(1)
 	}
+	assemblyRepository := assemblypostgres.NewWithCursorKey(db.Pool(), []byte(cfg.AdminAuth.TokenPepper))
 	assemblyService := assemblycore.NewService(
-		assemblypostgres.New(db.Pool()), assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
+		assemblyRepository, assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
 		assemblycore.WithOutputTargetVerifier(newCoreOutputTargetVerifier(configuredOutputTargets...)),
 	)
 	auditRepository := auditpostgres.New(db.Pool())
@@ -244,6 +245,12 @@ func main() {
 		assemblyService, provisioningWorkflow, applicationService, productService, assemblyWorkspaces,
 		assemblygeneration.NewPureRenderer(assemblyCatalog), assemblyContracts, nil,
 	)
+	assemblyWorkerID, err := securevalue.ID("assembly_worker_")
+	if err != nil {
+		logger.Error("assembly worker initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyWorker := assemblyexecution.NewWorker(assemblyRepository, assemblyExecutionWorkflow, assemblyService, assemblyWorkerID, nil)
 	clientRegistrationWorkflow := clientregistration.New(productService, applicationService, hasher, nil)
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
 	tenantAdminWorkflow := tenantadmin.New(tenantService, accessService)
@@ -252,7 +259,7 @@ func main() {
 	tenantHandler := tenanthttp.New(tenantService, adminGuard)
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
-	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyExecutionWorkflow, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...), adminGuard)
+	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
 	modules := platformserver.NewModuleRegistrar()
@@ -276,6 +283,7 @@ func main() {
 	}
 	outbox := identity.NewOutboxDispatcher(identityRepository, identityAuditAdapter{service: auditService}, logger)
 	go outbox.Run(ctx)
+	go assemblyWorker.Run(ctx)
 	for name, source := range map[string]auditableOutboxSource{
 		"access_control":      accessControlOutboxSource{service: accessService},
 		"assembly":            assemblyOutboxSource{service: assemblyService},
