@@ -1,4 +1,5 @@
 import { authenticatedAdminRequest } from "./authClient";
+import { parseAssemblyRun, parseAssemblyRunPage } from "./assemblyRunProjection";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -85,6 +86,7 @@ export interface BlueprintRecord {
   blueprint_id: string;
   version: number;
   schema_version: string;
+  environments: AssemblyEnvironment[];
   document: ProductBlueprintDocument;
   checksum: string;
   created_at: string;
@@ -92,12 +94,23 @@ export interface BlueprintRecord {
   audit_id: string;
 }
 
+export interface AssemblyPlanReview {
+  packages: Array<{ package_id: string; version: string }>;
+  applications: Array<{ application_id: string; target: AssemblyTarget; channel: string; delivery_mode: AssemblyDeliveryMode; template_id: string; template_version: string }>;
+  risks: Array<{ risk_id: string; level: "low" | "medium" | "high"; category: "security" | "data" | "compatibility" | "provider" | "generation" | "rollback"; summary: string; requires_confirmation: boolean }>;
+  blocking_conflict_count: number;
+  statements: string[];
+}
+
 export interface AssemblyPlanRecord {
   plan_id: string;
   version: number;
   blueprint_id: string;
   blueprint_version: number;
+  schema_version: string;
   environment: AssemblyEnvironment;
+  confirmation_checksum: string;
+  review: AssemblyPlanReview;
   document: JsonObject;
   checksum: string;
   executable: boolean;
@@ -109,13 +122,86 @@ export interface AssemblyPlanRecord {
 
 export type AssemblyRunStatus = "planned" | "provisioning" | "generating" | "validating" | "completed" | "failed" | "rolling_back" | "rolled_back";
 
+export type AssemblyRunStepStatus = "pending" | "running" | "completed" | "failed" | "compensated" | "skipped";
+export type AssemblyRunStepKind = "provision" | "enable_capability" | "generate" | "validate" | "commit" | "rollback";
+
+export interface AssemblyRunStep {
+  step_id: string;
+  kind: AssemblyRunStepKind;
+  status: AssemblyRunStepStatus;
+  attempt: number;
+  compensation_status: "not_required" | "pending" | "completed" | "failed";
+  started_at: string | null;
+  finished_at: string | null;
+  diagnostic_ids: string[];
+}
+
+export interface AssemblyRunRecovery {
+  retryable: boolean;
+  rollback_required: boolean;
+  resume_from_step_id: string | null;
+}
+
+export interface AssemblyRunDiagnostic {
+  diagnostic_id: string;
+  code: string;
+  severity: "info" | "warning" | "error";
+  category: string;
+  message: string;
+  blocking: boolean;
+  retryable: boolean;
+  remediation: string[];
+  related_paths: string[];
+}
+
+export interface AssemblyRunReport {
+  report_id: string;
+  type: string;
+  status: "passed" | "failed" | "partial";
+  summary: string;
+  checksum: string | null;
+  created_at: string;
+}
+
+export interface AssemblyRunSummary {
+  run_id: string;
+  product_id: string | null;
+  plan_id: string;
+  version: number;
+  root_run_id: string;
+  retry_of_run_id: string | null;
+  attempt_number: number;
+  status: AssemblyRunStatus;
+  current_step_id: string | null;
+  diagnostic_count: number;
+  report_count: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface AssemblyRunPage {
+  items: AssemblyRunSummary[];
+  next_cursor: string | null;
+}
+
 export interface AssemblyRunRecord {
   run_id: string;
+  product_id: string | null;
   plan_id: string;
   plan_version: number;
+  version: number;
   plan_checksum: string;
+  root_run_id: string;
+  retry_of_run_id: string | null;
+  attempt_number: number;
   output_target_ref: string;
   status: AssemblyRunStatus;
+  current_step_id: string | null;
+  steps: readonly AssemblyRunStep[];
+  recovery: AssemblyRunRecovery;
+  diagnostics: readonly AssemblyRunDiagnostic[];
+  reports: readonly AssemblyRunReport[];
   document: JsonObject;
   created_at: string;
   updated_at: string;
@@ -171,6 +257,13 @@ export interface StartAssemblyInput {
     summary_checksum: string;
   };
   output_target_ref: string;
+}
+
+export interface ListAssemblyRunsInput {
+  cursor?: string;
+  page_size?: number;
+  status?: AssemblyRunStatus;
+  product_id?: string;
 }
 
 const trustedToolKeys = new Set(["id", "version"]);
@@ -483,6 +576,74 @@ function parseOutputTargetCatalog(value: unknown): OutputTargetCatalog {
   };
 }
 
+function parseEnvironment(value: unknown, field: string): AssemblyEnvironment {
+  if (value !== "development" && value !== "test" && value !== "staging" && value !== "production") throw new TypeError(`${field} is invalid`);
+  return value;
+}
+
+function parsePositiveInteger(value: unknown, field: string) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new TypeError(`${field} is invalid`);
+  return value;
+}
+
+function parseTimestamp(value: unknown, field: string) {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new TypeError(`${field} is invalid`);
+  return value;
+}
+
+function parseChecksum(value: unknown, field: string) {
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field} is invalid`);
+  return value;
+}
+
+function parseSchemaVersion(value: unknown, field: string) {
+  if (typeof value !== "string" || !/^1\.\d+\.\d+$/.test(value)) throw new TypeError(`${field} is invalid`);
+  return value;
+}
+
+function parseDocument(value: unknown, field: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${field} is invalid`);
+  return value as JsonObject;
+}
+
+function parseBlueprint(value: unknown): BlueprintRecord {
+  const source = exactObject(value, ["blueprint_id", "version", "schema_version", "environments", "document", "checksum", "created_at", "updated_at", "audit_id"], "assembly blueprint");
+  if (!Array.isArray(source.environments) || source.environments.length < 1) throw new TypeError("assembly blueprint environments is invalid");
+  const environments = source.environments.map((item) => parseEnvironment(item, "assembly blueprint environment"));
+  if (new Set(environments).size !== environments.length || environments.some((item, index) => index > 0 && environments[index - 1] >= item)) throw new TypeError("assembly blueprint environments is not unique and stably sorted");
+  return { blueprint_id: safeIdentifier(source.blueprint_id, "assembly blueprint blueprint_id"), version: parsePositiveInteger(source.version, "assembly blueprint version"),
+    schema_version: parseSchemaVersion(source.schema_version, "assembly blueprint schema_version"), environments,
+    document: parseDocument(source.document, "assembly blueprint document") as ProductBlueprintDocument, checksum: parseChecksum(source.checksum, "assembly blueprint checksum"),
+    created_at: parseTimestamp(source.created_at, "assembly blueprint created_at"), updated_at: parseTimestamp(source.updated_at, "assembly blueprint updated_at"), audit_id: safeIdentifier(source.audit_id, "assembly blueprint audit_id") };
+}
+
+function parsePlanReview(value: unknown): AssemblyPlanReview {
+  const source = exactObject(value, ["packages", "applications", "risks", "blocking_conflict_count", "statements"], "assembly plan review");
+  if (!Array.isArray(source.packages) || !Array.isArray(source.applications) || source.applications.length < 1 || !Array.isArray(source.risks) || !Array.isArray(source.statements) || source.statements.length < 1) throw new TypeError("assembly plan review lists are invalid");
+  const packages = source.packages.map((value) => { const item = exactObject(value, ["package_id", "version"], "assembly plan review package"); if (typeof item.package_id !== "string" || !packageIdPattern.test(item.package_id)) throw new TypeError("assembly plan review package_id is invalid"); return { package_id: item.package_id, version: safeVersion(item.version, "assembly plan review package version") }; });
+  const targetValues = new Set<AssemblyTarget>(["web", "desktop_webview", "h5", "wechat_miniprogram", "mobile_app"]);
+  const deliveryValues = new Set<AssemblyDeliveryMode>(["hosted", "package", "generated_source"]);
+  const applications = source.applications.map((value) => { const item = exactObject(value, ["application_id", "target", "channel", "delivery_mode", "template_id", "template_version"], "assembly plan review application"); if (typeof item.target !== "string" || !targetValues.has(item.target as AssemblyTarget) || typeof item.delivery_mode !== "string" || !deliveryValues.has(item.delivery_mode as AssemblyDeliveryMode)) throw new TypeError("assembly plan review application target is invalid"); return { application_id: safeIdentifier(item.application_id, "assembly plan review application_id"), target: item.target as AssemblyTarget, channel: safeIdentifier(item.channel, "assembly plan review channel"), delivery_mode: item.delivery_mode as AssemblyDeliveryMode, template_id: safeIdentifier(item.template_id, "assembly plan review template_id"), template_version: safeVersion(item.template_version, "assembly plan review template_version") }; });
+  const levels = new Set(["low", "medium", "high"] as const); const categories = new Set(["security", "data", "compatibility", "provider", "generation", "rollback"] as const);
+  const risks = source.risks.map((value) => { const item = exactObject(value, ["risk_id", "level", "category", "summary", "requires_confirmation"], "assembly plan review risk"); if (typeof item.level !== "string" || !levels.has(item.level as never) || typeof item.category !== "string" || !categories.has(item.category as never) || typeof item.requires_confirmation !== "boolean") throw new TypeError("assembly plan review risk is invalid"); return { risk_id: safeIdentifier(item.risk_id, "assembly plan review risk_id"), level: item.level as AssemblyPlanReview["risks"][number]["level"], category: item.category as AssemblyPlanReview["risks"][number]["category"], summary: safeDisplayString(item.summary, "assembly plan review risk summary", 512), requires_confirmation: item.requires_confirmation }; });
+  const statements = source.statements.map((item) => safeDisplayString(item, "assembly plan review statement", 512));
+  if (new Set(statements).size !== statements.length) throw new TypeError("assembly plan review statements contains duplicates");
+  return { packages, applications, risks, blocking_conflict_count: parsePositiveIntegerOrZero(source.blocking_conflict_count, "assembly plan review blocking_conflict_count"), statements };
+}
+
+function parsePositiveIntegerOrZero(value: unknown, field: string) { if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new TypeError(`${field} is invalid`); return value; }
+
+function parsePlan(value: unknown): AssemblyPlanRecord {
+  const source = exactObject(value, ["plan_id", "version", "blueprint_id", "blueprint_version", "schema_version", "environment", "confirmation_checksum", "review", "document", "checksum", "executable", "confirmed", "created_at", "updated_at", "audit_id"], "assembly plan");
+  if (typeof source.executable !== "boolean" || typeof source.confirmed !== "boolean") throw new TypeError("assembly plan state is invalid");
+  return { plan_id: safeIdentifier(source.plan_id, "assembly plan plan_id"), version: parsePositiveInteger(source.version, "assembly plan version"),
+    blueprint_id: safeIdentifier(source.blueprint_id, "assembly plan blueprint_id"), blueprint_version: parsePositiveInteger(source.blueprint_version, "assembly plan blueprint_version"),
+    schema_version: parseSchemaVersion(source.schema_version, "assembly plan schema_version"), environment: parseEnvironment(source.environment, "assembly plan environment"),
+    confirmation_checksum: parseChecksum(source.confirmation_checksum, "assembly plan confirmation_checksum"), review: parsePlanReview(source.review), document: parseDocument(source.document, "assembly plan document"),
+    checksum: parseChecksum(source.checksum, "assembly plan checksum"), executable: source.executable, confirmed: source.confirmed,
+    created_at: parseTimestamp(source.created_at, "assembly plan created_at"), updated_at: parseTimestamp(source.updated_at, "assembly plan updated_at"), audit_id: safeIdentifier(source.audit_id, "assembly plan audit_id") };
+}
+
 export const assemblyClient = {
   async listOrdinaryCatalogOptions(filter: AssemblyCatalogFilter, options: AssemblyRequestOptions = {}) {
     const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-catalog-options?${catalogQuery(filter)}`, readInit(options));
@@ -504,38 +665,64 @@ export const assemblyClient = {
 
   createBlueprint(document: ProductBlueprintDocument, options: AssemblyWriteOptions) {
     assertTrustedToolSelections(document);
-    return authenticatedAdminRequest<BlueprintRecord>("/api/v1/admin/blueprints", writeInit(document, options));
+    return authenticatedAdminRequest<unknown>("/api/v1/admin/blueprints", writeInit(document, options)).then(parseBlueprint);
   },
 
-  getBlueprint(blueprintId: string, options: AssemblyRequestOptions = {}) {
+  async getBlueprint(blueprintId: string, options: AssemblyRequestOptions = {}) {
     assertIdentifier(blueprintId, "blueprintId");
-    return authenticatedAdminRequest<BlueprintRecord>(`/api/v1/admin/blueprints/${encodeURIComponent(blueprintId)}`, readInit(options));
+    return parseBlueprint(await authenticatedAdminRequest<unknown>(`/api/v1/admin/blueprints/${encodeURIComponent(blueprintId)}`, readInit(options)));
   },
 
-  createPlan(blueprintId: string, input: CreatePlanInput, options: AssemblyWriteOptions) {
+  async createPlan(blueprintId: string, input: CreatePlanInput, options: AssemblyWriteOptions) {
     assertIdentifier(blueprintId, "blueprintId");
-    return authenticatedAdminRequest<AssemblyPlanRecord>(
+    const result = await authenticatedAdminRequest<unknown>(
       `/api/v1/admin/blueprints/${encodeURIComponent(blueprintId)}/plan`,
       writeInit(input as unknown as JsonValue, options),
     );
+    return parsePlan(result);
   },
 
-  getPlan(planId: string, options: AssemblyRequestOptions = {}) {
+  async getPlan(planId: string, options: AssemblyRequestOptions = {}) {
     assertIdentifier(planId, "planId");
-    return authenticatedAdminRequest<AssemblyPlanRecord>(`/api/v1/admin/assembly-plans/${encodeURIComponent(planId)}`, readInit(options));
+    return parsePlan(await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-plans/${encodeURIComponent(planId)}`, readInit(options)));
   },
 
-  startAssembly(blueprintId: string, input: StartAssemblyInput, options: AssemblyWriteOptions) {
+  async startAssembly(blueprintId: string, input: StartAssemblyInput, options: AssemblyWriteOptions) {
     assertIdentifier(blueprintId, "blueprintId");
-    return authenticatedAdminRequest<AssemblyRunRecord>(
+    const result = await authenticatedAdminRequest<unknown>(
       `/api/v1/admin/blueprints/${encodeURIComponent(blueprintId)}/assemble`,
       writeInit(input as unknown as JsonValue, options),
     );
+    return parseAssemblyRun(result);
   },
 
-  getRun(runId: string, options: AssemblyRequestOptions = {}) {
+  async getRun(runId: string, options: AssemblyRequestOptions = {}) {
     assertIdentifier(runId, "runId");
-    return authenticatedAdminRequest<AssemblyRunRecord>(`/api/v1/admin/assembly-runs/${encodeURIComponent(runId)}`, readInit(options));
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-runs/${encodeURIComponent(runId)}`, readInit(options));
+    return parseAssemblyRun(result);
+  },
+
+  async listRuns(input: ListAssemblyRunsInput = {}, options: AssemblyRequestOptions = {}) {
+    const query = new URLSearchParams();
+    if (input.cursor) query.set("cursor", input.cursor);
+    if (input.page_size !== undefined) {
+      if (!Number.isInteger(input.page_size) || input.page_size < 1 || input.page_size > 100) throw new TypeError("page_size is invalid");
+      query.set("page_size", String(input.page_size));
+    }
+    if (input.status) query.set("status", input.status);
+    if (input.product_id) {
+      assertIdentifier(input.product_id, "product_id");
+      query.set("product_id", input.product_id);
+    }
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-runs${query.size ? `?${query}` : ""}`, readInit(options));
+    return parseAssemblyRunPage(result);
+  },
+
+  async retryRun(runId: string, expectedVersion: number, options: AssemblyWriteOptions) {
+    assertIdentifier(runId, "runId");
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new TypeError("expectedVersion is invalid");
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-runs/${encodeURIComponent(runId)}/retry`, writeInit({ expected_version: expectedVersion }, options));
+    return parseAssemblyRun(result);
   },
 
   getManifest(assemblyId: string, options: AssemblyRequestOptions = {}) {

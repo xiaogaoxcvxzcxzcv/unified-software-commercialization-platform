@@ -13,7 +13,7 @@
 | product.integration-settings | 产品接入设置 | product | inline | 产品上下文、管理员权限 | 客户端身份摘要、轮换结果 | not_ready | `admin-web/src/pages/IntegrationPage.tsx`（当前仅只读 Application 投影） | product contract | ClientAuthService | 接入配置 |
 | assembly.blueprint-wizard | 软件创建与蓝图向导 | assembly | navigate | 产品资料、目标端、能力包、UI 模板 | Product Blueprint | ready | `admin-web/src/pages/CreateSoftwarePage.tsx` | assembly contract | AssemblyService | 创建软件 |
 | assembly.plan-review | 装配计划与交付预览 | assembly | inline | 蓝图版本、目标环境 | 依赖、生成物、测试和风险 | ready | `admin-web/src/pages/CreateSoftwarePage.tsx` | assembly contract | AssemblyService | 创建软件确认 |
-| assembly.run-status | 装配执行与验证状态 | assembly | navigate | run_id | Manifest、lock、测试报告或可恢复失败 | not_ready | 待实现 | assembly contract | AssemblyService / Generator | 创建软件、接入状态 |
+| assembly.run-status | 装配执行与验证状态 | assembly | navigate | run_id | Manifest、lock、测试报告或可恢复失败 | ready | `admin-web/src/pages/AssemblyRunsPage.tsx`、`AssemblyRunPage.tsx`、`CreateRecoveryPage.tsx` | assembly contract | AssemblyService / AssemblyExecutionWorker / Generator | 创建软件、接入状态 |
 | assembly.upgrade-plan | 能力包和模板升级计划 | assembly | side_panel | 当前 Manifest、目标版本 | 差异、冲突、迁移与回滚 | not_ready | 待实现 | assembly contract | AssemblyService / Generator | 产品升级 |
 | tenant.table | 产品代理租户列表 | tenant | inline | 产品上下文、筛选 | 租户分页 | not_ready | `admin-web/src/pages/TenantsPage.tsx`（演示 Client） | tenant contract | TenantService | 产品详情 |
 | tenant.editor | 代理租户编辑器 | tenant | side_panel | 产品、代理资料 | 租户与审计编号 | not_ready | `admin-web/src/pages/TenantsPage.tsx`（演示 Client） | tenant contract | TenantService | 产品详情 |

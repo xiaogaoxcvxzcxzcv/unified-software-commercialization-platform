@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -75,6 +76,11 @@ type Service interface {
 	ListOutputTargets(context.Context, ListOutputTargetsCommand) (OutputTargetList, error)
 	ListCatalogOptions(context.Context, ListCatalogOptionsCommand) (CatalogOptions, error)
 	ListExperimentalCatalogOptions(context.Context, ListCatalogOptionsCommand) (CatalogOptions, error)
+}
+
+type runRecoveryService interface {
+	ListRuns(context.Context, ListRunsCommand) (RunPage, error)
+	RetryRun(context.Context, RetryRunCommand) (Run, error)
 }
 
 type ListCatalogOptionsCommand struct {
@@ -188,6 +194,15 @@ type GetRunCommand struct {
 	RunID string
 }
 
+type ListRunsCommand struct {
+	PageSize                  int
+	Cursor, Status, ProductID string
+}
+type RetryRunCommand struct {
+	RunID, ActorID, IdempotencyKey, TraceID string
+	ExpectedVersion                         int64
+}
+
 type GetManifestCommand struct {
 	AssemblyID string
 }
@@ -202,34 +217,60 @@ type Blueprint struct {
 	SchemaVersion string
 	Document      json.RawMessage
 	Checksum      string
+	Environments  []string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	AuditID       string
 }
 
 type Plan struct {
-	PlanID           string
-	Version          int64
-	BlueprintID      string
-	BlueprintVersion int64
-	SchemaVersion    string
-	Environment      string
-	Document         json.RawMessage
-	Checksum         string
-	Executable       bool
-	Confirmed        bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	AuditID          string
+	PlanID               string
+	Version              int64
+	BlueprintID          string
+	BlueprintVersion     int64
+	SchemaVersion        string
+	Environment          string
+	Document             json.RawMessage
+	Checksum             string
+	ConfirmationChecksum string
+	Review               PlanReview
+	Executable           bool
+	Confirmed            bool
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	AuditID              string
+}
+type PlanReviewPackage struct{ PackageID, Version string }
+type PlanReviewApplication struct{ ApplicationID, Target, Channel, DeliveryMode, TemplateID, TemplateVersion string }
+type PlanReviewRisk struct {
+	RiskID, Level, Category, Summary string
+	RequiresConfirmation             bool
+}
+type PlanReview struct {
+	Packages              []PlanReviewPackage
+	Applications          []PlanReviewApplication
+	Risks                 []PlanReviewRisk
+	BlockingConflictCount int
+	Statements            []string
 }
 
 type Run struct {
 	RunID           string
+	ProductID       string
+	Version         int64
+	RootRunID       string
+	RetryOfRunID    string
+	AttemptNumber   int
 	PlanID          string
 	PlanVersion     int64
 	PlanChecksum    string
 	OutputTargetRef string
 	Status          string
+	CurrentStepID   string
+	Steps           []RunStep
+	Recovery        RunRecovery
+	Diagnostics     []RunDiagnostic
+	Reports         []RunReport
 	Document        json.RawMessage
 	ManifestURL     string
 	LockURL         string
@@ -237,6 +278,41 @@ type Run struct {
 	UpdatedAt       time.Time
 	CompletedAt     *time.Time
 	AuditID         string
+}
+
+type RunStep struct {
+	StepID, Kind, Status  string
+	Attempt               int
+	CompensationStatus    string
+	StartedAt, FinishedAt *time.Time
+	DiagnosticIDs         []string
+}
+type RunRecovery struct {
+	Retryable, RollbackRequired bool
+	ResumeFromStepID            string
+}
+type RunDiagnostic struct {
+	DiagnosticID, Code, Severity, Category, Message string
+	Blocking, Retryable                             bool
+	Remediation, RelatedPaths                       []string
+	CreatedAt                                       time.Time
+}
+type RunReport struct {
+	ReportID, ReportType, Status, Summary, Checksum string
+	CreatedAt                                       time.Time
+}
+type RunPage struct {
+	Items      []RunSummary
+	NextCursor string
+}
+type RunSummary struct {
+	RunID, ProductID, PlanID, RootRunID, RetryOfRunID string
+	Version                                           int64
+	AttemptNumber                                     int
+	Status, CurrentStepID                             string
+	DiagnosticCount, ReportCount                      int
+	CreatedAt, UpdatedAt                              time.Time
+	CompletedAt                                       *time.Time
 }
 
 type Manifest struct {
@@ -281,7 +357,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 		return
 	}
-	if route.kind != routeOutputTargets && route.kind != routeCatalogOptions && route.kind != routeExperimentalCatalogOptions && r.URL.RawQuery != "" {
+	if route.kind != routeRuns && route.kind != routeOutputTargets && route.kind != routeCatalogOptions && route.kind != routeExperimentalCatalogOptions && r.URL.RawQuery != "" {
 		httpx.Error(w, r, http.StatusBadRequest, "assembly.invalid_query", "query parameters are not supported")
 		return
 	}
@@ -340,6 +416,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.getRun(w, r, route.resourceID)
+	case routeRuns:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.listRuns(w, r)
+	case routeRetryRun:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.retryRun(w, r, route.resourceID)
 	case routeManifest:
 		if r.Method != http.MethodGet {
 			httpx.MethodNotAllowed(w, r, http.MethodGet)
@@ -573,6 +661,7 @@ func (h *Handler) startAssembly(w http.ResponseWriter, r *http.Request, blueprin
 		writeError(w, r, err)
 		return
 	}
+	result = normalizeRunProjection(result)
 	if !validRun(result, body.PlanID, "") {
 		writeInternalError(w, r)
 		return
@@ -589,11 +678,113 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request, runID string) {
 		writeError(w, r, err)
 		return
 	}
+	result = normalizeRunProjection(result)
 	if !validRun(result, "", runID) {
 		writeInternalError(w, r)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, runResponseFrom(result))
+}
+
+func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.authorize(w, r, assemblyReadPermission, false); !ok {
+		return
+	}
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeInvalidRequest(w, r)
+		return
+	}
+	for key, value := range values {
+		if (key != "page_size" && key != "cursor" && key != "status" && key != "product_id") || len(value) != 1 {
+			writeInvalidRequest(w, r)
+			return
+		}
+	}
+	pageSize := 50
+	if raw := values.Get("page_size"); raw != "" {
+		var parsed int
+		if _, err := fmt.Sscanf(raw, "%d", &parsed); err != nil || parsed < 1 || parsed > 100 || fmt.Sprintf("%d", parsed) != raw {
+			writeInvalidRequest(w, r)
+			return
+		}
+		pageSize = parsed
+	}
+	status, productID := values.Get("status"), values.Get("product_id")
+	if status != "" && !validRunStatus(status) {
+		writeInvalidRequest(w, r)
+		return
+	}
+	if productID != "" && !validIdentifier(productID) {
+		writeInvalidRequest(w, r)
+		return
+	}
+	service, ok := h.service.(runRecoveryService)
+	if !ok {
+		writeInternalError(w, r)
+		return
+	}
+	result, err := service.ListRuns(r.Context(), ListRunsCommand{PageSize: pageSize, Cursor: values.Get("cursor"), Status: status, ProductID: productID})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	items := make([]runSummaryResponse, len(result.Items))
+	for i, item := range result.Items {
+		if !validRunSummary(item) {
+			writeInternalError(w, r)
+			return
+		}
+		items[i] = runSummaryResponseFrom(item)
+	}
+	var next *string
+	if result.NextCursor != "" {
+		next = &result.NextCursor
+	}
+	httpx.JSON(w, http.StatusOK, runPageResponse{Items: items, NextCursor: next})
+}
+
+type retryRunRequest struct {
+	ExpectedVersion *int64 `json:"expected_version"`
+}
+
+func (h *Handler) retryRun(w http.ResponseWriter, r *http.Request, runID string) {
+	principal, ok := h.authorize(w, r, assemblyExecutePermission, true)
+	if !ok {
+		return
+	}
+	key, ok := requireIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var body retryRunRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if body.ExpectedVersion == nil || *body.ExpectedVersion < 1 {
+		writeInvalidRequest(w, r)
+		return
+	}
+	traceID, ok := requireTraceID(w, r)
+	if !ok {
+		return
+	}
+	service, available := h.service.(runRecoveryService)
+	if !available {
+		writeInternalError(w, r)
+		return
+	}
+	result, err := service.RetryRun(r.Context(), RetryRunCommand{RunID: runID, ExpectedVersion: *body.ExpectedVersion, ActorID: principal.AdminUserID, IdempotencyKey: key, TraceID: traceID})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	result = normalizeRunProjection(result)
+	if !validRun(result, "", result.RunID) {
+		writeInternalError(w, r)
+		return
+	}
+	httpx.JSON(w, http.StatusAccepted, runResponseFrom(result))
 }
 
 func (h *Handler) getManifest(w http.ResponseWriter, r *http.Request, assemblyID string) {
@@ -638,41 +829,135 @@ type blueprintResponse struct {
 	SchemaVersion string          `json:"schema_version"`
 	Document      json.RawMessage `json:"document"`
 	Checksum      string          `json:"checksum"`
+	Environments  []string        `json:"environments"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 	AuditID       string          `json:"audit_id"`
 }
 
 type planResponse struct {
-	PlanID           string          `json:"plan_id"`
-	Version          int64           `json:"version"`
-	BlueprintID      string          `json:"blueprint_id"`
-	BlueprintVersion int64           `json:"blueprint_version"`
-	SchemaVersion    string          `json:"schema_version"`
-	Environment      string          `json:"environment"`
-	Document         json.RawMessage `json:"document"`
-	Checksum         string          `json:"checksum"`
-	Executable       bool            `json:"executable"`
-	Confirmed        bool            `json:"confirmed"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	AuditID          string          `json:"audit_id"`
+	PlanID               string             `json:"plan_id"`
+	Version              int64              `json:"version"`
+	BlueprintID          string             `json:"blueprint_id"`
+	BlueprintVersion     int64              `json:"blueprint_version"`
+	SchemaVersion        string             `json:"schema_version"`
+	Environment          string             `json:"environment"`
+	Document             json.RawMessage    `json:"document"`
+	Checksum             string             `json:"checksum"`
+	ConfirmationChecksum string             `json:"confirmation_checksum"`
+	Review               planReviewResponse `json:"review"`
+	Executable           bool               `json:"executable"`
+	Confirmed            bool               `json:"confirmed"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	AuditID              string             `json:"audit_id"`
+}
+type planReviewPackageResponse struct {
+	PackageID string `json:"package_id"`
+	Version   string `json:"version"`
+}
+type planReviewApplicationResponse struct {
+	ApplicationID   string `json:"application_id"`
+	Target          string `json:"target"`
+	Channel         string `json:"channel"`
+	DeliveryMode    string `json:"delivery_mode"`
+	TemplateID      string `json:"template_id"`
+	TemplateVersion string `json:"template_version"`
+}
+type planReviewRiskResponse struct {
+	RiskID               string `json:"risk_id"`
+	Level                string `json:"level"`
+	Category             string `json:"category"`
+	Summary              string `json:"summary"`
+	RequiresConfirmation bool   `json:"requires_confirmation"`
+}
+type planReviewResponse struct {
+	Packages              []planReviewPackageResponse     `json:"packages"`
+	Applications          []planReviewApplicationResponse `json:"applications"`
+	Risks                 []planReviewRiskResponse        `json:"risks"`
+	BlockingConflictCount int                             `json:"blocking_conflict_count"`
+	Statements            []string                        `json:"statements"`
 }
 
 type runResponse struct {
-	RunID           string          `json:"run_id"`
-	PlanID          string          `json:"plan_id"`
-	PlanVersion     int64           `json:"plan_version"`
-	PlanChecksum    string          `json:"plan_checksum"`
-	OutputTargetRef string          `json:"output_target_ref"`
-	Status          string          `json:"status"`
-	Document        json.RawMessage `json:"document"`
-	ManifestURL     string          `json:"manifest_url,omitempty"`
-	LockURL         string          `json:"lock_url,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
-	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
-	AuditID         string          `json:"audit_id"`
+	RunID           string                  `json:"run_id"`
+	ProductID       *string                 `json:"product_id"`
+	Version         int64                   `json:"version"`
+	RootRunID       string                  `json:"root_run_id"`
+	RetryOfRunID    *string                 `json:"retry_of_run_id"`
+	AttemptNumber   int                     `json:"attempt_number"`
+	PlanID          string                  `json:"plan_id"`
+	PlanVersion     int64                   `json:"plan_version"`
+	PlanChecksum    string                  `json:"plan_checksum"`
+	OutputTargetRef string                  `json:"output_target_ref"`
+	Status          string                  `json:"status"`
+	CurrentStepID   *string                 `json:"current_step_id"`
+	Steps           []runStepResponse       `json:"steps"`
+	Recovery        runRecoveryResponse     `json:"recovery"`
+	Diagnostics     []runDiagnosticResponse `json:"diagnostics"`
+	Reports         []runReportResponse     `json:"reports"`
+	Document        json.RawMessage         `json:"document"`
+	ManifestURL     string                  `json:"manifest_url,omitempty"`
+	LockURL         string                  `json:"lock_url,omitempty"`
+	CreatedAt       time.Time               `json:"created_at"`
+	UpdatedAt       time.Time               `json:"updated_at"`
+	CompletedAt     *time.Time              `json:"completed_at"`
+	AuditID         string                  `json:"audit_id"`
+}
+
+type runStepResponse struct {
+	StepID             string     `json:"step_id"`
+	Kind               string     `json:"kind"`
+	Status             string     `json:"status"`
+	Attempt            int        `json:"attempt"`
+	CompensationStatus string     `json:"compensation_status"`
+	StartedAt          *time.Time `json:"started_at,omitempty"`
+	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	DiagnosticIDs      []string   `json:"diagnostic_ids"`
+}
+type runRecoveryResponse struct {
+	Retryable        bool    `json:"retryable"`
+	RollbackRequired bool    `json:"rollback_required"`
+	ResumeFromStepID *string `json:"resume_from_step_id"`
+}
+type runDiagnosticResponse struct {
+	DiagnosticID string   `json:"diagnostic_id"`
+	Code         string   `json:"code"`
+	Severity     string   `json:"severity"`
+	Category     string   `json:"category"`
+	Message      string   `json:"message"`
+	Blocking     bool     `json:"blocking"`
+	Retryable    bool     `json:"retryable"`
+	Remediation  []string `json:"remediation"`
+	RelatedPaths []string `json:"related_paths"`
+}
+type runReportResponse struct {
+	ReportID  string    `json:"report_id"`
+	Type      string    `json:"type"`
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary"`
+	Checksum  *string   `json:"checksum"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type runSummaryResponse struct {
+	RunID           string     `json:"run_id"`
+	ProductID       *string    `json:"product_id"`
+	PlanID          string     `json:"plan_id"`
+	Version         int64      `json:"version"`
+	RootRunID       string     `json:"root_run_id"`
+	RetryOfRunID    *string    `json:"retry_of_run_id"`
+	AttemptNumber   int        `json:"attempt_number"`
+	Status          string     `json:"status"`
+	CurrentStepID   *string    `json:"current_step_id"`
+	DiagnosticCount int        `json:"diagnostic_count"`
+	ReportCount     int        `json:"report_count"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	CompletedAt     *time.Time `json:"completed_at"`
+}
+type runPageResponse struct {
+	Items      []runSummaryResponse `json:"items"`
+	NextCursor *string              `json:"next_cursor"`
 }
 
 type outputTargetResponse struct {
@@ -754,23 +1039,112 @@ type lockResponse struct {
 
 func blueprintResponseFrom(value Blueprint) blueprintResponse {
 	return blueprintResponse{BlueprintID: value.BlueprintID, Version: value.Version,
-		SchemaVersion: value.SchemaVersion, Document: value.Document, Checksum: value.Checksum,
+		SchemaVersion: value.SchemaVersion, Document: value.Document, Checksum: value.Checksum, Environments: value.Environments,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, AuditID: value.AuditID}
 }
 
 func planResponseFrom(value Plan) planResponse {
+	packages := make([]planReviewPackageResponse, len(value.Review.Packages))
+	for i, v := range value.Review.Packages {
+		packages[i] = planReviewPackageResponse{PackageID: v.PackageID, Version: v.Version}
+	}
+	applications := make([]planReviewApplicationResponse, len(value.Review.Applications))
+	for i, v := range value.Review.Applications {
+		applications[i] = planReviewApplicationResponse{ApplicationID: v.ApplicationID, Target: v.Target, Channel: v.Channel, DeliveryMode: v.DeliveryMode, TemplateID: v.TemplateID, TemplateVersion: v.TemplateVersion}
+	}
+	risks := make([]planReviewRiskResponse, len(value.Review.Risks))
+	for i, v := range value.Review.Risks {
+		risks[i] = planReviewRiskResponse{RiskID: v.RiskID, Level: v.Level, Category: v.Category, Summary: v.Summary, RequiresConfirmation: v.RequiresConfirmation}
+	}
 	return planResponse{PlanID: value.PlanID, Version: value.Version,
 		BlueprintID: value.BlueprintID, BlueprintVersion: value.BlueprintVersion, SchemaVersion: value.SchemaVersion,
-		Environment: value.Environment, Document: value.Document, Checksum: value.Checksum,
+		Environment: value.Environment, Document: value.Document, Checksum: value.Checksum, ConfirmationChecksum: value.ConfirmationChecksum, Review: planReviewResponse{Packages: packages, Applications: applications, Risks: risks, BlockingConflictCount: value.Review.BlockingConflictCount, Statements: nonNilStrings(value.Review.Statements)},
 		Executable: value.Executable, Confirmed: value.Confirmed, CreatedAt: value.CreatedAt,
 		UpdatedAt: value.UpdatedAt, AuditID: value.AuditID}
 }
 
 func runResponseFrom(value Run) runResponse {
+	var productID, retryOf, current *string
+	if value.ProductID != "" {
+		productID = &value.ProductID
+	}
+	if value.RetryOfRunID != "" {
+		retryOf = &value.RetryOfRunID
+	}
+	if value.CurrentStepID != "" {
+		current = &value.CurrentStepID
+	}
+	steps := make([]runStepResponse, len(value.Steps))
+	for i, v := range value.Steps {
+		steps[i] = runStepResponse{StepID: v.StepID, Kind: v.Kind, Status: v.Status, Attempt: v.Attempt, CompensationStatus: v.CompensationStatus, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt, DiagnosticIDs: nonNilStrings(v.DiagnosticIDs)}
+	}
+	var resume *string
+	if value.Recovery.ResumeFromStepID != "" {
+		resume = &value.Recovery.ResumeFromStepID
+	}
+	diagnostics := make([]runDiagnosticResponse, len(value.Diagnostics))
+	for i, v := range value.Diagnostics {
+		diagnostics[i] = runDiagnosticResponse{DiagnosticID: v.DiagnosticID, Code: v.Code, Severity: v.Severity, Category: v.Category, Message: v.Message, Blocking: v.Blocking, Retryable: v.Retryable, Remediation: nonNilStrings(v.Remediation), RelatedPaths: nonNilStrings(v.RelatedPaths)}
+	}
+	reports := make([]runReportResponse, len(value.Reports))
+	for i, v := range value.Reports {
+		var checksum *string
+		if v.Checksum != "" {
+			checksum = &v.Checksum
+		}
+		reports[i] = runReportResponse{ReportID: v.ReportID, Type: v.ReportType, Status: v.Status, Summary: v.Summary, Checksum: checksum, CreatedAt: v.CreatedAt}
+	}
 	return runResponse{RunID: value.RunID, PlanID: value.PlanID,
+		ProductID: productID, Version: value.Version, RootRunID: value.RootRunID, RetryOfRunID: retryOf, AttemptNumber: value.AttemptNumber,
 		PlanVersion: value.PlanVersion, PlanChecksum: value.PlanChecksum, OutputTargetRef: value.OutputTargetRef, Status: value.Status,
+		CurrentStepID: current, Steps: steps, Recovery: runRecoveryResponse{Retryable: value.Recovery.Retryable, RollbackRequired: value.Recovery.RollbackRequired, ResumeFromStepID: resume}, Diagnostics: diagnostics, Reports: reports,
 		Document: value.Document, ManifestURL: value.ManifestURL, LockURL: value.LockURL,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt, AuditID: value.AuditID}
+}
+
+func normalizeRunProjection(value Run) Run {
+	if value.RootRunID == "" {
+		value.RootRunID = value.RunID
+	}
+	if value.AttemptNumber == 0 {
+		value.AttemptNumber = 1
+	}
+	if value.Version == 0 {
+		value.Version = 1
+	}
+	if value.Steps == nil {
+		value.Steps = []RunStep{}
+	}
+	if value.Diagnostics == nil {
+		value.Diagnostics = []RunDiagnostic{}
+	}
+	if value.Reports == nil {
+		value.Reports = []RunReport{}
+	}
+	return value
+}
+
+func runSummaryResponseFrom(value RunSummary) runSummaryResponse {
+	var product, retry, current *string
+	if value.ProductID != "" {
+		product = &value.ProductID
+	}
+	if value.RetryOfRunID != "" {
+		retry = &value.RetryOfRunID
+	}
+	if value.CurrentStepID != "" {
+		current = &value.CurrentStepID
+	}
+	return runSummaryResponse{RunID: value.RunID, ProductID: product, PlanID: value.PlanID, Version: value.Version, RootRunID: value.RootRunID, RetryOfRunID: retry, AttemptNumber: value.AttemptNumber, Status: value.Status, CurrentStepID: current, DiagnosticCount: value.DiagnosticCount, ReportCount: value.ReportCount, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt}
+}
+func validRunSummary(value RunSummary) bool {
+	return validIdentifier(value.RunID) && validIdentifier(value.PlanID) && validIdentifier(value.RootRunID) && value.Version > 0 && value.AttemptNumber > 0 && validRunStatus(value.Status) && value.DiagnosticCount >= 0 && value.ReportCount >= 0 && !value.CreatedAt.IsZero() && !value.UpdatedAt.IsZero()
+}
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func outputTargetListResponseFrom(value OutputTargetList) outputTargetListResponse {
@@ -953,6 +1327,7 @@ func validBlueprint(value Blueprint, blueprintID string) bool {
 	return validIdentifier(value.BlueprintID) &&
 		(blueprintID == "" || value.BlueprintID == blueprintID) && value.Version > 0 &&
 		strings.TrimSpace(value.SchemaVersion) != "" && validJSONObject(value.Document) &&
+		validEnvironmentList(value.Environments) &&
 		checksumPattern.MatchString(value.Checksum) && !value.CreatedAt.IsZero() && !value.UpdatedAt.IsZero() &&
 		validIdentifier(value.AuditID)
 }
@@ -963,12 +1338,68 @@ func validPlan(value Plan, blueprintID, planID string) bool {
 		(blueprintID == "" || value.BlueprintID == blueprintID) && value.Version > 0 &&
 		value.BlueprintVersion > 0 && strings.TrimSpace(value.SchemaVersion) != "" &&
 		validEnvironment(value.Environment) && validJSONObject(value.Document) &&
+		checksumPattern.MatchString(value.ConfirmationChecksum) &&
+		validPlanReview(value.Review) &&
 		checksumPattern.MatchString(value.Checksum) && !value.CreatedAt.IsZero() && !value.UpdatedAt.IsZero() &&
 		validIdentifier(value.AuditID)
 }
 
+func validPlanReview(value PlanReview) bool {
+	if len(value.Applications) == 0 || len(value.Statements) == 0 || value.BlockingConflictCount < 0 {
+		return false
+	}
+	for _, item := range value.Packages {
+		if !packagePattern.MatchString(item.PackageID) || !semverPattern.MatchString(item.Version) {
+			return false
+		}
+	}
+	for _, item := range value.Applications {
+		if !validIdentifier(item.ApplicationID) || !validTarget(item.Target) || !validIdentifier(item.Channel) || !validDeliveryMode(item.DeliveryMode) || !validIdentifier(item.TemplateID) || !semverPattern.MatchString(item.TemplateVersion) {
+			return false
+		}
+	}
+	for _, item := range value.Risks {
+		if !validIdentifier(item.RiskID) || (item.Level != "low" && item.Level != "medium" && item.Level != "high") || !containsString([]string{"security", "data", "compatibility", "provider", "generation", "rollback"}, item.Category) || len(item.Summary) < 1 || len(item.Summary) > 512 || strings.ContainsAny(item.Summary, "\r\n\t") {
+			return false
+		}
+	}
+	seen := map[string]bool{}
+	for _, statement := range value.Statements {
+		if seen[statement] || len(statement) < 1 || len(statement) > 512 || strings.ContainsAny(statement, "\r\n\t") {
+			return false
+		}
+		seen[statement] = true
+	}
+	return true
+}
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func validEnvironmentList(values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	rank := map[string]int{"development": 1, "test": 2, "staging": 3, "production": 4}
+	previous := 0
+	for _, value := range values {
+		current := rank[value]
+		if current == 0 || current <= previous {
+			return false
+		}
+		previous = current
+	}
+	return true
+}
+
 func validRun(value Run, planID, runID string) bool {
 	return validIdentifier(value.RunID) &&
+		validIdentifier(value.RootRunID) && value.AttemptNumber > 0 && value.Version > 0 &&
 		(runID == "" || value.RunID == runID) && validIdentifier(value.PlanID) &&
 		(planID == "" || value.PlanID == planID) && value.PlanVersion > 0 &&
 		checksumPattern.MatchString(value.PlanChecksum) && referencePattern.MatchString(value.OutputTargetRef) && validRunStatus(value.Status) &&
@@ -1129,7 +1560,9 @@ const (
 	routePlanForBlueprint
 	routeAssembleBlueprint
 	routePlan
+	routeRuns
 	routeRun
+	routeRetryRun
 	routeManifest
 	routeLock
 	routeOutputTargets
@@ -1158,6 +1591,9 @@ func parseRoute(r *http.Request) (parsedRoute, bool) {
 	if r.URL.Path == experimentalCatalogOptionsPath {
 		return parsedRoute{kind: routeExperimentalCatalogOptions}, true
 	}
+	if r.URL.Path == runsPath {
+		return parsedRoute{kind: routeRuns}, true
+	}
 	if strings.HasPrefix(r.URL.Path, blueprintsPath+"/") {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, blueprintsPath+"/"), "/")
 		if len(parts) == 1 && validIdentifier(parts[0]) {
@@ -1181,6 +1617,10 @@ func parseRoute(r *http.Request) (parsedRoute, bool) {
 	}
 	if strings.HasPrefix(r.URL.Path, runsPath+"/") {
 		value := strings.TrimPrefix(r.URL.Path, runsPath+"/")
+		parts := strings.Split(value, "/")
+		if len(parts) == 2 && validIdentifier(parts[0]) && parts[1] == "retry" {
+			return parsedRoute{kind: routeRetryRun, resourceID: parts[0]}, true
+		}
 		if validIdentifier(value) && !strings.Contains(value, "/") {
 			return parsedRoute{kind: routeRun, resourceID: value}, true
 		}

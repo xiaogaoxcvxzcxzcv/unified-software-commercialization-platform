@@ -7,7 +7,11 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { LoginPage } from "../pages/LoginPage";
 
 const AuditPage = lazy(() => import("../pages/AuditPage").then((module) => ({ default: module.AuditPage })));
+const AssemblyRunsPage = lazy(() => import("../pages/AssemblyRunsPage").then((module) => ({ default: module.AssemblyRunsPage })));
+const AssemblyRunPage = lazy(() => import("../pages/AssemblyRunPage").then((module) => ({ default: module.AssemblyRunPage })));
 const CreateSoftwarePage = lazy(() => import("../pages/CreateSoftwarePage").then((module) => ({ default: module.CreateSoftwarePage })));
+const CreateBlueprintRecoveryPage = lazy(() => import("../pages/CreateRecoveryPage").then((module) => ({ default: module.CreateBlueprintRecoveryPage })));
+const CreatePlanRecoveryPage = lazy(() => import("../pages/CreateRecoveryPage").then((module) => ({ default: module.CreatePlanRecoveryPage })));
 const CapabilitiesPage = lazy(() => import("../pages/CapabilitiesPage").then((module) => ({ default: module.CapabilitiesPage })));
 const CapabilityPendingPage = lazy(() => import("../pages/CapabilityPendingPage").then((module) => ({ default: module.CapabilityPendingPage })));
 const HealthPage = lazy(() => import("../pages/HealthPage").then((module) => ({ default: module.HealthPage })));
@@ -45,6 +49,10 @@ function AuthenticatedRoutes() {
     <Route path="/overview" element={<GlobalRoute><OverviewPage /></GlobalRoute>} />
     <Route path="/create" element={<GlobalRoute><CreateSoftwarePage /></GlobalRoute>} />
     <Route path="/create/experimental" element={<GlobalRoute><CreateSoftwarePage catalogScope="experimental" /></GlobalRoute>} />
+    <Route path="/create/blueprints/:blueprintId" element={<GlobalRoute><CreateBlueprintRecoveryPage /></GlobalRoute>} />
+    <Route path="/create/plans/:planId" element={<GlobalRoute><CreatePlanRecoveryPage /></GlobalRoute>} />
+    <Route path="/assemblies" element={<GlobalRoute><AssemblyRunsPage /></GlobalRoute>} />
+    <Route path="/assemblies/:runId" element={<GlobalRoute><AssemblyRunPage /></GlobalRoute>} />
     <Route path="/products" element={<GlobalRoute><ProductsPage /></GlobalRoute>} />
     <Route path="/system/health" element={<GlobalRoute><HealthPage /></GlobalRoute>} />
     <Route path="/products/:productId/overview" element={<ProductRoute><OverviewPage /></ProductRoute>} />

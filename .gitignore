@@ -34,6 +34,10 @@ artifacts/reviews/G1-07/*
 !artifacts/reviews/G1-07/web-minimum-320x568-light.png
 !artifacts/reviews/G1-07/desktop-webview-1280x800-light.png
 !artifacts/reviews/G1-07/web-bare-generated-empty-state.png
+!artifacts/reviews/G1-08.4/
+artifacts/reviews/G1-08.4/*
+!artifacts/reviews/G1-08.4/assembly-recovery.md
+!artifacts/reviews/G1-08.4/quality-gate-full-postgres.json
 !artifacts/smoke/
 artifacts/smoke/*
 !artifacts/smoke/2026-07-15/

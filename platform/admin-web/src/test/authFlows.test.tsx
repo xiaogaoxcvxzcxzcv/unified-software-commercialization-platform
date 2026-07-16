@@ -404,7 +404,13 @@ describe("认证请求传输", () => {
       if (path === "/api/v1/admin/blueprints/blueprint-1/plan" && ++planCalls === 1) {
         return Promise.resolve(errorResponse(401, "admin_auth.session_expired"));
       }
-      return Promise.resolve(new Response(JSON.stringify({ plan_id: "plan-1" }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(new Response(JSON.stringify({
+        plan_id: "plan-1", version: 1, blueprint_id: "blueprint-1", blueprint_version: 1, schema_version: "1.0.0", environment: "test",
+        confirmation_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", document: {},
+        review: { packages: [{ package_id: "package.account", version: "1.0.0" }], applications: [{ application_id: "application.web", target: "web", channel: "web", delivery_mode: "generated_source", template_id: "standard-a", template_version: "1.0.0" }], risks: [], blocking_conflict_count: 0, statements: ["Confirm assembly plan"] },
+        checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", executable: true, confirmed: false,
+        created_at: "2026-07-16T01:00:00Z", updated_at: "2026-07-16T01:00:00Z", audit_id: "audit-plan-1",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
     });
     vi.stubGlobal("fetch", fetchMock);
     await authClient.login("admin@example.com", "password");

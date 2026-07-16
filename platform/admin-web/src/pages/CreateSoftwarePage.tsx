@@ -267,8 +267,7 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
     setFieldErrors({});
     try {
       const blueprint = await assemblyClient.createBlueprint(document, { idempotencyKey, timeoutMs: 30_000 });
-      dispatch({ type: "validation_succeeded", operationToken, draftRevision: revision, blueprint });
-      setStep(3);
+      navigate(`/create/blueprints/${encodeURIComponent(blueprint.blueprint_id)}`);
     } catch (reason) {
       const failure = assemblyRequestFailure(reason, "validate_blueprint");
       dispatch({ type: "request_failed", operationToken, failure });
@@ -286,8 +285,7 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
         blueprint_version: state.blueprint.version,
         environment: draft.environment,
       }, { idempotencyKey, timeoutMs: 45_000 });
-      dispatch({ type: "plan_succeeded", operationToken, plan });
-      setStep(4);
+      navigate(`/create/plans/${encodeURIComponent(plan.plan_id)}`);
     } catch (reason) {
       dispatch({ type: "request_failed", operationToken, failure: assemblyRequestFailure(reason, "create_plan") });
     }
@@ -336,7 +334,7 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
         confirmation: { accepted: true, summary_checksum: summaryChecksum },
         output_target_ref: outputTargetRef,
       }, { idempotencyKey, timeoutMs: 60_000 });
-      await applyRunResult(operationToken, run);
+      navigate(`/assemblies/${encodeURIComponent(run.run_id)}?handoff=1`);
     } catch (reason) {
       executionSubmitting.current = false;
       dispatch({ type: "request_failed", operationToken, failure: assemblyRequestFailure(reason, "start_assembly") });
@@ -353,16 +351,14 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
         const blueprint = await assemblyClient.createBlueprint(state.draft, {
           idempotencyKey: state.validationIdempotencyKey, timeoutMs: 30_000,
         });
-        dispatch({ type: "validation_succeeded", operationToken, draftRevision: state.draftRevision, blueprint });
-        setStep(3);
+        navigate(`/create/blueprints/${encodeURIComponent(blueprint.blueprint_id)}`);
         return;
       }
       if (intent === "create_plan" && state.planIdempotencyKey && state.blueprint) {
         const plan = await assemblyClient.createPlan(state.blueprint.blueprint_id, {
           blueprint_version: state.blueprint.version, environment: draft.environment,
         }, { idempotencyKey: state.planIdempotencyKey, timeoutMs: 45_000 });
-        dispatch({ type: "plan_succeeded", operationToken, plan });
-        setStep(4);
+        navigate(`/create/plans/${encodeURIComponent(plan.plan_id)}`);
         return;
       }
       if (intent === "start_assembly" && state.executionIdempotencyKey && state.blueprint && state.plan && outputTargetRef) {
@@ -375,7 +371,7 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
           confirmation: { accepted: true, summary_checksum: confirmation.summary_checksum },
           output_target_ref: outputTargetRef,
         }, { idempotencyKey: state.executionIdempotencyKey, timeoutMs: 60_000 });
-        await applyRunResult(operationToken, run);
+        navigate(`/assemblies/${encodeURIComponent(run.run_id)}?handoff=1`);
         return;
       }
       if (intent === "get_run" && state.run) {

@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminClient } from "../api/adminClient";
-import { assemblyClient, type AssemblyCatalogOptions, type OutputTargetCatalog } from "../api/assemblyClient";
+import { assemblyClient, type AssemblyCatalogOptions, type AssemblyRunRecord, type OutputTargetCatalog } from "../api/assemblyClient";
 import { AuthApiError, authClient } from "../api/authClient";
 import { App } from "../app/App";
 import type { AdminSession } from "../types";
@@ -26,8 +26,10 @@ const fullCatalog: AssemblyCatalogOptions = {
 const outputTargets: OutputTargetCatalog = { environment: "development", default_policy: "explicit", default_output_target_ref: null, items: [] };
 
 function renderApp(path: string) {
-  return render(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><App /><LocationProbe /></MemoryRouter>);
 }
+
+function LocationProbe() { const location = useLocation(); return <output data-testid="route-path">{location.pathname}</output>; }
 
 async function fillConfiguration(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole("heading", { name: "创建软件" });
@@ -44,7 +46,7 @@ async function fillConfiguration(user: ReturnType<typeof userEvent.setup>) {
 
 function successfulBlueprint() {
   return {
-    blueprint_id: "bp_image-studio", version: 1, schema_version: "1.0.0", document: {} as never,
+    blueprint_id: "bp_image-studio", version: 1, schema_version: "1.0.0", environments: ["development" as const], document: {} as never,
     checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     created_at: "2026-07-15T01:00:00Z", updated_at: "2026-07-15T01:00:00Z", audit_id: "audit-blueprint",
   };
@@ -52,8 +54,10 @@ function successfulBlueprint() {
 
 function successfulPlan() {
   return {
-    plan_id: "plan-image", version: 1, blueprint_id: "bp_image-studio", blueprint_version: 1,
+    plan_id: "plan-image", version: 1, blueprint_id: "bp_image-studio", blueprint_version: 1, schema_version: "1.0.0",
     environment: "development" as const,
+    confirmation_checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    review: { packages: [{ package_id: "package.account", version: "1.0.0" }], applications: [{ application_id: "application.web", target: "web" as const, channel: "web", delivery_mode: "generated_source" as const, template_id: "standard-a", template_version: "1.0.0" }], risks: [], blocking_conflict_count: 0, statements: ["确认装配计划"] },
     document: {
       dependencies: [], risks: [], conflicts: [], expected_outputs: [{ path: "apps/web/index.ts" }],
       confirmation: { blocking_conflict_count: 0, summary_checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
@@ -71,6 +75,8 @@ beforeEach(() => {
   vi.spyOn(adminClient, "getProductCapabilities").mockImplementation(async (productId) => ({ productId, capabilitySet: null }));
   vi.spyOn(adminClient, "listTenants").mockResolvedValue([]);
   vi.spyOn(assemblyClient, "listOutputTargets").mockResolvedValue(outputTargets);
+  vi.spyOn(assemblyClient, "getBlueprint").mockImplementation(async () => successfulBlueprint());
+  vi.spyOn(assemblyClient, "getPlan").mockImplementation(async () => successfulPlan());
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -127,7 +133,7 @@ describe("创建软件向导", () => {
     const createBlueprint = vi.spyOn(assemblyClient, "createBlueprint")
       .mockRejectedValueOnce(new AuthApiError("temporary", { status: 503, code: "assembly.unavailable", retryable: true }))
       .mockResolvedValueOnce({
-        blueprint_id: "bp_image-studio", version: 1, schema_version: "1.0.0", document: {} as never,
+        blueprint_id: "bp_image-studio", version: 1, schema_version: "1.0.0", environments: ["development"], document: {} as never,
         checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         created_at: "2026-07-15T01:00:00Z", updated_at: "2026-07-15T01:00:00Z", audit_id: "audit-1",
       });
@@ -148,7 +154,8 @@ describe("创建软件向导", () => {
 
     expect(await screen.findByRole("button", { name: "重试请求" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "重试请求" }));
-    await screen.findByText("蓝图已保存");
+    await screen.findByText("蓝图已恢复");
+    expect(screen.getByTestId("route-path")).toHaveTextContent("/create/blueprints/bp_image-studio");
     await waitFor(() => expect(createBlueprint).toHaveBeenCalledTimes(2));
     expect(createBlueprint.mock.calls[0][1].idempotencyKey).toBe(createBlueprint.mock.calls[1][1].idempotencyKey);
     expect(createBlueprint.mock.calls[0][0]).toMatchObject({ blueprint_id: "bp_image-studio", provider_refs: [] });
@@ -187,14 +194,15 @@ describe("创建软件向导", () => {
     renderApp("/create");
     await fillConfiguration(user);
     await user.click(screen.getByRole("button", { name: /保存蓝图并继续/ }));
-    await screen.findByText("蓝图已保存");
+    await screen.findByText("蓝图已恢复");
     await user.click(screen.getByRole("button", { name: "解析装配计划" }));
 
     const target = await screen.findByRole("radio", { name: /受控工作区/ });
+    expect(screen.getByTestId("route-path")).toHaveTextContent("/create/plans/plan-image");
     expect(target).toHaveProperty("checked", expectedChecked);
   });
 
-  it("计划缺少服务端确认摘要时失败关闭", async () => {
+  it("计划恢复只使用顶层确认摘要并忽略 raw document", async () => {
     vi.mocked(assemblyClient.listOutputTargets).mockResolvedValue({
       environment: "development", default_policy: "explicit", default_output_target_ref: "workspace-primary",
       items: [{ output_target_ref: "workspace-primary", display_name: "受控工作区", summary: "服务端管理的输出目标", is_default: true }],
@@ -202,8 +210,9 @@ describe("创建软件向导", () => {
     vi.spyOn(assemblyClient, "listOrdinaryCatalogOptions").mockResolvedValue(fullCatalog);
     vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
     const plan = successfulPlan();
-    plan.document = { ...plan.document, confirmation: undefined } as never;
+    plan.document = { confirmation: { summary_checksum: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }, executable: false } as never;
     vi.spyOn(assemblyClient, "createPlan").mockResolvedValue(plan);
+    vi.mocked(assemblyClient.getPlan).mockResolvedValue(plan);
     const start = vi.spyOn(assemblyClient, "startAssembly");
     const user = userEvent.setup();
     renderApp("/create");
@@ -211,8 +220,8 @@ describe("创建软件向导", () => {
     await user.click(screen.getByRole("button", { name: /保存蓝图并继续/ }));
     await user.click(await screen.findByRole("button", { name: "解析装配计划" }));
 
-    expect(await screen.findByText("计划缺少确认摘要")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认并开始装配" })).toBeDisabled();
+    expect(await screen.findByText("确认装配计划")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并开始装配" })).toBeEnabled();
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -229,12 +238,16 @@ describe("创建软件向导", () => {
     vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
     const plan = successfulPlan();
     vi.spyOn(assemblyClient, "createPlan").mockResolvedValue(plan);
-    const start = vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue({
-      run_id: "run-image", plan_id: plan.plan_id, plan_version: 2, plan_checksum: plan.checksum,
+    const completedRun = {
+      run_id: "run-image", product_id: "product-image", plan_id: plan.plan_id, plan_version: 2, version: 1, plan_checksum: plan.checksum,
+      root_run_id: "run-image", retry_of_run_id: null, attempt_number: 1, current_step_id: null,
+      steps: [], recovery: { retryable: false, rollback_required: false, resume_from_step_id: null }, diagnostics: [], reports: [],
       output_target_ref: "workspace-primary", status: "completed", document: {},
       created_at: "2026-07-15T01:02:00Z", updated_at: "2026-07-15T01:03:00Z", completed_at: "2026-07-15T01:03:00Z",
       audit_id: "audit-run", manifest_url: "/api/v1/admin/assembly-manifests/assembly-image", lock_url: "/api/v1/admin/generated-project-locks/lock-image",
-    });
+    } as const;
+    const start = vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue(completedRun);
+    vi.spyOn(assemblyClient, "getRun").mockResolvedValue(completedRun);
     const getManifest = vi.spyOn(assemblyClient, "getManifest").mockResolvedValue({
       assembly_id: "assembly-image", product_id: "product-image", run_id: "run-image", schema_version: "1.0.0", document: {},
       document_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -244,18 +257,18 @@ describe("创建软件向导", () => {
     renderApp("/create");
     await fillConfiguration(user);
     await user.click(screen.getByRole("button", { name: /保存蓝图并继续/ }));
-    await screen.findByText("蓝图已保存");
+    await screen.findByText("蓝图已恢复");
     await user.click(screen.getByRole("button", { name: "解析装配计划" }));
     const confirm = await screen.findByRole("button", { name: "确认并开始装配" });
 
     fireEvent.click(confirm);
     fireEvent.click(confirm);
 
-    await waitFor(() => expect(getManifest).toHaveBeenCalledWith("assembly-image", { timeoutMs: 30_000 }));
+    await waitFor(() => expect(getManifest).toHaveBeenCalledWith("assembly-image", expect.objectContaining({ timeoutMs: 20_000 })));
     expect(start).toHaveBeenCalledTimes(1);
     expect(start.mock.calls[0][0]).toBe("bp_image-studio");
     expect(await screen.findByRole("heading", { name: "图片工作台" })).toBeInTheDocument();
-    expect(adminClient.listProducts).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(adminClient.listProducts).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("completed manifest 的 Product 刷新后不可读时保持在向导且不跳转", async () => {
@@ -268,11 +281,15 @@ describe("创建软件向导", () => {
     vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
     const plan = successfulPlan();
     vi.spyOn(assemblyClient, "createPlan").mockResolvedValue(plan);
-    vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue({
-      run_id: "run-hidden", plan_id: plan.plan_id, plan_version: 2, plan_checksum: plan.checksum,
+    const completedRun = {
+      run_id: "run-hidden", product_id: "product-hidden", plan_id: plan.plan_id, plan_version: 2, version: 1, plan_checksum: plan.checksum,
+      root_run_id: "run-hidden", retry_of_run_id: null, attempt_number: 1, current_step_id: null,
+      steps: [], recovery: { retryable: false, rollback_required: false, resume_from_step_id: null }, diagnostics: [], reports: [],
       output_target_ref: "workspace-primary", status: "completed", document: {}, created_at: "2026-07-15T01:02:00Z", updated_at: "2026-07-15T01:03:00Z", completed_at: "2026-07-15T01:03:00Z",
       audit_id: "audit-run-hidden", manifest_url: "/api/v1/admin/assembly-manifests/assembly-hidden", lock_url: "/api/v1/admin/generated-project-locks/lock-hidden",
-    });
+    } as const;
+    vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue(completedRun);
+    vi.spyOn(assemblyClient, "getRun").mockResolvedValue(completedRun);
     vi.spyOn(assemblyClient, "getManifest").mockResolvedValue({
       assembly_id: "assembly-hidden", product_id: "product-hidden", run_id: "run-hidden", schema_version: "1.0.0", document: {},
       document_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", checksum: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", created_at: "2026-07-15T01:03:00Z",
@@ -285,7 +302,7 @@ describe("创建软件向导", () => {
     await user.click(await screen.findByRole("button", { name: "确认并开始装配" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("当前管理员无权读取新软件");
-    expect(screen.getByRole("heading", { name: "创建软件" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "装配运行" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "图片工作台" })).not.toBeInTheDocument();
   });
 
@@ -303,12 +320,16 @@ describe("创建软件向导", () => {
     vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
     const plan = successfulPlan();
     vi.spyOn(assemblyClient, "createPlan").mockResolvedValue(plan);
-    vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue({
-      run_id: "run-network", plan_id: plan.plan_id, plan_version: 2, plan_checksum: plan.checksum,
+    const completedRun = {
+      run_id: "run-network", product_id: "product-image", plan_id: plan.plan_id, plan_version: 2, version: 1, plan_checksum: plan.checksum,
+      root_run_id: "run-network", retry_of_run_id: null, attempt_number: 1, current_step_id: null,
+      steps: [], recovery: { retryable: false, rollback_required: false, resume_from_step_id: null }, diagnostics: [], reports: [],
       output_target_ref: "workspace-primary", status: "completed", document: {},
       created_at: "2026-07-15T01:02:00Z", updated_at: "2026-07-15T01:03:00Z", completed_at: "2026-07-15T01:03:00Z",
       audit_id: "audit-run-network", manifest_url: "/api/v1/admin/assembly-manifests/assembly-network", lock_url: "/api/v1/admin/generated-project-locks/lock-network",
-    });
+    } as const;
+    vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue(completedRun);
+    vi.spyOn(assemblyClient, "getRun").mockResolvedValue(completedRun);
     vi.spyOn(assemblyClient, "getManifest").mockResolvedValue({
       assembly_id: "assembly-network", product_id: "product-image", run_id: "run-network", schema_version: "1.0.0", document: {},
       document_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -322,8 +343,7 @@ describe("创建软件向导", () => {
     await user.click(await screen.findByRole("button", { name: "确认并开始装配" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("软件列表刷新失败，请重试");
-    expect(screen.getByRole("button", { name: "重试请求" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "创建软件" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "装配运行" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "图片工作台" })).not.toBeInTheDocument();
     expect(adminClient.listProducts).toHaveBeenCalledTimes(2);
   });

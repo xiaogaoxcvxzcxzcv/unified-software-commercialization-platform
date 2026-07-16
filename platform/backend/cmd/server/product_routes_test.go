@@ -15,6 +15,7 @@ func (h *recordingHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 
 func TestProductAdminRouterForwardsAssemblyTopLevelCatalogRoutes(t *testing.T) {
 	for _, target := range []string{
+		"/api/v1/admin/assembly-runs?page_size=30",
 		"/api/v1/admin/assembly-output-targets?environment=development",
 		"/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test",
 		"/api/v1/admin/experimental/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test",

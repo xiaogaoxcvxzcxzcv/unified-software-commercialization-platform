@@ -16,5 +16,6 @@ ADR 记录长期决策历史。只有 `accepted` 可以指导当前实现；`sup
 | ADR-0010 完整能力包、蓝图与源码装配 | accepted | 当前产品重心和装配架构 |
 | ADR-0011 确定性安全生成器机器契约 | accepted | Schema、规范化摘要、路径与源码所有权安全 |
 | ADR-0012 可恢复产品开通与可信客户端上下文 | accepted | Product/official Tenant 开通、客户端身份与上下文解析 |
+| ADR-0013 持久装配调度与失败恢复 | accepted | durable Run dispatch、retry 链、诊断/报告投影与断连边界 |
 
 新增或替代 ADR 时同步更新本表。不得删除旧 ADR，也不得让 superseded ADR 覆盖当前产品总纲。

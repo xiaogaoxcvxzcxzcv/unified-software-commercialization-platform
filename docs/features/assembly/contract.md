@@ -77,6 +77,7 @@
 - 默认：同一环境至多一个服务端默认项；没有默认时返回 `null`，Client 不得把第一项、上次选择或任意 ref 当作默认
 - 失败关闭：未知、已移除、环境不匹配或当前未授权的 ref 在确认 Plan 前统一返回 `assembly.output_target_unavailable`，不泄露该 ref 是否在其他环境存在；列表读取后执行时必须再次解析当前目录。HTTP 组合 Adapter 与 Assembly Core 注入的 `OutputTargetVerifier` 双重校验，内部调用也不能绕过服务端 allowlist。
 - 恢复：本关 Client 的 retry 只重试可安全重放的读取或带同一幂等键的请求，并通过 GET 重新恢复已持久化 Blueprint/Plan/Run；失败 Run 的业务级 retry/resume/cancel 留在 G1-08.4/G1-10，不在前端伪造
+- G1-08.4 边界：failed Run 的显式业务 retry 在本关实现；浏览器取消只终止当前 HTTP 等待或轮询，不取消 durable Run。显式业务 cancel、rollback、upgrade 和 eject 统一留在 G1-10，未实现前管理后台不得显示假操作。
 
 ### 查询创建向导目录
 
@@ -92,6 +93,8 @@
 - 状态：`planned | provisioning | generating | validating | completed | failed | rolling_back | rolled_back`
 - 幂等：重复提交不重复创建 Product、Tenant、Application、凭据或业务事实
 - 幂等边界：`output_target_ref` 进入请求摘要；同一键改用其他输出引用必须冲突。确认成功但响应中断后，原请求可从已确认 Plan 恢复并返回同一 Run。
+- durable dispatch：确认 Plan、创建初始 Run 和写入 dispatch 必须在同一 PostgreSQL 事务提交后才返回 `202`。HTTP Handler 不执行装配；worker 通过 lease 领取并使用服务生命周期 Context。浏览器断开、请求超时或页面刷新不能撤销已提交 Run。
+- 领取与恢复：dispatch 使用 `FOR UPDATE SKIP LOCKED`、有限 lease、`available_at`、attempt 和脱敏 `last_error_code`；过期 lease 在服务重启后可重新领取。同一 Run 同时至多一个 worker，基础设施失败按有限退避重新领取，不能依赖内存队列或裸 goroutine。
 - 事件：基础生命周期包括 `assembly.blueprint_created.v1`、`assembly.planned.v1`、`assembly.plan_confirmed.v1`、`assembly.started.v1`、`assembly.product_bound.v1`、`assembly.completed.v1` 和 `assembly.failed.v1`，均经事务 Outbox 进入 Audit
 - 失败恢复：记录完成步骤和补偿结果；不删除已存在的合法产品数据
 - Run 演进：`run_id`、`plan_id`、Plan checksum、幂等摘要、`output_target_ref`、创建时间和步骤身份不可变；更新时间、attempt 和步骤状态只能单调推进；completed/rolled_back 终态不可修改。
@@ -107,7 +110,28 @@
 - 完成闭包：完成接口重新加载 Product 范围内的 Run、已确认 Plan 和 Blueprint，校验 Manifest/lock 的 Blueprint、Catalog、包、模板、SDK、Generator、Application、secret reference、预期输出、文件 ownership/checksum 和相互摘要；不匹配时拒绝，不能接受另一计划的合法产物。
 - 数据库不可变：Blueprint/Plan 锁定字段、Plan Capability 投影、Run 锁定字段和 Manifest/lock 记录由迁移触发器保护；已确认或完成事实不能通过直接 UPDATE/DELETE 静默改写。
 
-G1-05 已实现并验证生产进程内的纯渲染、目标快照、所有权冲突分析、staging/原子提交、最终机器证据、服务端输出根 Adapter、Assembly Run 编排、持久升级基线、显式 rollback 和 eject plan。Run 只通过公开应用服务创建 Product/official Tenant/Application、启用 CapabilitySet，再生成、验证并完成；失败把诊断与恢复位置写回 Run。当前普通生产包、模板和工具目录为空，因此没有可由普通管理请求实际装配的完整软件；公开 upgrade-plan/eject/rollback 管理 API、数据库迁移升级和真实样板 E2E 仍未完成，ST-028/ST-030/ST-031 不得整体标记通过。
+### 装配记录、诊断与报告
+
+- 平台列表：`GET /api/v1/admin/assembly-runs?page_size={1..100}&cursor={opaque}&status={optional}&product_id={optional}`，要求 platform scope `assembly.read`。`product_id` 只是受权平台范围内的过滤条件；未绑定 Product 的 Run 返回 `product_id: null`，不能被伪造为某款软件记录。
+- 排序与游标：固定按 `(created_at DESC, run_id DESC)`；cursor 由服务端签发/校验，错误、过长、字段漂移或筛选条件不一致统一拒绝。响应包含稳定 `items` 和可空 `next_cursor`，空目录返回 200 与空数组。
+- Run 详情：`GET /api/v1/admin/assembly-runs/{run_id}` 继续兼容既有字段，并新增 `product_id`、`version`、`root_run_id`、可空 `retry_of_run_id`、`attempt_number`、`current_step_id`、类型化 `steps`、`recovery`、`diagnostics` 和 `reports`。管理页面只使用这些浏览器安全投影，不从 raw `document` 解析路径、权限或恢复结论。
+- 创建恢复投影：Blueprint 响应必须提供服务端从已验证文档投影、去重并稳定排序的 `environments`；Plan 响应必须提供服务端重新校验得到的 `confirmation_checksum` 和只包含包、Application、模板、风险与确认声明的 `review`。当前 Planner 要求全部 Application 与所选环境一致，因此恢复页只在 `environments` 恰好一项时允许继续，否则失败关闭并要求修正蓝图。管理页面只使用这些顶层字段，不解析 raw Blueprint/Plan `document` 推断环境、确认摘要、风险或执行权限；恢复确认页必须展示 `review` 后才允许开始装配。
+- 恢复 URL：Blueprint 持久化响应成功后立即进入 `/create/blueprints/{blueprint_id}`，Plan 持久化响应成功后立即进入 `/create/plans/{plan_id}`，Run 持久化响应成功后立即进入 `/assemblies/{run_id}`。刷新这些 URL 只执行 GET；需要重放写请求时复用按资源隔离、保存在当前浏览器会话中的原幂等键，成功后清除。
+- 诊断：只返回稳定 `diagnostic_id/code/severity/category/message/blocking/retryable/remediation/related_paths`。`related_paths` 必须是安全相对路径；非 Generator 失败使用服务端静态诊断目录，任何 `error.Error()`、秘密、连接串、凭据、用户数据、ArtifactRoot/TargetRoot 或宿主路径都不得持久化或返回。
+- 报告：只返回 `report_id/type/status/summary/checksum/created_at`；报告正文和制品路径不经此投影泄漏。成功 Run 可引用 Manifest 证据，失败 Run 至少记录经过 Schema 校验的 Generator Result 摘要；无报告是显式空数组。
+- Manifest/lock：只有 completed Run 返回同源 `manifest_url`/`lock_url`；读取后必须再次校验 `run_id/product_id/assembly_id` 链，管理前端不接受蓝图或 URL 自报的 Product 身份。
+
+### failed Run 重试
+
+- API：`POST /api/v1/admin/assembly-runs/{run_id}/retry`
+- 输入：`expected_version`；必须携带 `Idempotency-Key`、CSRF（Cookie 模式）和近期认证，要求 platform scope `assembly.execute`。
+- 前置：目标 Run 必须是 `failed`，且持久化 `recovery.retryable=true`、`rollback_required=false`。completed、rolled_back、仍在运行、不可重试、需要 rollback 或版本变化统一拒绝，不能由客户端覆盖恢复结论。
+- 输出：`202` 与新的 planned Run。新 Run 的 `retry_of_run_id` 指向目标 Run，`root_run_id` 继承根，`attempt_number=目标+1`；原 Run 保持终态不可变。
+- 幂等：同一管理员、目标 Run 和同一键/请求返回同一后继 Run；同键不同版本冲突；并发 retry 通过唯一约束只生成一个相同 attempt 后继。
+- 不重复事实：跨模块内部键只由 `root_run_id + operation identity` 派生，并使用根 Run 的初始 `created_by` 作为工作流主体。重试操作者只写 retry Audit。Product、official Tenant、Application、CapabilitySet 和生成准备必须幂等返回原事实，不能因新 Run 或换管理员产生第二份。
+- 事件：新增 `assembly.retried.v1`；payload 只包含 root、parent、new run、attempt、操作者、permission、scope、trace 和脱敏结果，不包含幂等原文、宿主路径或诊断正文。
+
+G1-05 已实现并验证生产进程内的纯渲染、目标快照、所有权冲突分析、staging/原子提交、最终机器证据、服务端输出根 Adapter、Assembly Run 编排、持久升级基线、显式 rollback 和 eject plan。G1-08.4 按 ADR-0013 把 HTTP 内同步执行改为 PostgreSQL durable dispatch，并补可发现记录、浏览器安全诊断/报告投影和 failed Run retry。当前普通生产包、模板和工具目录为空，因此没有可由普通管理请求实际装配的完整软件；公开 cancel/upgrade-plan/eject/rollback 管理 API、数据库迁移升级和真实样板 E2E 仍未完成，ST-028/ST-030/ST-031 不得整体标记通过。
 
 ## 生成输出与所有权
 

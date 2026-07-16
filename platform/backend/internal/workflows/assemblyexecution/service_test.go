@@ -195,6 +195,22 @@ func TestExecuteRunsProvisionGenerationAndCompletionChain(t *testing.T) {
 	}
 }
 
+func TestGeneratorFailureEvidenceProjectsValidatedSafeFields(t *testing.T) {
+	now := time.Date(2026, 7, 16, 8, 0, 0, 0, time.UTC)
+	diagnostic := []byte(`{"diagnostic_id":"diagnostic.safe","code":"GENERATOR_TARGET_CHANGED","severity":"error","category":"conflict","message":"the target changed after inspection","blocking":true,"retryable":true,"path":"generated/app.ts","related_paths":[],"remediation":["inspect target changes"]}`)
+	result := []byte(`{"status":"conflict","result_checksum":"` + testDigest("result") + `"}`)
+	diagnostics, reports, err := generatorFailureEvidence(generation.FailureArtifacts{Diagnostics: map[string][]byte{"diagnostics/safe.json": diagnostic}, Result: result}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != "generator.target.changed" || len(diagnostics[0].RelatedPaths) != 1 || diagnostics[0].RelatedPaths[0] != "generated/app.ts" {
+		t.Fatalf("diagnostics=%+v", diagnostics)
+	}
+	if len(reports) != 1 || reports[0].ReportType != "generator_result" || reports[0].Checksum != testDigest("result") {
+		t.Fatalf("reports=%+v", reports)
+	}
+}
+
 func executionRegistry(t *testing.T) *machinecontract.Registry {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)

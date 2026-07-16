@@ -15,6 +15,7 @@ import {
   IconLogout,
   IconMenu2,
   IconReceipt,
+  IconStack2,
   IconRefresh,
   IconSettings,
   IconPlugConnected,
@@ -31,6 +32,7 @@ const globalMenu = [
   { path: "/overview", label: "平台概览", icon: IconLayoutDashboard },
   { path: "/products", label: "软件管理", icon: IconApps },
   { path: "/create", label: "创建软件", icon: IconCirclePlus },
+  { path: "/assemblies", label: "装配记录", icon: IconStack2 },
   { path: "/system/health", label: "系统状态", icon: IconActivityHeartbeat },
 ];
 
