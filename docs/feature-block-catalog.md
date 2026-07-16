@@ -4,13 +4,13 @@
 
 | block_id | 名称 | 模块 | entry_mode | 输入 | 输出 | 状态 | frontend_entry | api_contract | service | used_by_flows |
 |---|---|---|---|---|---|---|---|---|---|---|
-| product.switcher | 产品上下文切换器 | product | inline | 管理员权限、当前产品 | 产品上下文 | not_ready | `admin-web/src/components/Shell.tsx`（演示 Client） | product contract | ProductService | 所有管理页面 |
-| product.table | 软件列表与筛选 | product | inline | 管理员权限、筛选 | 产品分页 | not_ready | `admin-web/src/pages/ProductsPage.tsx`（演示 Client） | product contract | ProductService | 软件管理 |
-| product.overview | 产品概览 | product | inline | 产品上下文 | 产品状态、接入状态、能力摘要 | not_ready | `admin-web/src/pages/OverviewPage.tsx`（演示 Client） | product contract | ProductService | 产品概览 |
-| product.editor | 产品编辑器 | product | modal | 产品资料 | 保存结果 | not_ready | 待实现 | product contract | ProductService | 产品管理 |
-| product.capability-menu | 产品能力目录 | product | inline | 产品上下文、能力配置 | 左侧导航项 | not_ready | `admin-web/src/components/Shell.tsx`（演示 Client） | product contract | ProductCapabilityService | 产品工作区 |
-| product.capability-settings | 产品能力设置 | product | inline | 产品上下文、可用能力 | 生效配置、审计编号 | not_ready | `admin-web/src/pages/SettingsPage.tsx`（演示 Client） | product contract | ProductCapabilityService | 能力开关 |
-| product.integration-settings | 产品接入设置 | product | inline | 产品上下文、管理员权限 | 客户端身份摘要、轮换结果 | not_ready | 待实现 | product contract | ClientAuthService | 接入配置 |
+| product.switcher | 产品上下文切换器 | product | inline | 管理员权限、当前产品 | 产品上下文 | ready | `admin-web/src/components/Shell.tsx` | product contract | ProductService | 所有管理页面 |
+| product.table | 软件列表与筛选 | product | inline | 管理员权限、筛选 | 产品分页 | ready | `admin-web/src/pages/ProductsPage.tsx` | product contract | ProductService | 软件管理 |
+| product.overview | 产品概览 | product | inline | 产品上下文 | 产品状态、接入状态、能力摘要 | ready | `admin-web/src/pages/OverviewPage.tsx` | product contract | ProductService | 产品概览 |
+| product.editor | 产品编辑器 | product | modal | 产品资料 | 保存结果 | not_ready | `admin-web/src/pages/SettingsPage.tsx`（当前仅只读身份信息） | product contract | ProductService | 产品管理 |
+| product.capability-menu | 产品能力目录 | product | inline | 产品上下文、能力配置 | 左侧导航项 | ready | `admin-web/src/components/Shell.tsx` | product contract | ProductCapabilityService | 产品工作区 |
+| product.capability-settings | 产品能力设置 | product | inline | 产品上下文、可用能力 | 生效配置、审计编号 | not_ready | `admin-web/src/pages/CapabilitiesPage.tsx`（当前仅只读 CapabilitySet） | product contract | ProductCapabilityService | 能力开关 |
+| product.integration-settings | 产品接入设置 | product | inline | 产品上下文、管理员权限 | 客户端身份摘要、轮换结果 | not_ready | `admin-web/src/pages/IntegrationPage.tsx`（当前仅只读 Application 投影） | product contract | ClientAuthService | 接入配置 |
 | assembly.blueprint-wizard | 软件创建与蓝图向导 | assembly | navigate | 产品资料、目标端、能力包、UI 模板 | Product Blueprint | ready | `admin-web/src/pages/CreateSoftwarePage.tsx` | assembly contract | AssemblyService | 创建软件 |
 | assembly.plan-review | 装配计划与交付预览 | assembly | inline | 蓝图版本、目标环境 | 依赖、生成物、测试和风险 | ready | `admin-web/src/pages/CreateSoftwarePage.tsx` | assembly contract | AssemblyService | 创建软件确认 |
 | assembly.run-status | 装配执行与验证状态 | assembly | navigate | run_id | Manifest、lock、测试报告或可恢复失败 | not_ready | 待实现 | assembly contract | AssemblyService / Generator | 创建软件、接入状态 |

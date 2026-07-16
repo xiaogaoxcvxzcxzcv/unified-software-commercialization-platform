@@ -36,6 +36,13 @@ Product 具有内部 `pending | ready | failed` 开通状态。只有 `ready` Pr
 
 ## 配置产品公共能力
 
+- API：`GET /api/v1/admin/products/{product_id}/capabilities`
+- 身份：拥有 `product.read` 且作用域覆盖目标 Product 的管理员
+- 输出：`product_id` 与当前受信 `ProductCapabilitySet` 只读投影；真实 Product 尚无能力集时 `capability_set` 为 `null`
+- 规则：返回项必须来自服务端持久化的装配结果，按 `capability_id` 稳定排序；不得用前端演示数据或菜单配置补造能力
+- 规则：未知 Product 返回 404；无权限返回拒绝结果；“真实 Product 尚无能力集”不等同于 Product 不存在
+- 安全：只读接口不改变能力状态，仍由服务端用 `product_id` 和管理员授权范围重新校验
+
 - API：`PUT /api/v1/admin/products/{product_id}/capabilities`
 - 身份：拥有 product.manage 权限的管理员
 - 输入：expected_version 与受信 Assembly Plan 引用、Catalog revision/checksum；服务端从已锁定计划解析原子能力、产品级策略和来源 package/version，拒绝前端提交裸 capability 列表作为事实
@@ -52,4 +59,4 @@ Product Blueprint、装配计划、Manifest、生成锁和升级契约见 `docs/
 
 ## 当前实现边界
 
-G1-03 已实现本契约的 Product 创建/list/get、客户端凭据与 Session、ProductContext、CapabilitySet 存储/乐观并发、HTTP Guard、幂等和 Outbox。G1-04 已接入 Assembly `CapabilityChangePlanVerifier`：校验持久化 Plan、Product 绑定、可执行状态、目录快照与能力集合，避免前端或测试数据绕过 Assembly。当前生产目录为空，因此不存在可由普通创建流程启用的真实能力包。产品停用、客户端版本阻断策略、pending 超时扫描和人工恢复界面仍待后续工作包。
+G1-03 已实现本契约的 Product 创建/list/get、客户端凭据与 Session、ProductContext、CapabilitySet 存储/乐观并发、HTTP Guard、幂等和 Outbox。G1-04 已接入 Assembly `CapabilityChangePlanVerifier`：校验持久化 Plan、Product 绑定、可执行状态、目录快照与能力集合，避免前端或测试数据绕过 Assembly。G1-08.3 增加 CapabilitySet 的受权只读投影，供单款软件管理工作区生成真实能力目录。当前生产目录为空，因此不存在可由普通创建流程启用的真实能力包。产品停用、客户端版本阻断策略、pending 超时扫描和人工恢复界面仍待后续工作包。

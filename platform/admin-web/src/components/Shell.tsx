@@ -10,12 +10,14 @@ import {
   IconFileAnalytics,
   IconHome,
   IconKey,
+  IconLayersLinked,
   IconLayoutDashboard,
   IconLogout,
   IconMenu2,
   IconReceipt,
   IconRefresh,
   IconSettings,
+  IconPlugConnected,
   IconShieldCheck,
   IconUsers,
 } from "@tabler/icons-react";
@@ -34,17 +36,19 @@ const globalMenu = [
 
 const productMenu = [
   { suffix: "overview", label: "软件概览", icon: IconHome, capability: null },
-  { suffix: "settings", label: "产品设置", icon: IconSettings, capability: null },
-  { suffix: "users", label: "用户管理", icon: IconUsers, capability: "统一账号" },
-  { suffix: "entitlements", label: "权益管理", icon: IconKey, capability: "权益" },
-  { suffix: "tenants", label: "代理租户", icon: IconBuildingStore, capability: "代理租户" },
+  { suffix: "settings", label: "基本信息", icon: IconSettings, capability: null },
+  { suffix: "integration", label: "接入配置", icon: IconPlugConnected, capability: null },
+  { suffix: "capabilities", label: "能力目录", icon: IconLayersLinked, capability: null },
+  { suffix: "users", label: "用户管理", icon: IconUsers, capability: "package.account" },
+  { suffix: "entitlements", label: "权益管理", icon: IconKey, capability: "package.entitlement" },
+  { suffix: "tenants", label: "代理租户", icon: IconBuildingStore, capability: "package.agent-operation" },
   { suffix: "audit", label: "操作审计", icon: IconFileAnalytics, capability: null },
 ];
 
 export function Shell({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle: string }) {
   const {
-    products, currentProduct, tenants, currentTenant, tenantsLoading, tenantsError,
-    selectProduct, selectTenant, refreshProducts, refreshTenants,
+    products, currentProduct, enabledPackageIds, tenants, currentTenant, tenantsLoading, tenantsError,
+    selectTenant, refreshProducts, refreshWorkspace,
   } = useAppContext();
   const { session, logout } = useAuth();
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
@@ -67,9 +71,9 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
       ? "产品管理员"
       : "代理管理员";
   const menu = useMemo(() => currentProduct
-    ? productMenu.filter((item) => !item.capability || currentProduct.enabledCapabilities.includes(item.capability))
+    ? productMenu.filter((item) => !item.capability || enabledPackageIds.has(item.capability))
       .map((item) => ({ ...item, path: `/products/${currentProduct.id}/${item.suffix}` }))
-    : globalMenu, [currentProduct]);
+    : globalMenu, [currentProduct, enabledPackageIds]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -111,12 +115,10 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
   const handleProductChange = (value: string) => {
     setMobileSidebarOpen(false);
     if (value === "all") {
-      selectProduct(null);
       navigate("/overview");
       return;
     }
-    selectProduct(value);
-    navigate(`/products/${value}/overview`);
+    navigate(`/products/${encodeURIComponent(value)}/overview`);
   };
 
   const refreshContext = async () => {
@@ -124,8 +126,8 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
     setContextRefreshing(true);
     setRefreshMessage("");
     await refreshProducts();
-    await refreshTenants();
-    setRefreshMessage("产品和租户列表刷新请求已完成");
+    await refreshWorkspace();
+    setRefreshMessage("软件工作区刷新请求已完成");
     setContextRefreshing(false);
   };
 
@@ -180,8 +182,8 @@ export function Shell({ children, title, subtitle }: { children: React.ReactNode
           <button className="mobile-menu" type="button" onClick={() => setMobileSidebarOpen((value) => !value)} title="菜单" aria-label={mobileSidebarOpen ? "关闭主菜单" : "打开主菜单"} aria-expanded={mobileSidebarOpen} aria-controls="primary-sidebar"><IconMenu2 size={22} /></button>
           <div className="page-heading"><h1>{title}</h1><p>{subtitle}</p></div>
           <div className="top-actions">
-            {currentProduct && <div className="select-wrap compact tenant-select"><select aria-label="当前租户" value={currentTenant?.id ?? ""} disabled={tenantsLoading || Boolean(tenantsError)} onChange={(event) => selectTenant(event.target.value)}><option value="" disabled>{tenantsLoading ? "加载租户..." : tenantsError ?? "请选择租户"}</option>{tenants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><IconChevronDown size={15} /></div>}
-            <span className="environment" title="当前所有业务数据均为内存演示数据"><span></span>演示环境</span>
+            {currentProduct && <div className="select-wrap compact tenant-select"><select aria-label="当前租户" value={currentTenant?.id ?? ""} disabled={tenantsLoading || Boolean(tenantsError) || tenants.length === 0} title={tenantsError ?? undefined} onChange={(event) => selectTenant(event.target.value)}><option value="" disabled>{tenantsLoading ? "加载租户..." : tenantsError ?? "暂无可访问租户"}</option>{tenants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><IconChevronDown size={15} /></div>}
+            <span className="environment" title="当前工作区使用管理 API 的真实数据"><span></span>API 已连接</span>
             <div className="notification-wrap" ref={notificationRef}>
               <button className="icon-button" type="button" title="通知" aria-label="系统通知" aria-haspopup="dialog" aria-expanded={notificationsOpen} aria-controls="notification-popover" onClick={() => { setProfileOpen(false); setNotificationsOpen((value) => !value); }}><IconBell size={19} /><i /></button>
               {notificationsOpen && <div id="notification-popover" className="notification-menu" role="dialog" aria-labelledby="notification-title"><strong id="notification-title">系统通知</strong><p>当前没有需要处理的告警。</p></div>}

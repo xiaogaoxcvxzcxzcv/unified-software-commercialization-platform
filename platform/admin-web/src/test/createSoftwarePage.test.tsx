@@ -67,6 +67,8 @@ function successfulPlan() {
 beforeEach(() => {
   vi.spyOn(authClient, "getSession").mockResolvedValue(session);
   vi.spyOn(adminClient, "listProducts").mockResolvedValue([]);
+  vi.spyOn(adminClient, "listApplications").mockResolvedValue([]);
+  vi.spyOn(adminClient, "getProductCapabilities").mockImplementation(async (productId) => ({ productId, capabilitySet: null }));
   vi.spyOn(adminClient, "listTenants").mockResolvedValue([]);
   vi.spyOn(assemblyClient, "listOutputTargets").mockResolvedValue(outputTargets);
 });
@@ -215,6 +217,10 @@ describe("创建软件向导", () => {
   });
 
   it("completed Run 通过同源 manifest_url 读取可信 product_id，双击只启动一次", async () => {
+    vi.mocked(adminClient.listProducts).mockResolvedValueOnce([]).mockResolvedValue([{
+      id: "product-image", code: "image-studio", name: "图片工作台", status: "active", provisioningState: "ready",
+      officialTenantId: "tenant-image", contextVersion: 1, createdAt: "2026-07-15T01:03:00Z", updatedAt: "2026-07-15T01:03:00Z", auditId: "audit-product-image",
+    }]);
     vi.mocked(assemblyClient.listOutputTargets).mockResolvedValue({
       environment: "development", default_policy: "explicit", default_output_target_ref: "workspace-primary",
       items: [{ output_target_ref: "workspace-primary", display_name: "受控工作区", summary: "服务端管理的输出目标", is_default: true }],
@@ -248,5 +254,77 @@ describe("创建软件向导", () => {
     await waitFor(() => expect(getManifest).toHaveBeenCalledWith("assembly-image", { timeoutMs: 30_000 }));
     expect(start).toHaveBeenCalledTimes(1);
     expect(start.mock.calls[0][0]).toBe("bp_image-studio");
+    expect(await screen.findByRole("heading", { name: "图片工作台" })).toBeInTheDocument();
+    expect(adminClient.listProducts).toHaveBeenCalledTimes(2);
+  });
+
+  it("completed manifest 的 Product 刷新后不可读时保持在向导且不跳转", async () => {
+    vi.mocked(adminClient.listProducts).mockResolvedValue([]);
+    vi.mocked(assemblyClient.listOutputTargets).mockResolvedValue({
+      environment: "development", default_policy: "explicit", default_output_target_ref: "workspace-primary",
+      items: [{ output_target_ref: "workspace-primary", display_name: "受控工作区", summary: "服务端管理的输出目标", is_default: true }],
+    });
+    vi.spyOn(assemblyClient, "listOrdinaryCatalogOptions").mockResolvedValue(fullCatalog);
+    vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
+    const plan = successfulPlan();
+    vi.spyOn(assemblyClient, "createPlan").mockResolvedValue(plan);
+    vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue({
+      run_id: "run-hidden", plan_id: plan.plan_id, plan_version: 2, plan_checksum: plan.checksum,
+      output_target_ref: "workspace-primary", status: "completed", document: {}, created_at: "2026-07-15T01:02:00Z", updated_at: "2026-07-15T01:03:00Z", completed_at: "2026-07-15T01:03:00Z",
+      audit_id: "audit-run-hidden", manifest_url: "/api/v1/admin/assembly-manifests/assembly-hidden", lock_url: "/api/v1/admin/generated-project-locks/lock-hidden",
+    });
+    vi.spyOn(assemblyClient, "getManifest").mockResolvedValue({
+      assembly_id: "assembly-hidden", product_id: "product-hidden", run_id: "run-hidden", schema_version: "1.0.0", document: {},
+      document_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", checksum: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", created_at: "2026-07-15T01:03:00Z",
+    });
+    const user = userEvent.setup();
+    renderApp("/create");
+    await fillConfiguration(user);
+    await user.click(screen.getByRole("button", { name: /保存蓝图并继续/ }));
+    await user.click(await screen.findByRole("button", { name: "解析装配计划" }));
+    await user.click(await screen.findByRole("button", { name: "确认并开始装配" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前管理员无权读取新软件");
+    expect(screen.getByRole("heading", { name: "创建软件" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "图片工作台" })).not.toBeInTheDocument();
+  });
+
+  it("completed manifest 后刷新 Product 列表网络失败时显示局部错误且不跳转", async () => {
+    vi.mocked(adminClient.listProducts)
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new AuthApiError("软件列表刷新失败，请重试", {
+        status: 503, code: "product.list_unavailable", retryable: true,
+      }));
+    vi.mocked(assemblyClient.listOutputTargets).mockResolvedValue({
+      environment: "development", default_policy: "explicit", default_output_target_ref: "workspace-primary",
+      items: [{ output_target_ref: "workspace-primary", display_name: "受控工作区", summary: "服务端管理的输出目标", is_default: true }],
+    });
+    vi.spyOn(assemblyClient, "listOrdinaryCatalogOptions").mockResolvedValue(fullCatalog);
+    vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
+    const plan = successfulPlan();
+    vi.spyOn(assemblyClient, "createPlan").mockResolvedValue(plan);
+    vi.spyOn(assemblyClient, "startAssembly").mockResolvedValue({
+      run_id: "run-network", plan_id: plan.plan_id, plan_version: 2, plan_checksum: plan.checksum,
+      output_target_ref: "workspace-primary", status: "completed", document: {},
+      created_at: "2026-07-15T01:02:00Z", updated_at: "2026-07-15T01:03:00Z", completed_at: "2026-07-15T01:03:00Z",
+      audit_id: "audit-run-network", manifest_url: "/api/v1/admin/assembly-manifests/assembly-network", lock_url: "/api/v1/admin/generated-project-locks/lock-network",
+    });
+    vi.spyOn(assemblyClient, "getManifest").mockResolvedValue({
+      assembly_id: "assembly-network", product_id: "product-image", run_id: "run-network", schema_version: "1.0.0", document: {},
+      document_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      checksum: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", created_at: "2026-07-15T01:03:00Z",
+    });
+    const user = userEvent.setup();
+    renderApp("/create");
+    await fillConfiguration(user);
+    await user.click(screen.getByRole("button", { name: /保存蓝图并继续/ }));
+    await user.click(await screen.findByRole("button", { name: "解析装配计划" }));
+    await user.click(await screen.findByRole("button", { name: "确认并开始装配" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("软件列表刷新失败，请重试");
+    expect(screen.getByRole("button", { name: "重试请求" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "创建软件" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "图片工作台" })).not.toBeInTheDocument();
+    expect(adminClient.listProducts).toHaveBeenCalledTimes(2);
   });
 });
