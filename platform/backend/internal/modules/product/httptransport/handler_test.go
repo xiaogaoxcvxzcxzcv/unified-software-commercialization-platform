@@ -24,6 +24,10 @@ type serviceStub struct {
 	getID          string
 	getErr         error
 	getCalls       int
+	current        product.CapabilitySet
+	currentID      string
+	currentErr     error
+	currentCalls   int
 	replaced       product.CapabilitySet
 	replaceCommand product.ReplaceCapabilitySetCommand
 	replaceErr     error
@@ -40,6 +44,12 @@ func (s *serviceStub) GetProduct(_ context.Context, productID string) (product.P
 	s.getCalls++
 	s.getID = productID
 	return s.got, s.getErr
+}
+
+func (s *serviceStub) CurrentCapabilitySet(_ context.Context, productID string) (product.CapabilitySet, error) {
+	s.currentCalls++
+	s.currentID = productID
+	return s.current, s.currentErr
 }
 
 func (s *serviceStub) ReplaceCapabilitySet(_ context.Context, command product.ReplaceCapabilitySetCommand) (product.CapabilitySet, error) {
@@ -156,6 +166,105 @@ func TestHandlerGetsProductAtPathScope(t *testing.T) {
 	}
 }
 
+func TestHandlerGetsSortedCapabilityProjectionAtProductScope(t *testing.T) {
+	service := &serviceStub{
+		got: readyProduct("prod-a", "video-brain"),
+		current: product.CapabilitySet{
+			CapabilitySetID: "pcset-private", ProductID: "prod-a", Version: 3,
+			SourcePlanID: "plan-1", CatalogRevision: "revision-1",
+			CatalogSnapshotSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ContentSHA256:         "sha256:private", CreatedBy: "admin-private", CreatedAt: time.Now(), AuditID: "audit-1",
+			Items: []product.CapabilityItem{
+				{CapabilityID: "usage.read", Enabled: true, Policy: json.RawMessage(`{"limit":10}`), SourcePackageID: "package.usage", SourcePackageVersion: "1.2.0"},
+				{CapabilityID: "account.manage", Enabled: false, SourcePackageID: "package.account", SourcePackageVersion: "1.0.0"},
+			},
+		},
+	}
+	handler, auth, authorization := allowedHandler(service, &provisionerStub{})
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.getCalls != 1 || service.currentCalls != 1 || service.currentID != "prod-a" || auth.proof {
+		t.Fatalf("get=%d current=%d current id=%q proof=%v", service.getCalls, service.currentCalls, service.currentID, auth.proof)
+	}
+	if authorization.permission != productReadPermission || authorization.target != productTarget("prod-a") {
+		t.Fatalf("authorization=%q %+v", authorization.permission, authorization.target)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	set, ok := response["capability_set"].(map[string]any)
+	if !ok || response["product_id"] != "prod-a" || set["product_id"] != "prod-a" || set["version"] != float64(3) {
+		t.Fatalf("response=%v", response)
+	}
+	items, ok := set["capabilities"].([]any)
+	if !ok || len(items) != 2 || items[0].(map[string]any)["capability_id"] != "account.manage" || items[1].(map[string]any)["capability_id"] != "usage.read" {
+		t.Fatalf("items=%v", set["capabilities"])
+	}
+	for _, privateField := range []string{"capability_set_id", "content_sha256", "created_by", "created_at"} {
+		if _, exists := set[privateField]; exists {
+			t.Fatalf("private field %q leaked in %v", privateField, set)
+		}
+	}
+}
+
+func TestHandlerReturnsNullWhenExistingProductHasNoCapabilitySet(t *testing.T) {
+	service := &serviceStub{got: readyProduct("prod-a", "video-brain"), currentErr: product.ErrNotFound}
+	handler, _, _ := allowedHandler(service, &provisionerStub{})
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+	if recorder.Code != http.StatusOK || service.getCalls != 1 || service.currentCalls != 1 {
+		t.Fatalf("status=%d get=%d current=%d body=%s", recorder.Code, service.getCalls, service.currentCalls, recorder.Body.String())
+	}
+	var response capabilitySetProjectionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ProductID != "prod-a" || response.CapabilitySet != nil || !strings.Contains(recorder.Body.String(), `"capability_set":null`) {
+		t.Fatalf("response=%s", recorder.Body.String())
+	}
+}
+
+func TestHandlerDoesNotReadCapabilitySetForUnknownProduct(t *testing.T) {
+	service := &serviceStub{getErr: product.ErrNotFound}
+	handler, _, _ := allowedHandler(service, &provisionerStub{})
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+	assertProblem(t, recorder, http.StatusNotFound, "product.not_found")
+	if service.currentCalls != 0 {
+		t.Fatalf("current calls=%d", service.currentCalls)
+	}
+}
+
+func TestHandlerRejectsUnauthorizedCapabilityReadBeforeServiceCalls(t *testing.T) {
+	service := &serviceStub{}
+	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
+	authorization := &authorizerStub{decision: adminrequest.Decision{Allowed: false}}
+	handler := New(service, &provisionerStub{}, adminrequest.New(auth, authorization, nil))
+	recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.getCalls != 0 || service.currentCalls != 0 || authorization.permission != productReadPermission || authorization.target != productTarget("prod-a") {
+		t.Fatalf("service=%+v authorization=%q %+v", service, authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerMapsCapabilityReadErrorsAndRejectsInvalidProjection(t *testing.T) {
+	t.Run("repository error", func(t *testing.T) {
+		service := &serviceStub{got: readyProduct("prod-a", "video-brain"), currentErr: errors.New("database unavailable")}
+		handler, _, _ := allowedHandler(service, &provisionerStub{})
+		recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+		assertProblem(t, recorder, http.StatusInternalServerError, "internal_error")
+	})
+	t.Run("invalid set", func(t *testing.T) {
+		service := &serviceStub{got: readyProduct("prod-a", "video-brain"), current: product.CapabilitySet{ProductID: "other-product", Version: 1}}
+		handler, _, _ := allowedHandler(service, &provisionerStub{})
+		recorder := perform(handler, http.MethodGet, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+		assertProblem(t, recorder, http.StatusInternalServerError, "internal_error")
+	})
+}
+
 func TestHandlerReplacesCapabilitiesUsingTrustedPathAndPrincipal(t *testing.T) {
 	service := &serviceStub{replaced: product.CapabilitySet{CapabilitySetID: "pcset-1", ProductID: "prod-a", Version: 2, SourcePlanID: "plan-1", AuditID: "audit-1"}}
 	handler, auth, authorization := allowedHandler(service, &provisionerStub{})
@@ -226,6 +335,10 @@ func TestHandlerRejectsQueriesNonCanonicalPathsAndMethods(t *testing.T) {
 	recorder = perform(handler, http.MethodDelete, "https://api.example.test/api/v1/admin/products", "", nil)
 	if recorder.Code != http.StatusMethodNotAllowed || recorder.Header().Get("Allow") != "GET, POST" {
 		t.Fatalf("method status=%d allow=%q", recorder.Code, recorder.Header().Get("Allow"))
+	}
+	recorder = perform(handler, http.MethodPatch, "https://api.example.test/api/v1/admin/products/prod-a/capabilities", "", nil)
+	if recorder.Code != http.StatusMethodNotAllowed || recorder.Header().Get("Allow") != "GET, PUT" {
+		t.Fatalf("capability method status=%d allow=%q", recorder.Code, recorder.Header().Get("Allow"))
 	}
 }
 

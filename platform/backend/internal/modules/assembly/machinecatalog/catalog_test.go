@@ -17,24 +17,28 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/assembly/machinecontract"
 )
 
-func TestProductionFeatureBlockCatalogOnlyMarksVerifiedWizardBlocksReady(t *testing.T) {
+func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T) {
 	root := repositoryRoot(t)
 	contracts := loadContracts(t)
 	catalog, err := LoadBlockCatalog(filepath.Join(root, "platform", "contracts", "catalogs", "v1", "feature-blocks.json"), contracts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version() != "1.1.0" || len(catalog.Checksum()) != len("sha256:")+64 {
+	if catalog.Version() != "1.2.0" || len(catalog.Checksum()) != len("sha256:")+64 {
 		t.Fatalf("catalog identity = %s %s", catalog.Version(), catalog.Checksum())
 	}
 	ready := map[string]struct{}{
 		"assembly.blueprint-wizard": {},
 		"assembly.plan-review":      {},
+		"product.capability-menu":   {},
+		"product.overview":          {},
+		"product.switcher":          {},
+		"product.table":             {},
 	}
 	for blockID, definition := range catalog.byID {
 		_, allowed := ready[blockID]
 		if allowed && definition.Readiness != "ready" {
-			t.Fatalf("verified wizard block %q readiness = %q", blockID, definition.Readiness)
+			t.Fatalf("verified block %q readiness = %q", blockID, definition.Readiness)
 		}
 		if !allowed && definition.Readiness != "not_ready" {
 			t.Fatalf("unverified block %q readiness = %q", blockID, definition.Readiness)
@@ -45,6 +49,9 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedWizardBlocksReady(t *test
 	}
 	if err := catalog.Validate([]string{"assembly.blueprint-wizard", "assembly.plan-review"}, "admin"); err != nil {
 		t.Fatalf("verified wizard blocks should be usable: %v", err)
+	}
+	if err := catalog.Validate([]string{"product.switcher", "product.overview", "product.capability-menu"}, "admin"); err != nil {
+		t.Fatalf("verified product workspace blocks should be usable: %v", err)
 	}
 }
 

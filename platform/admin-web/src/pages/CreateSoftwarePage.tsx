@@ -12,6 +12,7 @@ import {
   IconShieldLock,
 } from "@tabler/icons-react";
 import { FormEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   assemblyClient,
   type AssemblyCatalogFilter,
@@ -25,6 +26,7 @@ import {
 } from "../api/assemblyClient";
 import { AuthApiError } from "../api/authClient";
 import { Shell } from "../components/Shell";
+import { useAppContext } from "../app/AppContext";
 import {
   assemblyRequestFailure,
   createInitialCreateSoftwareState,
@@ -169,6 +171,8 @@ function confirmationField(document: JsonObject | null | undefined) {
 }
 
 export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope?: AssemblyCatalogScope }) {
+  const { openTrustedProduct } = useAppContext();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState(initialDraft);
   const [catalog, setCatalog] = useState<AssemblyCatalogOptions | null>(null);
@@ -306,7 +310,9 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
       if (!manifestId) throw new TypeError("completed assembly run is missing a valid manifest URL");
       const manifest = await assemblyClient.getManifest(manifestId, { timeoutMs: 30_000 });
       if (manifest.run_id !== run.run_id) throw new TypeError("assembly manifest does not match the completed run");
+      await openTrustedProduct(manifest.product_id);
       dispatch({ type: "execution_succeeded", operationToken, run, productId: manifest.product_id });
+      navigate(`/products/${encodeURIComponent(manifest.product_id)}/overview`, { replace: true });
       return;
     }
     dispatch({ type: "run_observed", operationToken, run });

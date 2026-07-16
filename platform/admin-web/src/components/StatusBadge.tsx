@@ -7,6 +7,9 @@ export function StatusBadge({ status }: { status: string }) {
     locked: "已锁定",
     revoked: "已撤销",
     suspended: "已暂停",
+    pending: "装配中",
+    ready: "已就绪",
+    failed: "装配失败",
     official: "官方",
     agent: "代理",
     success: "成功",
@@ -14,4 +17,3 @@ export function StatusBadge({ status }: { status: string }) {
   };
   return <span className={`status status-${status}`}>{labels[status] ?? status}</span>;
 }
-

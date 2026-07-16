@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "catalog_version": "1.1.0",
+  "catalog_version": "1.2.0",
   "blocks": [
     { "block_id": "account.center", "surface": "client", "readiness": "not_ready" },
     { "block_id": "account.profile", "surface": "client", "readiness": "not_ready" },
@@ -39,13 +39,13 @@
     { "block_id": "order.list", "surface": "client", "readiness": "not_ready" },
     { "block_id": "payment.cashier", "surface": "client", "readiness": "not_ready" },
     { "block_id": "payment.status", "surface": "client", "readiness": "not_ready" },
-    { "block_id": "product.capability-menu", "surface": "admin", "readiness": "not_ready" },
+    { "block_id": "product.capability-menu", "surface": "admin", "readiness": "ready" },
     { "block_id": "product.capability-settings", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "product.editor", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "product.integration-settings", "surface": "admin", "readiness": "not_ready" },
-    { "block_id": "product.overview", "surface": "admin", "readiness": "not_ready" },
-    { "block_id": "product.switcher", "surface": "admin", "readiness": "not_ready" },
-    { "block_id": "product.table", "surface": "admin", "readiness": "not_ready" },
+    { "block_id": "product.overview", "surface": "admin", "readiness": "ready" },
+    { "block_id": "product.switcher", "surface": "admin", "readiness": "ready" },
+    { "block_id": "product.table", "surface": "admin", "readiness": "ready" },
     { "block_id": "storage.user-files", "surface": "client", "readiness": "not_ready" },
     { "block_id": "support.entry", "surface": "client", "readiness": "not_ready" },
     { "block_id": "tenant.admin-binding", "surface": "admin", "readiness": "not_ready" },
@@ -57,5 +57,5 @@
     { "block_id": "usage.price-editor", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "usage.record-detail", "surface": "client", "readiness": "not_ready" }
   ],
-  "catalog_sha256": "sha256:548c4d3e009292c8bf45e125ec3b4953edcd404480ff6e95e1811dbeff3a5733"
+  "catalog_sha256": "sha256:5ca93d02a37694a8e5f98a2f0cda3058d8bf68956d0aeb3b64d7c63779654b17"
 }

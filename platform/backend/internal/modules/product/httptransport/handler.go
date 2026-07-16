@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,11 +30,15 @@ const (
 var (
 	identifierPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	idempotencyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
+	stableCodePattern  = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+	packageIDPattern   = regexp.MustCompile(`^package\.[a-z][a-z0-9-]*$`)
+	sha256Pattern      = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
 
 type Service interface {
 	ListProducts(context.Context, int) ([]product.Product, error)
 	GetProduct(context.Context, string) (product.Product, error)
+	CurrentCapabilitySet(context.Context, string) (product.CapabilitySet, error)
 	ReplaceCapabilitySet(context.Context, product.ReplaceCapabilitySetCommand) (product.CapabilitySet, error)
 }
 
@@ -97,14 +102,98 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.get(w, r, route.productID)
 	case routeCapabilities:
-		if r.Method != http.MethodPut {
-			httpx.MethodNotAllowed(w, r, http.MethodPut)
-			return
+		switch r.Method {
+		case http.MethodGet:
+			h.getCapabilities(w, r, route.productID)
+		case http.MethodPut:
+			h.replaceCapabilities(w, r, route.productID)
+		default:
+			httpx.MethodNotAllowed(w, r, "GET, PUT")
 		}
-		h.replaceCapabilities(w, r, route.productID)
 	default:
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	}
+}
+
+type capabilitySetProjectionResponse struct {
+	ProductID     string                 `json:"product_id"`
+	CapabilitySet *capabilitySetResponse `json:"capability_set"`
+}
+
+type capabilitySetResponse struct {
+	ProductID             string                   `json:"product_id"`
+	Version               int64                    `json:"version"`
+	Capabilities          []capabilityItemResponse `json:"capabilities"`
+	SourcePlanID          string                   `json:"source_plan_id"`
+	CatalogRevision       string                   `json:"catalog_revision"`
+	CatalogSnapshotSHA256 string                   `json:"catalog_snapshot_sha256"`
+	AuditID               string                   `json:"audit_id"`
+}
+
+type capabilityItemResponse struct {
+	CapabilityID         string          `json:"capability_id"`
+	Enabled              bool            `json:"enabled"`
+	Policy               json.RawMessage `json:"policy,omitempty"`
+	SourcePackageID      string          `json:"source_package_id"`
+	SourcePackageVersion string          `json:"source_package_version"`
+}
+
+func (h *Handler) getCapabilities(w http.ResponseWriter, r *http.Request, productID string) {
+	if _, ok := h.guard.Authorize(w, r, productReadPermission, productTarget(productID), false); !ok {
+		return
+	}
+	item, err := h.service.GetProduct(r.Context(), productID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if item.ProductID != productID || !validProduct(item, false) {
+		httpx.Error(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	set, err := h.service.CurrentCapabilitySet(r.Context(), productID)
+	if errors.Is(err, product.ErrNotFound) {
+		httpx.JSON(w, http.StatusOK, capabilitySetProjectionResponse{ProductID: productID})
+		return
+	}
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	projection, ok := projectCapabilitySet(set, productID)
+	if !ok {
+		httpx.Error(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, capabilitySetProjectionResponse{ProductID: productID, CapabilitySet: &projection})
+}
+
+func projectCapabilitySet(set product.CapabilitySet, productID string) (capabilitySetResponse, bool) {
+	if set.ProductID != productID || set.Version < 1 || !validIdentifier(set.SourcePlanID) || !stableCodePattern.MatchString(set.CatalogRevision) || !sha256Pattern.MatchString(set.CatalogSnapshotSHA256) || !validIdentifier(set.AuditID) {
+		return capabilitySetResponse{}, false
+	}
+	items := make([]capabilityItemResponse, len(set.Items))
+	for index, item := range set.Items {
+		if !stableCodePattern.MatchString(item.CapabilityID) || !packageIDPattern.MatchString(item.SourcePackageID) || strings.TrimSpace(item.SourcePackageVersion) == "" {
+			return capabilitySetResponse{}, false
+		}
+		if len(item.Policy) != 0 {
+			var policy map[string]any
+			if err := json.Unmarshal(item.Policy, &policy); err != nil || policy == nil || len(policy) > 64 {
+				return capabilitySetResponse{}, false
+			}
+		}
+		items[index] = capabilityItemResponse{
+			CapabilityID: item.CapabilityID, Enabled: item.Enabled, Policy: append(json.RawMessage(nil), item.Policy...),
+			SourcePackageID: item.SourcePackageID, SourcePackageVersion: item.SourcePackageVersion,
+		}
+	}
+	sort.Slice(items, func(left, right int) bool { return items[left].CapabilityID < items[right].CapabilityID })
+	return capabilitySetResponse{
+		ProductID: set.ProductID, Version: set.Version, Capabilities: items,
+		SourcePlanID: set.SourcePlanID, CatalogRevision: set.CatalogRevision,
+		CatalogSnapshotSHA256: set.CatalogSnapshotSHA256, AuditID: set.AuditID,
+	}, true
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {

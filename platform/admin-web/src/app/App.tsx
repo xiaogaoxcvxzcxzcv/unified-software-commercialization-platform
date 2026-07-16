@@ -8,15 +8,15 @@ import { LoginPage } from "../pages/LoginPage";
 
 const AuditPage = lazy(() => import("../pages/AuditPage").then((module) => ({ default: module.AuditPage })));
 const CreateSoftwarePage = lazy(() => import("../pages/CreateSoftwarePage").then((module) => ({ default: module.CreateSoftwarePage })));
-const EntitlementsPage = lazy(() => import("../pages/EntitlementsPage").then((module) => ({ default: module.EntitlementsPage })));
+const CapabilitiesPage = lazy(() => import("../pages/CapabilitiesPage").then((module) => ({ default: module.CapabilitiesPage })));
+const CapabilityPendingPage = lazy(() => import("../pages/CapabilityPendingPage").then((module) => ({ default: module.CapabilityPendingPage })));
 const HealthPage = lazy(() => import("../pages/HealthPage").then((module) => ({ default: module.HealthPage })));
+const IntegrationPage = lazy(() => import("../pages/IntegrationPage").then((module) => ({ default: module.IntegrationPage })));
 const OverviewPage = lazy(() => import("../pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
 const ProductsPage = lazy(() => import("../pages/ProductsPage").then((module) => ({ default: module.ProductsPage })));
 const SettingsPage = lazy(() => import("../pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
-const TenantsPage = lazy(() => import("../pages/TenantsPage").then((module) => ({ default: module.TenantsPage })));
-const UsersPage = lazy(() => import("../pages/UsersPage").then((module) => ({ default: module.UsersPage })));
 
-function ProductRoute({ children, capability }: { children: React.ReactNode; capability?: string }) {
+function ProductRoute({ children }: { children: React.ReactNode }) {
   const { productId } = useParams();
   const { products, currentProduct, loading, error, selectProduct, refreshProducts } = useAppContext();
   const productExists = products.some((product) => product.id === productId);
@@ -27,7 +27,6 @@ function ProductRoute({ children, capability }: { children: React.ReactNode; cap
   if (error && products.length === 0) return <div className="route-loading"><span>{error}</span><button className="secondary-button" type="button" onClick={() => void refreshProducts()}>重试</button></div>;
   if (!productId || !productExists) return <Navigate replace to="/products" />;
   if (currentProduct?.id !== productId) return <div className="route-loading">正在切换软件上下文...</div>;
-  if (capability && !currentProduct.enabledCapabilities.includes(capability)) return <Navigate replace to={`/products/${productId}/overview`} />;
   return children;
 }
 
@@ -50,10 +49,10 @@ function AuthenticatedRoutes() {
     <Route path="/system/health" element={<GlobalRoute><HealthPage /></GlobalRoute>} />
     <Route path="/products/:productId/overview" element={<ProductRoute><OverviewPage /></ProductRoute>} />
     <Route path="/products/:productId/settings" element={<ProductRoute><SettingsPage /></ProductRoute>} />
-    <Route path="/products/:productId/users" element={<ProductRoute capability="统一账号"><UsersPage /></ProductRoute>} />
-    <Route path="/products/:productId/entitlements" element={<ProductRoute capability="权益"><EntitlementsPage /></ProductRoute>} />
-    <Route path="/products/:productId/tenants" element={<ProductRoute capability="代理租户"><TenantsPage /></ProductRoute>} />
+    <Route path="/products/:productId/integration" element={<ProductRoute><IntegrationPage /></ProductRoute>} />
+    <Route path="/products/:productId/capabilities" element={<ProductRoute><CapabilitiesPage /></ProductRoute>} />
     <Route path="/products/:productId/audit" element={<ProductRoute><AuditPage /></ProductRoute>} />
+    <Route path="/products/:productId/:feature" element={<ProductRoute><CapabilityPendingPage /></ProductRoute>} />
     <Route path="*" element={<Navigate replace to={session ? getDefaultAdminPath(session) : "/login"} />} />
   </Routes></AppProvider>;
 }

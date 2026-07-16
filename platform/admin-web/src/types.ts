@@ -1,4 +1,5 @@
-export type ProductStatus = "active" | "paused";
+export type ProductStatus = "active" | "suspended";
+export type ProvisioningState = "pending" | "ready" | "failed";
 export type TenantType = "official" | "agent";
 
 export interface AdminScope {
@@ -50,12 +51,49 @@ export interface Product {
   id: string;
   code: string;
   name: string;
-  version: string;
   status: ProductStatus;
-  users: number;
-  activeUsers: number;
-  enabledCapabilities: string[];
-  accent: string;
+  provisioningState: ProvisioningState;
+  officialTenantId: string | null;
+  contextVersion: number;
+  createdAt: string;
+  updatedAt: string;
+  auditId: string | null;
+}
+
+export interface ProductApplication {
+  id: string;
+  productId: string;
+  code: string;
+  name: string;
+  platform: string;
+  distributionChannel: string;
+  releaseTrack: string;
+  status: "active" | "suspended";
+  contextVersion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductCapabilityItem {
+  capabilityId: string;
+  enabled: boolean;
+  sourcePackageId: string | null;
+  sourcePackageVersion: string | null;
+}
+
+export interface ProductCapabilitySet {
+  productId: string;
+  version: number;
+  sourcePlanId: string;
+  catalogRevision: string;
+  catalogSnapshotSha256: string;
+  auditId: string;
+  capabilities: ProductCapabilityItem[];
+}
+
+export interface ProductCapabilityProjection {
+  productId: string;
+  capabilitySet: ProductCapabilitySet | null;
 }
 
 export interface UserRecord {
@@ -90,9 +128,11 @@ export interface TenantRecord {
   name: string;
   code: string;
   type: TenantType;
-  admins: number;
-  users: number;
   status: "active" | "suspended";
+  externalAgentRef: string | null;
+  contextVersion: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AuditRecord {

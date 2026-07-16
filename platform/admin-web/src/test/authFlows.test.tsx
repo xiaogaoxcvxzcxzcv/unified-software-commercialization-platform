@@ -52,12 +52,14 @@ function renderApp(path: string) {
 beforeEach(() => {
   resetAdminAuthStateForTests();
   vi.spyOn(adminClient, "listProducts").mockResolvedValue([{
-    id: "prod-video", code: "video-brain", name: "视频生产大脑", version: "v1.8.2", status: "active",
-    users: 0, activeUsers: 0, enabledCapabilities: ["统一账号", "权益", "代理租户"], accent: "#0f9f8f",
+    id: "prod-video", code: "video-brain", name: "视频生产大脑", status: "active", provisioningState: "ready",
+    officialTenantId: "T-OFFICIAL", contextVersion: 1, createdAt: "2026-07-13T10:00:00Z", updatedAt: "2026-07-13T10:00:00Z", auditId: "audit-product",
   }]);
+  vi.spyOn(adminClient, "listApplications").mockResolvedValue([]);
+  vi.spyOn(adminClient, "getProductCapabilities").mockResolvedValue({ productId: "prod-video", capabilitySet: null });
   vi.spyOn(adminClient, "listTenants").mockResolvedValue([{
     id: "T-OFFICIAL", productId: "prod-video", name: "官方直营", code: "official", type: "official",
-    admins: 1, users: 0, status: "active",
+    status: "active", externalAgentRef: null, contextVersion: 1, createdAt: "2026-07-13T10:00:00Z", updatedAt: "2026-07-13T10:00:00Z",
   }]);
 });
 
