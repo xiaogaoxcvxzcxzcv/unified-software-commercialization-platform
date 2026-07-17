@@ -97,6 +97,8 @@ type successfulExecutor struct{ renewStarted <-chan struct{} }
 
 type failingExecutor struct{ err error }
 
+type postCommitCancellationExecutor struct{}
+
 func (e *failingExecutor) ExecuteUpgrade(context.Context, core.LifecycleOperation, core.LifecyclePlan, core.LifecycleArtifactTransition) (ExecutionResult, error) {
 	return ExecutionResult{}, e.err
 }
@@ -105,6 +107,25 @@ func (e *failingExecutor) ExecuteEject(context.Context, core.LifecycleOperation,
 }
 func (e *failingExecutor) ExecuteRollback(context.Context, core.LifecycleOperation, core.LifecycleArtifactTransition) (ExecutionResult, error) {
 	return ExecutionResult{}, e.err
+}
+
+func postCommitResult(ctx context.Context, operation core.LifecycleOperation) (ExecutionResult, error) {
+	<-ctx.Done()
+	completedAt := operation.UpdatedAt.Add(time.Second)
+	target := operation.Source
+	target.ManifestID = "assembly.post-commit"
+	target.LockID = "lock.post-commit"
+	return ExecutionResult{Target: &target, Transition: &core.LifecycleArtifactTransition{OperationID: operation.OperationID, Source: operation.Source, Target: &target, TargetManifestDocument: []byte(`{}`), TargetLockDocument: []byte(`{}`), RollbackJournal: []byte(`{}`), CompletedAt: &completedAt}}, nil
+}
+
+func (e *postCommitCancellationExecutor) ExecuteUpgrade(ctx context.Context, operation core.LifecycleOperation, _ core.LifecyclePlan, _ core.LifecycleArtifactTransition) (ExecutionResult, error) {
+	return postCommitResult(ctx, operation)
+}
+func (e *postCommitCancellationExecutor) ExecuteEject(ctx context.Context, operation core.LifecycleOperation, _ core.LifecyclePlan, _ core.LifecycleArtifactTransition) (ExecutionResult, error) {
+	return postCommitResult(ctx, operation)
+}
+func (e *postCommitCancellationExecutor) ExecuteRollback(ctx context.Context, operation core.LifecycleOperation, _ core.LifecycleArtifactTransition) (ExecutionResult, error) {
+	return postCommitResult(ctx, operation)
 }
 
 func (e *successfulExecutor) result(ctx context.Context, operation core.LifecycleOperation) (ExecutionResult, error) {
@@ -213,10 +234,50 @@ func TestRunnerHeartbeatFailureCancelsExecutorAndRequeues(t *testing.T) {
 		t.Fatal("executor context was not cancelled")
 	}
 	fixture.mu.Lock()
-	renews, requeues, updates := fixture.renews, fixture.requeues, fixture.updates
+	renews, requeues, updates, status := fixture.renews, fixture.requeues, fixture.updates, fixture.operation.Status
 	fixture.mu.Unlock()
-	if renews < 2 || requeues < 1 || updates < 2 {
-		t.Fatalf("renews=%d requeues=%d updates=%d", renews, requeues, updates)
+	if renews < 2 || requeues != 1 || updates != 1 || status != core.LifecycleExecuting {
+		t.Fatalf("renews=%d requeues=%d updates=%d status=%s", renews, requeues, updates, status)
+	}
+}
+
+func TestRunnerLeaseLossAfterFilesCommitPreservesActiveOperationForRecovery(t *testing.T) {
+	fixture := &runnerFixture{operation: lifecycleOperationFixture()}
+	fixture.claim = func(context.Context) (core.LifecycleDispatch, error) {
+		return core.LifecycleDispatch{OperationID: "operation.test"}, nil
+	}
+	fixture.renew = func(context.Context) error { return errors.New("lease lost after product commit") }
+	runner, err := NewRunner(fixture, fixture, &postCommitCancellationExecutor{}, testID, time.Now, "worker.test", 9*time.Millisecond, WithExecutionTimeout(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = runner.RunOnce(context.Background()); err == nil {
+		t.Fatal("expected lease-loss infrastructure error")
+	}
+	fixture.mu.Lock()
+	status, updates, requeues, completes := fixture.operation.Status, fixture.updates, fixture.requeues, fixture.completes
+	fixture.mu.Unlock()
+	if status != core.LifecycleExecuting || updates != 1 || requeues != 1 || completes != 0 {
+		t.Fatalf("status=%s updates=%d requeues=%d completes=%d", status, updates, requeues, completes)
+	}
+}
+
+func TestRunnerTimeoutAfterFilesCommitPreservesActiveOperationForRecovery(t *testing.T) {
+	fixture := &runnerFixture{operation: lifecycleOperationFixture(), claim: func(context.Context) (core.LifecycleDispatch, error) {
+		return core.LifecycleDispatch{OperationID: "operation.test"}, nil
+	}}
+	runner, err := NewRunner(fixture, fixture, &postCommitCancellationExecutor{}, testID, time.Now, "worker.test", time.Second, WithExecutionTimeout(5*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = runner.RunOnce(context.Background()); err == nil {
+		t.Fatal("expected timeout infrastructure error")
+	}
+	fixture.mu.Lock()
+	status, updates, requeues := fixture.operation.Status, fixture.updates, fixture.requeues
+	fixture.mu.Unlock()
+	if status != core.LifecycleExecuting || updates != 1 || requeues != 1 {
+		t.Fatalf("status=%s updates=%d requeues=%d", status, updates, requeues)
 	}
 }
 
@@ -445,6 +506,45 @@ func TestRunnerRequeuesActiveOperationWhenTerminalDatabaseCommitFails(t *testing
 	fixture.mu.Unlock()
 	if status != core.LifecycleExecuting || requeues != 1 || completes != 0 {
 		t.Fatalf("status=%s requeues=%d completes=%d", status, requeues, completes)
+	}
+}
+
+func TestRunnerReclaimsOperationAfterPostFilesDatabaseFailure(t *testing.T) {
+	ready := make(chan struct{})
+	close(ready)
+	transient := errors.New("terminal transaction unavailable")
+	fixture := &runnerFixture{operation: lifecycleOperationFixture(), claim: func(context.Context) (core.LifecycleDispatch, error) {
+		return core.LifecycleDispatch{OperationID: "operation.test"}, nil
+	}}
+	failedOnce := false
+	fixture.update = func(record core.UpdateLifecycleOperationRecord) error {
+		if record.Operation.Status == core.LifecycleCompleted && !failedOnce {
+			failedOnce = true
+			return transient
+		}
+		return nil
+	}
+	runner, err := NewRunner(fixture, fixture, &successfulExecutor{renewStarted: ready}, testID, time.Now, "worker.test", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("first finalization failure escaped: %v", err)
+	}
+	fixture.mu.Lock()
+	firstStatus, firstRequeues := fixture.operation.Status, fixture.requeues
+	fixture.mu.Unlock()
+	if firstStatus != core.LifecycleExecuting || firstRequeues != 1 {
+		t.Fatalf("after failure status=%s requeues=%d", firstStatus, firstRequeues)
+	}
+	if err = runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("reclaim finalization: %v", err)
+	}
+	fixture.mu.Lock()
+	status, completes := fixture.operation.Status, fixture.completes
+	fixture.mu.Unlock()
+	if status != core.LifecycleCompleted || completes != 1 {
+		t.Fatalf("after reclaim status=%s completes=%d", status, completes)
 	}
 }
 

@@ -6,9 +6,10 @@ import { useAuth } from "../app/AuthContext";
 import { Modal } from "../components/Modal";
 import { Shell } from "../components/Shell";
 import { StatusBadge } from "../components/StatusBadge";
-import { clearLifecycleIntent, lifecycleErrorMessage, lifecycleIntent } from "../features/assembly/lifecycleIntent";
+import { clearLifecycleIntent, lifecycleErrorMessage, lifecycleHasIdempotencyConflict, lifecycleIntent, lifecycleRequiresReauthentication } from "../features/assembly/lifecycleIntent";
 
 type Mode = "upgrade" | "eject";
+type ConflictedIntent = { kind: string; id: string; action: "plan" | "cancel"; mode?: Mode };
 const artifactId = (value: string | null | undefined, resource: string) => value?.match(new RegExp(`^/api/v1/admin/${resource}/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})$`))?.[1] ?? null;
 function versionRefs(value: string, required = false): LifecycleVersionRef[] {
   const items = value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => {
@@ -24,7 +25,7 @@ function singleVersionRef(value: string) { const refs = versionRefs(value, true)
 export function AssemblyLifecycleEntryPage() {
   const { runId } = useParams();
   const navigate = useNavigate();
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
   const permissions = new Set(session?.authorization.permissions ?? []);
   const canRead = permissions.has("assembly.read");
   const canPlan = permissions.has("assembly.lifecycle.plan");
@@ -42,6 +43,9 @@ export function AssemblyLifecycleEntryPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reauthenticationRequired, setReauthenticationRequired] = useState(false);
+  const [conflictedIntent, setConflictedIntent] = useState<ConflictedIntent | null>(null);
+  const [preparingLogin, setPreparingLogin] = useState(false);
   const activeRequest = useRef<AbortController | null>(null);
   const sequence = useRef(0);
 
@@ -69,33 +73,66 @@ export function AssemblyLifecycleEntryPage() {
   useEffect(() => { void load(); return () => { activeRequest.current?.abort(); sequence.current += 1; }; }, [load]);
 
   const canCreate = useMemo(() => run?.status === "completed" && checksums !== null && canPlan, [run, checksums, canPlan]);
-  const createPlan = async () => {
+  const createPlan = async (requestedMode: Mode = mode) => {
     if (!run || !checksums || submitting || !canPlan) return;
-    setSubmitting(true); setError(null);
+    setSubmitting(true); setError(null); setReauthenticationRequired(false); setConflictedIntent(null);
+    const intentKind = `plan-${requestedMode}`;
     try {
-      const intentKind = `plan-${mode}`;
       const options = { idempotencyKey: lifecycleIntent(intentKind, checksums.assemblyId), timeoutMs: 30_000 };
-      const plan = mode === "upgrade"
+      const plan = requestedMode === "upgrade"
         ? await assemblyClient.createUpgradePlan(checksums.assemblyId, { expected_manifest_checksum: checksums.manifest, expected_lock_checksum: checksums.lock, target: { packages: versionRefs(packages), templates: versionRefs(templates, true), generator: singleVersionRef(generator), sdks: versionRefs(sdks) } }, options)
         : await assemblyClient.createEjectPlan(checksums.assemblyId, { expected_manifest_checksum: checksums.manifest, expected_lock_checksum: checksums.lock, paths: [...new Set(paths.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))] }, options);
       clearLifecycleIntent(intentKind, checksums.assemblyId);
       navigate(`/assembly-lifecycle/plans/${encodeURIComponent(plan.lifecycle_plan_id)}`);
-    } catch (reason) { setError(lifecycleErrorMessage(reason, "生命周期计划创建失败")); }
+    } catch (reason) {
+      if (lifecycleHasIdempotencyConflict(reason)) setConflictedIntent({ kind: intentKind, id: checksums.assemblyId, action: "plan", mode: requestedMode });
+      setError(lifecycleErrorMessage(reason, "生命周期计划创建失败"));
+    }
     finally { setSubmitting(false); }
   };
   const cancelRun = async () => {
     if (!run || submitting || !canExecute || run.status !== "planned") return;
-    setSubmitting(true); setError(null);
+    setSubmitting(true); setError(null); setReauthenticationRequired(false); setConflictedIntent(null);
+    const intentKind = "run-cancel";
     try {
-      const next = await assemblyClient.cancelRun(run.run_id, run.version, reason, { idempotencyKey: lifecycleIntent("run-cancel", run.run_id), timeoutMs: 30_000 });
-      clearLifecycleIntent("run-cancel", run.run_id); setRun(next); setCancelOpen(false); setReason("");
-    } catch (reason) { setError(lifecycleErrorMessage(reason, "取消运行失败")); }
+      const next = await assemblyClient.cancelRun(run.run_id, run.version, reason, { idempotencyKey: lifecycleIntent(intentKind, run.run_id), timeoutMs: 30_000 });
+      clearLifecycleIntent(intentKind, run.run_id); setRun(next); setCancelOpen(false); setReason("");
+    } catch (failure) {
+      const needsReauthentication = lifecycleRequiresReauthentication(failure);
+      setReauthenticationRequired(needsReauthentication);
+      if (lifecycleHasIdempotencyConflict(failure)) setConflictedIntent({ kind: intentKind, id: run.run_id, action: "cancel" });
+      if (needsReauthentication || lifecycleHasIdempotencyConflict(failure)) setCancelOpen(false);
+      setError(lifecycleErrorMessage(failure, "取消运行失败"));
+    }
     finally { setSubmitting(false); }
+  };
+
+  const beginReauthentication = async () => {
+    if (!runId || preparingLogin) return;
+    setPreparingLogin(true);
+    try {
+      await logout();
+      navigate("/login", { replace: true, state: { from: `/assemblies/${encodeURIComponent(runId)}/lifecycle` } });
+    } catch (failure) {
+      setError(lifecycleErrorMessage(failure, "暂时无法进入重新登录，请稍后重试"));
+      setReauthenticationRequired(true);
+      setPreparingLogin(false);
+    }
+  };
+
+  const restartConflictedIntent = () => {
+    if (!conflictedIntent || submitting) return;
+    const pending = conflictedIntent;
+    clearLifecycleIntent(pending.kind, pending.id);
+    setConflictedIntent(null);
+    setError(null);
+    if (pending.action === "plan") void createPlan(pending.mode);
+    else setCancelOpen(true);
   };
 
   return <Shell title="装配生命周期" subtitle={runId ? `运行 ${runId}` : "升级、退出托管与恢复"}>
     <div className="toolbar"><button className="secondary-button" type="button" onClick={() => navigate(`/assemblies/${encodeURIComponent(runId ?? "")}`)}><IconArrowLeft size={17} />返回运行</button><div className="assembly-toolbar-spacer" /><button className="secondary-button" type="button" disabled={loading || !canRead} onClick={() => void load()}><IconRefresh className={loading ? "spin" : ""} size={17} />刷新</button></div>
-    {error && <div className="create-global-error" role="alert"><IconAlertTriangle size={18} /><span>{error}</span></div>}
+    {(error || reauthenticationRequired || conflictedIntent) && <div className="create-global-error" role="alert"><IconAlertTriangle size={18} /><span>{error ?? (reauthenticationRequired ? "此操作需要近期重新认证。" : "旧操作意图需要由管理员明确处理。")}</span>{reauthenticationRequired && <button className="secondary-button" type="button" disabled={preparingLogin} onClick={() => void beginReauthentication()}>{preparingLogin ? "正在退出当前会话..." : "重新登录并返回此页"}</button>}{conflictedIntent && <button className="secondary-button" type="button" onClick={restartConflictedIntent}>放弃旧意图并重新发起</button>}</div>}
     {loading && !run && <div className="query-state" role="status"><IconLoader2 className="spin" size={18} />正在读取生命周期上下文...</div>}
     {run && <div className="lifecycle-layout">
       <section className="panel lifecycle-summary"><header className="panel-title"><div><h2>运行上下文</h2><p>仅使用服务端返回的可信版本与校验和</p></div><StatusBadge status={run.status} /></header><dl className="detail-list"><div><dt>Assembly</dt><dd><code>{checksums?.assemblyId ?? "尚未建立"}</code></dd></div><div><dt>Product</dt><dd><code>{run.product_id ?? "尚未建立"}</code></dd></div><div><dt>运行版本</dt><dd>v{run.version}</dd></div></dl>

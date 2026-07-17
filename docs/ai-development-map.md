@@ -10,11 +10,11 @@
 
 ## 当前状态
 
-- 当前阶段：F0 已退出；G1-07/G1-07.1 和 G1-08.1 至 G1-08.4 已 verified。当前唯一关口为 G1-10 lifecycle API，状态 `in_progress`；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口继续显示真实空状态并失败关闭。
+- 当前阶段：F0 已退出；G1-07/G1-07.1 和 G1-08.1 至 G1-08.4 已 verified。当前唯一关口 G1-10 lifecycle API 已达 `candidate_verified_local`，等待托管 required check；G1-11 仍为 `planned`。真实工具版本尚未发布，普通创建入口继续真实空状态并失败关闭。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建/恢复 Client、`/create` 五步向导、真实 Product 工作区和 `/assemblies` 连接真实后端，未标记 ready 的业务页面仍不得混同为生产数据源。
-- Assembly 后端执行/恢复闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选、软件创建向导和单款软件工作区已实现；lifecycle API、业务 Feature Block 和首个真实样板软件尚未实现。普通生产能力包/模板/工具目录为空，扩展目录未实现并失败关闭，当前不能声称“勾选能力即可得到完整前后台”。
+- Assembly 后端执行/恢复闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选、创建向导、单款软件工作区和 lifecycle API 已实现；lifecycle 本地候选闭环待托管 CI 裁决。业务 Feature Block 和首个真实样板软件尚未实现，当前不能声称“勾选能力即可得到完整前后台”。
 - product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
 - 后端、OpenAPI、SDK、Hosted UI 和真实 Provider 接入以代码、自动化测试及冒烟记录为完成依据，不能以菜单或文档存在代替实现。
 - 产品范围和优先级以 `docs/product-scope.md` 为准。

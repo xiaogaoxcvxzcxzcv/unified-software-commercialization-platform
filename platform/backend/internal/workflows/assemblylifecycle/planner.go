@@ -34,7 +34,7 @@ func (p *CatalogLifecyclePlanBuilder) BuildUpgradePlan(ctx context.Context, root
 	if err != nil {
 		return nil, err
 	}
-	createdAt := p.now().UTC()
+	createdAt := p.now().UTC().Truncate(time.Microsecond)
 	planID, err := lifecyclePlanID("upgrade", rootAssemblyID, resolved.Manifest.ManifestSHA256, resolved.Lock.LockSHA256, resolved.TargetSnapshot.Checksum, target)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (p *CatalogLifecyclePlanBuilder) BuildEjectPlan(ctx context.Context, rootAs
 	if err != nil {
 		return nil, err
 	}
-	createdAt := p.now().UTC()
+	createdAt := p.now().UTC().Truncate(time.Microsecond)
 	planID, err := lifecyclePlanID("eject", rootAssemblyID, resolved.Manifest.ManifestSHA256, resolved.Lock.LockSHA256, resolved.TargetSnapshot.Checksum, append([]string(nil), paths...))
 	if err != nil {
 		return nil, err
@@ -343,6 +343,9 @@ func (p *CatalogLifecyclePlanBuilder) buildEjectDocument(resolved ResolvedLifecy
 const emptyDigest = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 func marshalLifecyclePlan(document lifecyclePlanDocument) (json.RawMessage, error) {
+	if err := normalizeLifecycleSafety(&document); err != nil {
+		return nil, err
+	}
 	confirmationSeed, err := json.Marshal(struct {
 		Operation              string                  `json:"operation"`
 		AssemblyID             string                  `json:"assembly_id"`
@@ -373,6 +376,93 @@ func marshalLifecyclePlan(document lifecyclePlanDocument) (json.RawMessage, erro
 		return nil, err
 	}
 	return machinecontract.Canonicalize(raw)
+}
+
+func normalizeLifecycleSafety(document *lifecyclePlanDocument) error {
+	if document == nil {
+		return core.ErrDocumentInvalid
+	}
+	seen := make(map[string]struct{}, len(document.Conflicts))
+	for _, conflict := range document.Conflicts {
+		seen[conflict.ConflictID] = struct{}{}
+	}
+	appendBlocking := func(code, category, message string, remediation []string, identity string) error {
+		seed, err := json.Marshal(struct {
+			Code     string `json:"code"`
+			Category string `json:"category"`
+			Identity string `json:"identity"`
+		}{code, category, identity})
+		if err != nil {
+			return err
+		}
+		digest, err := machinecontract.Digest(seed)
+		if err != nil {
+			return err
+		}
+		conflictID := "conflict." + digest[:24]
+		if _, exists := seen[conflictID]; exists {
+			return nil
+		}
+		document.Conflicts = append(document.Conflicts, lifecycleConflictDocument{
+			ConflictID:  conflictID,
+			Code:        code,
+			Category:    category,
+			Blocking:    true,
+			Message:     message,
+			Paths:       []string{},
+			Remediation: append([]string(nil), remediation...),
+		})
+		seen[conflictID] = struct{}{}
+		return nil
+	}
+	for _, migration := range document.Migrations {
+		if migration.Reversibility != "manual" {
+			continue
+		}
+		if err := appendBlocking(
+			"migration_manual_rollback_required",
+			"migration",
+			"Migration "+migration.MigrationID+" requires a manual rollback and cannot be executed by the lifecycle worker",
+			[]string{"publish a reversible or compensatable migration with an automated rollback strategy", "run the migration outside the standard lifecycle flow and create a new trusted plan"},
+			migration.MigrationID,
+		); err != nil {
+			return err
+		}
+	}
+	rollback := document.Rollback
+	rollbackUnsafe := rollback.Strategy == "manual" || !rollback.Automatic || !validSHA256Digest(rollback.PredecessorManifestChecksum) || !validSHA256Digest(rollback.PredecessorLockChecksum)
+	if rollbackUnsafe {
+		if err := appendBlocking(
+			"rollback_not_automatically_verifiable",
+			"rollback",
+			"The lifecycle plan has no automatically verifiable rollback to its predecessor Manifest and lock",
+			[]string{"select an automatic restore_predecessor or compensate strategy", "provide trusted predecessor Manifest and lock checksums"},
+			rollback.Strategy+"\x00"+rollback.PredecessorManifestChecksum+"\x00"+rollback.PredecessorLockChecksum,
+		); err != nil {
+			return err
+		}
+	}
+	sort.Slice(document.Conflicts, func(i, j int) bool { return document.Conflicts[i].ConflictID < document.Conflicts[j].ConflictID })
+	document.BlockingConflictCount = 0
+	for _, conflict := range document.Conflicts {
+		if conflict.Blocking {
+			document.BlockingConflictCount++
+		}
+	}
+	document.Executable = document.BlockingConflictCount == 0
+	return nil
+}
+
+func validSHA256Digest(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, character := range value[len("sha256:"):] {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func predictedSnapshotChecksum(snapshot generation.TargetSnapshot, changes []generation.FileChange) (string, error) {

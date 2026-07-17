@@ -56,7 +56,44 @@
   },
   "allOf": [
     { "if": { "properties": { "operation": { "const": "upgrade" } }, "required": ["operation"] }, "then": { "required": ["target"], "not": { "required": ["eject_paths"] } } },
-    { "if": { "properties": { "operation": { "const": "eject" } }, "required": ["operation"] }, "then": { "required": ["eject_paths"], "not": { "required": ["target"] } } }
+    { "if": { "properties": { "operation": { "const": "eject" } }, "required": ["operation"] }, "then": { "required": ["eject_paths"], "not": { "required": ["target"] } } },
+    {
+      "if": { "properties": { "migrations": { "contains": { "type": "object", "required": ["reversibility"], "properties": { "reversibility": { "const": "manual" } } } } }, "required": ["migrations"] },
+      "then": {
+        "properties": {
+          "executable": { "const": false },
+          "conflicts": { "contains": { "type": "object", "required": ["category", "blocking"], "properties": { "category": { "const": "migration" }, "blocking": { "const": true } } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "rollback": { "type": "object", "required": ["strategy"], "properties": { "strategy": { "const": "manual" } } } }, "required": ["rollback"] },
+      "then": {
+        "properties": {
+          "executable": { "const": false },
+          "rollback": { "properties": { "automatic": { "const": false } } },
+          "conflicts": { "contains": { "type": "object", "required": ["category", "blocking"], "properties": { "category": { "const": "rollback" }, "blocking": { "const": true } } } }
+        }
+      },
+      "else": { "properties": { "rollback": { "properties": { "automatic": { "const": true } } } } }
+    },
+    {
+      "if": { "properties": { "executable": { "const": true } }, "required": ["executable"] },
+      "then": {
+        "properties": {
+          "blocking_conflict_count": { "const": 0 },
+          "conflicts": { "not": { "contains": { "type": "object", "required": ["blocking"], "properties": { "blocking": { "const": true } } } } },
+          "migrations": { "not": { "contains": { "type": "object", "required": ["reversibility"], "properties": { "reversibility": { "const": "manual" } } } } },
+          "rollback": { "properties": { "strategy": { "enum": ["restore_predecessor", "compensate"] }, "automatic": { "const": true } } }
+        }
+      },
+      "else": {
+        "properties": {
+          "blocking_conflict_count": { "minimum": 1 },
+          "conflicts": { "contains": { "type": "object", "required": ["blocking"], "properties": { "blocking": { "const": true } } } }
+        }
+      }
+    }
   ],
   "$defs": {
     "versionRef": {

@@ -148,8 +148,25 @@ func TestExecuteRollbackPublishConflictReturnsNoCommittableTransition(t *testing
 	if !errors.Is(err, generation.ErrArtifactConflict) {
 		t.Fatalf("ExecuteRollback() error = %v, want ErrArtifactConflict", err)
 	}
+	if errors.Is(err, ErrLifecycleFinalizeRetryable) {
+		t.Fatalf("permanent artifact conflict was classified retryable: %v", err)
+	}
 	if result.Target != nil || result.Transition != nil || len(result.Diagnostics) != 0 || len(result.Reports) != 0 {
 		t.Fatalf("publish conflict returned committable execution evidence: %#v", result)
+	}
+}
+
+func TestPublishLifecycleDocumentsRetriesOnlyStoreFailure(t *testing.T) {
+	if err := publishLifecycleDocuments(nil, "assembly.test", json.RawMessage(`{}`), json.RawMessage(`{}`)); !errors.Is(err, ErrLifecycleFinalizeRetryable) {
+		t.Fatalf("store failure classification = %v", err)
+	}
+	store, err := generation.NewArtifactStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = publishLifecycleDocuments(store, "../unsafe", json.RawMessage(`{}`), json.RawMessage(`{}`))
+	if !errors.Is(err, generation.ErrInvalidInput) || errors.Is(err, ErrLifecycleFinalizeRetryable) {
+		t.Fatalf("invalid input classification = %v", err)
 	}
 }
 

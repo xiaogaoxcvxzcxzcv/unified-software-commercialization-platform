@@ -63,6 +63,9 @@ func (e *GenerationLifecycleExecutor) ExecuteUpgrade(ctx context.Context, operat
 	if resumingCommittedOutput {
 		var found bool
 		outcome, found, err = executor.Recover(ctx, resolved.Workspace.TargetRoot, input, operation.Source.TargetSnapshotChecksum)
+		if errors.Is(err, generation.ErrTargetChanged) {
+			return ExecutionResult{}, fmt.Errorf("%w: %w", ErrLifecycleFinalizeRetryable, err)
+		}
 		if err == nil && !found {
 			err = core.ErrConflict
 		}
@@ -76,8 +79,8 @@ func (e *GenerationLifecycleExecutor) ExecuteUpgrade(ctx context.Context, operat
 	if err != nil {
 		return ExecutionResult{}, err
 	}
-	if err = store.PublishLifecycleDocuments(target.ManifestID, outcome.Bundle.AssemblyManifest, outcome.Bundle.GeneratedLock); err != nil {
-		return ExecutionResult{}, fmt.Errorf("%w: %w", ErrLifecycleFinalizeRetryable, err)
+	if err = publishLifecycleDocuments(store, target.ManifestID, outcome.Bundle.AssemblyManifest, outcome.Bundle.GeneratedLock); err != nil {
+		return ExecutionResult{}, err
 	}
 	journal, err := lifecycleRollbackJournal("upgrade", resolved, input.Request.ArtifactContext.Paths.RollbackPointPath, input.Request.ArtifactContext.Paths.CommitJournalPath)
 	if err != nil {
@@ -133,8 +136,8 @@ func (e *GenerationLifecycleExecutor) ExecuteEject(ctx context.Context, operatio
 	if err != nil {
 		return ExecutionResult{}, err
 	}
-	if err = store.PublishLifecycleDocuments(target.ManifestID, outcome.AssemblyManifest, outcome.GeneratedLock); err != nil {
-		return ExecutionResult{}, fmt.Errorf("%w: %w", ErrLifecycleFinalizeRetryable, err)
+	if err = publishLifecycleDocuments(store, target.ManifestID, outcome.AssemblyManifest, outcome.GeneratedLock); err != nil {
+		return ExecutionResult{}, err
 	}
 	journal, err := lifecycleRollbackJournal("eject", resolved, "", "")
 	if err != nil {
@@ -158,7 +161,10 @@ func (e *GenerationLifecycleExecutor) ExecuteRollback(ctx context.Context, opera
 	}
 	resolved, err := e.resolver.ResolveCurrent(ctx, operation.AssemblyID, operation.Source)
 	if err != nil {
-		return ExecutionResult{}, err
+		resolved, err = e.resolver.ResolveForResume(ctx, operation.AssemblyID, operation.Source)
+		if err != nil {
+			return ExecutionResult{}, err
+		}
 	}
 	journal, err := decodeLifecycleRollbackJournal(transition.RollbackJournal, e.contracts)
 	if err != nil {
@@ -200,8 +206,8 @@ func (e *GenerationLifecycleExecutor) ExecuteRollback(ctx context.Context, opera
 	if err != nil {
 		return ExecutionResult{}, err
 	}
-	if err = store.PublishLifecycleDocuments(target.ManifestID, manifestRaw, lockRaw); err != nil {
-		return ExecutionResult{}, fmt.Errorf("%w: %w", ErrLifecycleFinalizeRetryable, err)
+	if err = publishLifecycleDocuments(store, target.ManifestID, manifestRaw, lockRaw); err != nil {
+		return ExecutionResult{}, err
 	}
 	completedAt := e.completedAt(operation)
 	return ExecutionResult{
@@ -213,6 +219,14 @@ func (e *GenerationLifecycleExecutor) ExecuteRollback(ctx context.Context, opera
 		},
 		Reports: []core.RunReport{lifecycleReport("report.lifecycle-rollback", "lifecycle_rollback", "Lifecycle rollback restored the predecessor file and ownership state", target.LockChecksum, completedAt)},
 	}, nil
+}
+
+func publishLifecycleDocuments(store *generation.ArtifactStore, assemblyID string, manifest, lock json.RawMessage) error {
+	err := store.PublishLifecycleDocuments(assemblyID, manifest, lock)
+	if err == nil || !errors.Is(err, generation.ErrArtifactStore) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrLifecycleFinalizeRetryable, err)
 }
 
 type rollbackJournalDocument struct {

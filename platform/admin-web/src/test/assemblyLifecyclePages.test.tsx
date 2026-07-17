@@ -7,21 +7,22 @@ import { AssemblyLifecycleOperationPage } from "../pages/AssemblyLifecycleOperat
 import { AssemblyLifecyclePlanPage } from "../pages/AssemblyLifecyclePlanPage";
 import { AssemblyLifecycleEntryPage } from "../pages/AssemblyLifecycleEntryPage";
 
-const permissionState = vi.hoisted(() => ({ permissions: ["assembly.read", "assembly.lifecycle.plan", "assembly.lifecycle.execute"] }));
-vi.mock("../app/AuthContext", () => ({ useAuth: () => ({ session: { authorization: { permissions: permissionState.permissions } } }) }));
+const authState = vi.hoisted(() => ({ permissions: ["assembly.read", "assembly.lifecycle.plan", "assembly.lifecycle.execute"], logout: vi.fn() }));
+vi.mock("../app/AuthContext", () => ({ useAuth: () => ({ session: { authorization: { permissions: authState.permissions } }, logout: authState.logout }) }));
 vi.mock("../components/Shell", () => ({ Shell: ({ title, children }: { title: string; children: React.ReactNode }) => <main><h1>{title}</h1>{children}</main> }));
 const sha = (character: string) => `sha256:${character.repeat(64)}`;
 const artifact = { manifest_id: "assembly-1", manifest_checksum: sha("a"), lock_id: "lock-1", lock_checksum: sha("b"), catalog_checksum: sha("c"), target_snapshot_checksum: sha("d") };
 const plan: AssemblyLifecyclePlan = { lifecycle_plan_id: "lifecycle-plan-1", assembly_id: "assembly-1", product_id: "product-1", operation: "upgrade", version: 2, source: artifact, target_snapshot_checksum: sha("e"), changes: [{ path: "apps/admin/account.tsx", action: "update", ownership: "generated", before_checksum: sha("f"), after_checksum: sha("1"), source_id: "package.account", source_version: "1.1.0" }], migrations: [{ migration_id: "migration-provider-1", kind: "provider", reversibility: "compensatable", summary: "Rotate provider binding" }], conflicts: [], regression_tests: ["st-032"], rollback: { strategy: "restore_predecessor", automatic: false, predecessor_manifest_checksum: sha("a"), predecessor_lock_checksum: sha("b") }, blocking_conflict_count: 0, executable: true, confirmation_checksum: sha("2"), statements: ["确认升级并运行回归检查"], plan_checksum: sha("3"), created_at: "2026-07-16T01:00:00Z", audit_id: "audit-1" };
 const operation: AssemblyLifecycleOperation = { operation_id: "operation-1", root_operation_id: "operation-1", rollback_of_operation_id: null, lifecycle_plan_id: "lifecycle-plan-1", assembly_id: "assembly-1", product_id: "product-1", kind: "upgrade", version: 1, status: "failed", current_step: "regression", source: artifact, target: null, recovery: { retryable: true, rollback_available: true, cancel_allowed: false }, diagnostics: [], reports: [], created_at: "2026-07-16T01:00:00Z", updated_at: "2026-07-16T01:01:00Z", completed_at: "2026-07-16T01:01:00Z", audit_id: "audit-2" };
 const run: AssemblyRunRecord = { run_id: "run-1", product_id: null, plan_id: "plan-1", plan_version: 1, version: 1, plan_checksum: sha("4"), root_run_id: "run-1", retry_of_run_id: null, attempt_number: 1, output_target_ref: "workspace-primary", status: "planned", current_step_id: null, steps: [], recovery: { retryable: false, rollback_required: false, resume_from_step_id: null }, diagnostics: [], reports: [], document: {}, created_at: "2026-07-16T01:00:00Z", updated_at: "2026-07-16T01:00:00Z", completed_at: null, audit_id: "audit-run-1" };
-function LocationProbe() { return <output aria-label="current route">{useLocation().pathname}</output>; }
+function LocationProbe() { const location = useLocation(); return <output aria-label="current route">{location.pathname}|{(location.state as { from?: string } | null)?.from ?? ""}</output>; }
 function EntryHarness() { const navigate = useNavigate(); return <><button type="button" onClick={() => navigate("/assemblies/run-2/lifecycle")}>切换运行</button><AssemblyLifecycleEntryPage /></>; }
-const renderPlan = () => render(<MemoryRouter initialEntries={["/assembly-lifecycle/plans/lifecycle-plan-1"]}><Routes><Route path="/assembly-lifecycle/plans/:planId" element={<AssemblyLifecyclePlanPage />} /><Route path="/assembly-lifecycle/operations/:operationId" element={<div>操作页</div>} /></Routes></MemoryRouter>);
-const renderOperation = () => render(<MemoryRouter initialEntries={["/assembly-lifecycle/operations/operation-1"]}><Routes><Route path="/assembly-lifecycle/operations/:operationId" element={<><AssemblyLifecycleOperationPage /><LocationProbe /></>} /></Routes></MemoryRouter>);
+function OperationHarness() { const navigate = useNavigate(); return <><button type="button" onClick={() => navigate("/assembly-lifecycle/operations/operation-2")}>切换操作</button><AssemblyLifecycleOperationPage /><LocationProbe /></>; }
+const renderPlan = () => render(<MemoryRouter initialEntries={["/assembly-lifecycle/plans/lifecycle-plan-1"]}><Routes><Route path="/assembly-lifecycle/plans/:planId" element={<><AssemblyLifecyclePlanPage /><LocationProbe /></>} /><Route path="/assembly-lifecycle/operations/:operationId" element={<div>操作页</div>} /><Route path="/login" element={<LocationProbe />} /></Routes></MemoryRouter>);
+const renderOperation = () => render(<MemoryRouter initialEntries={["/assembly-lifecycle/operations/operation-1"]}><Routes><Route path="/assembly-lifecycle/operations/:operationId" element={<OperationHarness />} /><Route path="/login" element={<LocationProbe />} /></Routes></MemoryRouter>);
 const renderEntry = () => render(<MemoryRouter initialEntries={["/assemblies/run-1/lifecycle"]}><Routes><Route path="/assemblies/:runId/lifecycle" element={<EntryHarness />} /></Routes></MemoryRouter>);
 
-beforeEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); permissionState.permissions = ["assembly.read", "assembly.lifecycle.plan", "assembly.lifecycle.execute"]; });
+beforeEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); authState.permissions = ["assembly.read", "assembly.lifecycle.plan", "assembly.lifecycle.execute"]; authState.logout.mockReset().mockResolvedValue(undefined); });
 
 describe("assembly lifecycle pages", () => {
   it("renders safe changes and executes only after high-risk confirmation", async () => {
@@ -43,8 +44,49 @@ describe("assembly lifecycle pages", () => {
     await waitFor(() => expect(execute).toHaveBeenCalledWith("lifecycle-plan-1", 2, sha("3"), sha("2"), expect.objectContaining({ idempotencyKey: expect.any(String) })));
   });
 
+  it("requires an explicit new login for a stale high-risk session and preserves the execute intent", async () => {
+    vi.spyOn(assemblyClient, "getLifecyclePlan").mockResolvedValue(plan);
+    vi.spyOn(assemblyClient, "executeLifecyclePlan").mockRejectedValue(new AuthApiError("Reauthentication required", {
+      status: 403, code: "admin_auth.reauthentication_required", retryable: false, requestId: "request-reauth",
+    }));
+    renderPlan();
+    fireEvent.click(await screen.findByRole("button", { name: "执行计划" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("需要近期重新认证");
+    const storageKey = "assembly_lifecycle_intent:execute:lifecycle-plan-1";
+    const originalIntent = sessionStorage.getItem(storageKey);
+    expect(originalIntent).toMatch(/^assembly-lifecycle-/);
+    fireEvent.click(screen.getByRole("button", { name: "重新登录并返回计划" }));
+    await waitFor(() => expect(authState.logout).toHaveBeenCalledTimes(1));
+    expect(await screen.findByLabelText("current route")).toHaveTextContent("/login|/assembly-lifecycle/plans/lifecycle-plan-1");
+    expect(sessionStorage.getItem(storageKey)).toBe(originalIntent);
+  });
+
+  it("changes an idempotency intent only after the operator abandons the conflicting intent", async () => {
+    vi.spyOn(assemblyClient, "getLifecyclePlan").mockResolvedValue(plan);
+    const execute = vi.spyOn(assemblyClient, "executeLifecyclePlan")
+      .mockRejectedValueOnce(new AuthApiError("Conflict", { status: 409, code: "assembly.idempotency_conflict", retryable: false }))
+      .mockResolvedValueOnce({ ...operation, status: "planned", recovery: { retryable: false, rollback_available: false, cancel_allowed: true } });
+    renderPlan();
+    fireEvent.click(await screen.findByRole("button", { name: "执行计划" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    const storageKey = "assembly_lifecycle_intent:execute:lifecycle-plan-1";
+    await screen.findByRole("button", { name: "放弃旧意图并重新发起" });
+    const originalIntent = sessionStorage.getItem(storageKey);
+    expect(originalIntent).toMatch(/^assembly-lifecycle-/);
+    expect(execute).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "放弃旧意图并重新发起" }));
+    expect(sessionStorage.getItem(storageKey)).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+    expect(execute.mock.calls[1][4].idempotencyKey).not.toBe(originalIntent);
+  });
+
   it("disables execute when the operator lacks lifecycle execute permission", async () => {
-    permissionState.permissions = ["assembly.read"];
+    authState.permissions = ["assembly.read"];
     vi.spyOn(assemblyClient, "getLifecyclePlan").mockResolvedValue(plan);
     renderPlan();
     expect(await screen.findByRole("button", { name: "执行计划" })).toBeDisabled();
@@ -77,8 +119,8 @@ describe("assembly lifecycle pages", () => {
     renderOperation();
     fireEvent.click(await screen.findByRole("button", { name: "验证 Manifest" }));
     fireEvent.click(screen.getByRole("button", { name: "验证 Generated Lock" }));
-    await waitFor(() => expect(getManifest).toHaveBeenCalledWith("assembly-1", { timeoutMs: 20_000 }));
-    await waitFor(() => expect(getLock).toHaveBeenCalledWith("lock-1", { timeoutMs: 20_000 }));
+    await waitFor(() => expect(getManifest).toHaveBeenCalledWith("assembly-1", expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 20_000 })));
+    await waitFor(() => expect(getLock).toHaveBeenCalledWith("lock-1", expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 20_000 })));
     expect(await screen.findByText("Manifest assembly-1 已验证")).toBeInTheDocument();
     expect(await screen.findByText("Generated Lock lock-1 已验证")).toBeInTheDocument();
     expect(screen.queryByText("must-not-render")).not.toBeInTheDocument();
@@ -113,6 +155,46 @@ describe("assembly lifecycle pages", () => {
     fireEvent.click(await screen.findByRole("button", { name: "验证 Manifest" }));
     expect(await screen.findByText("Manifest 验证失败")).toBeInTheDocument();
     expect(getManifest).not.toHaveBeenCalled();
+  });
+
+  it("aborts and ignores a late artifact verification after the operation route changes", async () => {
+    const completed = { ...operation, status: "completed" as const, target: artifact, manifest_url: "/api/v1/admin/assembly-manifests/assembly-1" };
+    const successor = { ...operation, operation_id: "operation-2", root_operation_id: "operation-2", lifecycle_plan_id: "lifecycle-plan-2", status: "failed" as const };
+    vi.spyOn(assemblyClient, "getLifecycleOperation").mockImplementation(async (id) => id === "operation-2" ? successor : completed);
+    let resolveManifest!: (value: Awaited<ReturnType<typeof assemblyClient.getManifest>>) => void;
+    const manifestResponse = new Promise<Awaited<ReturnType<typeof assemblyClient.getManifest>>>((resolve) => { resolveManifest = resolve; });
+    const getManifest = vi.spyOn(assemblyClient, "getManifest").mockReturnValue(manifestResponse);
+    renderOperation();
+    fireEvent.click(await screen.findByRole("button", { name: "验证 Manifest" }));
+    await waitFor(() => expect(getManifest).toHaveBeenCalled());
+    const signal = getManifest.mock.calls[0][1]?.signal;
+    fireEvent.click(screen.getByRole("button", { name: "切换操作" }));
+    await waitFor(() => expect(screen.getByLabelText("current route")).toHaveTextContent("/assembly-lifecycle/operations/operation-2"));
+    resolveManifest({ assembly_id: "assembly-1", product_id: "product-1", lifecycle_operation_id: "operation-1", schema_version: "1.0.0", document: {}, document_checksum: sha("8"), checksum: sha("a"), created_at: "2026-07-16T01:01:00Z" });
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+    expect(screen.queryByText(/Manifest .* 已验证/)).not.toBeInTheDocument();
+  });
+
+  it("continues bounded polling after a transient poll failure", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const executing = { ...operation, status: "executing" as const, completed_at: null, recovery: { retryable: false, rollback_available: false, cancel_allowed: false } };
+    const completed = { ...executing, status: "completed" as const, completed_at: "2026-07-16T01:03:00Z" };
+    const get = vi.spyOn(assemblyClient, "getLifecycleOperation")
+      .mockResolvedValueOnce(executing)
+      .mockRejectedValueOnce(new AuthApiError("Temporary", { status: 503, code: "assembly.lifecycle_unavailable", retryable: true }))
+      .mockResolvedValueOnce(completed);
+    try {
+      renderOperation();
+      await waitFor(() => expect(screen.getByText("执行中")).toBeInTheDocument());
+      await vi.advanceTimersByTimeAsync(2_100);
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("alert")).toHaveTextContent("尚未就绪");
+      await vi.advanceTimersByTimeAsync(4_100);
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+      expect(await screen.findByText("已完成")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("replaces the route with the new rollback operation id and stops reading the predecessor", async () => {
@@ -154,7 +236,7 @@ describe("assembly lifecycle pages", () => {
   });
 
   it("fails closed when read permission is missing", async () => {
-    permissionState.permissions = ["assembly.lifecycle.execute"];
+    authState.permissions = ["assembly.lifecycle.execute"];
     const get = vi.spyOn(assemblyClient, "getLifecycleOperation");
     renderOperation();
     expect(await screen.findByRole("alert")).toHaveTextContent("缺少 assembly.read 权限");
@@ -197,5 +279,25 @@ describe("assembly lifecycle pages", () => {
     fireEvent.change(screen.getByLabelText("生成器版本（必填）"), { target: { value: "generator.web@1.1.0" } });
     fireEvent.click(screen.getByRole("button", { name: "生成计划" }));
     await waitFor(() => expect(create).toHaveBeenCalledWith("assembly-1", expect.objectContaining({ expected_manifest_checksum: sha("8"), expected_lock_checksum: sha("9") }), expect.any(Object)));
+  });
+
+  it("restarts a conflicting plan intent only after the operator explicitly abandons it", async () => {
+    const completed = { ...run, status: "completed" as const, product_id: "product-1", completed_at: "2026-07-16T01:02:00Z", manifest_url: "/api/v1/admin/assembly-manifests/assembly-1", lock_url: "/api/v1/admin/generated-project-locks/lock-initial" };
+    vi.spyOn(assemblyClient, "getRun").mockResolvedValue(completed);
+    vi.spyOn(assemblyClient, "getLifecycleSource").mockResolvedValue(artifact);
+    const create = vi.spyOn(assemblyClient, "createUpgradePlan")
+      .mockRejectedValueOnce(new AuthApiError("Conflict", { status: 409, code: "assembly.idempotency_conflict", retryable: false }))
+      .mockResolvedValueOnce(plan);
+    renderEntry();
+    await screen.findByRole("button", { name: "生成计划" });
+    fireEvent.change(screen.getByLabelText("模板版本（必填）"), { target: { value: "admin.web@1.1.0" } });
+    fireEvent.change(screen.getByLabelText("生成器版本（必填）"), { target: { value: "generator.web@1.1.0" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成计划" }));
+    await screen.findByRole("button", { name: "放弃旧意图并重新发起" });
+    const originalIntent = create.mock.calls[0][2].idempotencyKey;
+    expect(create).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "放弃旧意图并重新发起" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1][2].idempotencyKey).not.toBe(originalIntent);
   });
 });

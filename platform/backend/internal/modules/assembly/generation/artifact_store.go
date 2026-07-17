@@ -43,6 +43,10 @@ func (s *ArtifactStore) Root() string {
 }
 
 func (s *ArtifactStore) LoadPublished(request Request) (ArtifactBundle, bool, error) {
+	return s.loadPublishedRecoverable(request, request.TargetSnapshotChecksum)
+}
+
+func (s *ArtifactStore) loadPublishedRecoverable(request Request, expectedSourceSnapshotChecksum string) (ArtifactBundle, bool, error) {
 	if s == nil || s.root == "" {
 		return ArtifactBundle{}, false, ErrArtifactStore
 	}
@@ -52,45 +56,15 @@ func (s *ArtifactStore) LoadPublished(request Request) (ArtifactBundle, bool, er
 	} else if err != nil {
 		return ArtifactBundle{}, false, ErrArtifactStore
 	}
+	finalRelative := path.Dir(request.ArtifactContext.Paths.AssemblyManifestPath)
 	read := func(relative string) ([]byte, error) { return readSafeWorkspaceFile(s.root, relative) }
-	manifest, manifestErr := read(request.ArtifactContext.Paths.AssemblyManifestPath)
-	lockRaw, lockErr := read(request.ArtifactContext.Paths.GeneratedLockPath)
-	rollback, rollbackErr := read(request.ArtifactContext.Paths.RollbackPointPath)
-	journal, journalErr := read(request.ArtifactContext.Paths.CommitJournalPath)
-	result, resultErr := read(request.ArtifactContext.Paths.ResultPath)
-	if errors.Join(manifestErr, lockErr, rollbackErr, journalErr, resultErr) != nil {
-		return ArtifactBundle{}, true, ErrArtifactConflict
-	}
-	var journalDocument commitJournalDocument
-	var resultDocument generatorResultDocument
-	if jsonUnmarshalStrict(journal, &journalDocument) != nil || jsonUnmarshalStrict(result, &resultDocument) != nil || journalDocument.State != "committed" || resultDocument.Status != "succeeded" {
-		return ArtifactBundle{}, true, ErrArtifactConflict
-	}
-	lock, err := DecodeProjectLock(lockRaw)
+	bundle, err := loadRecoverableArtifactBundle(request, expectedSourceSnapshotChecksum, read, func(expected map[string]struct{}) bool {
+		return artifactFileSetMatches(finalRoot, finalRelative, expected)
+	}, true)
 	if err != nil {
-		return ArtifactBundle{}, true, ErrArtifactConflict
+		return ArtifactBundle{}, true, err
 	}
-	var manifestDocument assemblyManifestDocument
-	if jsonUnmarshalStrict(manifest, &manifestDocument) != nil {
-		return ArtifactBundle{}, true, ErrArtifactConflict
-	}
-	evidenceDocuments := make(map[string][]byte, len(manifestDocument.Evidence))
-	for _, evidence := range manifestDocument.Evidence {
-		content, err := read(evidence.Path)
-		if err != nil || !digestEqual(digestBytes(content), evidence.SHA256) {
-			return ArtifactBundle{}, true, ErrArtifactConflict
-		}
-		evidenceDocuments[evidence.Path] = content
-	}
-	files := make([]ExistingFile, 0, len(lock.Files))
-	for _, file := range lock.Files {
-		files = append(files, ExistingFile{Path: file.Path, Ownership: file.Ownership, SHA256: file.SHA256})
-	}
-	sortExistingFiles(files)
-	return ArtifactBundle{
-		AssemblyManifest: manifest, GeneratedLock: lockRaw, RollbackPoint: rollback, CommitJournal: journal,
-		GeneratorResult: result, EvidenceDocuments: evidenceDocuments, FinalSnapshot: TargetSnapshot{Files: files, Checksum: lock.TargetSnapshotChecksum},
-	}, true, nil
+	return bundle, true, nil
 }
 
 // loadRecoverableStaged returns only a complete, request-bound success
@@ -136,13 +110,23 @@ func (s *ArtifactStore) loadRecoverableStaged(request Request, expectedSourceSna
 		}
 		return readSafeWorkspaceFile(stageRoot, filepath.ToSlash(relative))
 	}
+	bundle, err := loadRecoverableArtifactBundle(request, expectedSourceSnapshotChecksum, read, func(expected map[string]struct{}) bool {
+		return artifactFileSetMatches(stageRoot, finalRelative, expected)
+	}, false)
+	if err != nil {
+		return ArtifactBundle{}, nil, true, err
+	}
+	return bundle, transaction, true, nil
+}
+
+func loadRecoverableArtifactBundle(request Request, expectedSourceSnapshotChecksum string, read func(string) ([]byte, error), exactFileSet func(map[string]struct{}) bool, requireCommitted bool) (ArtifactBundle, error) {
 	manifestRaw, manifestErr := read(request.ArtifactContext.Paths.AssemblyManifestPath)
 	lockRaw, lockErr := read(request.ArtifactContext.Paths.GeneratedLockPath)
 	rollbackRaw, rollbackErr := read(request.ArtifactContext.Paths.RollbackPointPath)
 	journalRaw, journalErr := read(request.ArtifactContext.Paths.CommitJournalPath)
 	resultRaw, resultErr := read(request.ArtifactContext.Paths.ResultPath)
 	if errors.Join(manifestErr, lockErr, rollbackErr, journalErr, resultErr) != nil {
-		return ArtifactBundle{}, nil, true, ErrArtifactConflict
+		return ArtifactBundle{}, ErrArtifactConflict
 	}
 	var manifest assemblyManifestDocument
 	var lock generatedLockDocument
@@ -152,9 +136,9 @@ func (s *ArtifactStore) loadRecoverableStaged(request Request, expectedSourceSna
 	if jsonUnmarshalStrict(manifestRaw, &manifest) != nil || jsonUnmarshalStrict(lockRaw, &lock) != nil ||
 		jsonUnmarshalStrict(rollbackRaw, &rollback) != nil || jsonUnmarshalStrict(journalRaw, &journal) != nil ||
 		jsonUnmarshalStrict(resultRaw, &result) != nil {
-		return ArtifactBundle{}, nil, true, ErrArtifactConflict
+		return ArtifactBundle{}, ErrArtifactConflict
 	}
-	if !recoverableArtifactIdentityMatches(request, expectedSourceSnapshotChecksum, manifest, lock, rollback, journal, result) ||
+	if !recoverableArtifactIdentityMatches(request, expectedSourceSnapshotChecksum, manifest, lock, rollback, journal, result, requireCommitted) ||
 		!recoverableArtifactClosureMatches(request, manifest, lock, rollback, journal, result) ||
 		validateEmbeddedDigest(manifestRaw, "manifest_checksum", manifest.ManifestChecksum) != nil ||
 		validateEmbeddedDigest(lockRaw, "lock_checksum", lock.LockChecksum) != nil ||
@@ -162,7 +146,7 @@ func (s *ArtifactStore) loadRecoverableStaged(request Request, expectedSourceSna
 		validateEmbeddedDigest(journalRaw, "journal_checksum", journal.JournalChecksum) != nil ||
 		validateEmbeddedDigest(resultRaw, "result_checksum", result.ResultChecksum) != nil ||
 		!digestEqual(lock.AssemblyManifestChecksum, manifest.ManifestChecksum) {
-		return ArtifactBundle{}, nil, true, ErrArtifactConflict
+		return ArtifactBundle{}, ErrArtifactConflict
 	}
 
 	evidenceDocuments := make(map[string][]byte, len(manifest.Evidence))
@@ -172,27 +156,30 @@ func (s *ArtifactStore) loadRecoverableStaged(request Request, expectedSourceSna
 		request.ArtifactContext.Paths.ResultPath: {},
 	}
 	for _, evidence := range manifest.Evidence {
-		content, readErr := read(evidence.Path)
-		if readErr != nil || !digestEqual(digestBytes(content), evidence.SHA256) {
-			return ArtifactBundle{}, nil, true, ErrArtifactConflict
+		content, err := read(evidence.Path)
+		if err != nil || !digestEqual(digestBytes(content), evidence.SHA256) {
+			return ArtifactBundle{}, ErrArtifactConflict
 		}
 		evidenceDocuments[evidence.Path] = content
 		expectedFiles[evidence.Path] = struct{}{}
+	}
+	if !recoverableEvidenceMatches(request, expectedSourceSnapshotChecksum, manifest.Evidence, evidenceDocuments) {
+		return ArtifactBundle{}, ErrArtifactConflict
 	}
 	backups := make(map[string][]byte)
 	for _, file := range rollback.Files {
 		if file.Action != "updated" {
 			continue
 		}
-		content, readErr := read(file.BackupPath)
-		if readErr != nil || !digestEqual(digestBytes(content), file.SHA256) {
-			return ArtifactBundle{}, nil, true, ErrArtifactConflict
+		content, err := read(file.BackupPath)
+		if err != nil || !digestEqual(digestBytes(content), file.SHA256) {
+			return ArtifactBundle{}, ErrArtifactConflict
 		}
 		backups[file.BackupPath] = content
 		expectedFiles[file.BackupPath] = struct{}{}
 	}
-	if !stagedFileSetMatches(stageRoot, finalRelative, expectedFiles) {
-		return ArtifactBundle{}, nil, true, ErrArtifactConflict
+	if !exactFileSet(expectedFiles) {
+		return ArtifactBundle{}, ErrArtifactConflict
 	}
 	files := make([]ExistingFile, 0, len(lock.Files))
 	for _, file := range lock.Files {
@@ -205,9 +192,9 @@ func (s *ArtifactStore) loadRecoverableStaged(request Request, expectedSourceSna
 		FinalSnapshot: TargetSnapshot{Files: files, Checksum: lock.TargetSnapshotChecksum},
 	}
 	if validateArtifactBundlePaths(request, bundle) != nil {
-		return ArtifactBundle{}, nil, true, ErrArtifactConflict
+		return ArtifactBundle{}, ErrArtifactConflict
 	}
-	return bundle, transaction, true, nil
+	return bundle, nil
 }
 
 func recoverableArtifactClosureMatches(request Request, manifest assemblyManifestDocument, lock generatedLockDocument, rollback rollbackPointDocument, journal commitJournalDocument, result generatorResultDocument) bool {
@@ -219,7 +206,9 @@ func recoverableArtifactClosureMatches(request Request, manifest assemblyManifes
 		manifest.CreatedAt != request.ArtifactContext.CreatedAt ||
 		!digestEqual(lock.BlueprintChecksum, manifest.Blueprint.Checksum) ||
 		!digestEqual(lock.CatalogChecksum, manifest.CatalogChecksum) || lock.Generator != manifest.Generator ||
-		lock.CreatedAt != manifest.CreatedAt || !digestEqual(lock.TargetSnapshotChecksum, resultTargetChecksum(result)) {
+		lock.CreatedAt != manifest.CreatedAt || lock.RollbackPointPath != request.ArtifactContext.Paths.RollbackPointPath ||
+		!digestEqual(lock.TargetSnapshotChecksum, resultTargetChecksum(result)) || !rollbackSourceMatchesRequest(request, rollback) ||
+		!dependencyClosureMatches(manifest, lock) || !secretRefsMatch(request.SecretRefs, manifest.SecretRefs) {
 		return false
 	}
 	for index := range manifest.Product.Applications {
@@ -227,8 +216,7 @@ func recoverableArtifactClosureMatches(request Request, manifest assemblyManifes
 			return false
 		}
 	}
-	if !recoverableOutputsMatch(request.DesiredOutputs, manifest.Outputs) ||
-		!recoverableEvidenceMatches(request.ArtifactContext.Evidence, manifest.Evidence) {
+	if !recoverableOutputsMatch(request.DesiredOutputs, manifest.Outputs) {
 		return false
 	}
 	lockByPath := make(map[string]LockedFile, len(lock.Files))
@@ -237,6 +225,12 @@ func recoverableArtifactClosureMatches(request Request, manifest assemblyManifes
 			return false
 		}
 		lockByPath[file.Path] = file
+	}
+	for _, output := range manifest.Outputs {
+		locked, ok := lockByPath[output.Path]
+		if !ok || locked.Ownership != output.Ownership || !digestEqual(locked.SHA256, output.SHA256) {
+			return false
+		}
 	}
 	changes := make(map[string]journalFile, len(journal.Changes))
 	for _, change := range journal.Changes {
@@ -258,10 +252,71 @@ func recoverableArtifactClosureMatches(request Request, manifest assemblyManifes
 	if len(rollback.Files) != len(journal.Changes) {
 		return false
 	}
+	backupRoot := path.Join(path.Dir(request.ArtifactContext.Paths.RollbackPointPath), "backups")
 	for _, file := range rollback.Files {
 		change, ok := changes[file.Path]
 		if !ok || file.Action != change.Action || file.Ownership != change.Ownership || file.BackupPath != change.BackupPath ||
-			(file.Action == "updated" && !digestEqual(file.SHA256, change.BeforeSHA256)) {
+			(file.Action == "updated" && (!digestEqual(file.SHA256, change.BeforeSHA256) || file.BackupPath != path.Join(backupRoot, file.Path))) ||
+			(file.Action != "updated" && (file.SHA256 != "" || file.BackupPath != "")) {
+			return false
+		}
+	}
+	return true
+}
+
+func rollbackSourceMatchesRequest(request Request, rollback rollbackPointDocument) bool {
+	if request.Operation == "upgrade" {
+		return rollback.PreviousState == "present" && rollback.ManifestPath == request.Inputs.PreviousManifestPath &&
+			rollback.LockPath == request.Inputs.PreviousLockPath && validDigest(rollback.ManifestSHA256) && validDigest(rollback.LockSHA256)
+	}
+	return rollback.PreviousState == "absent" && rollback.ManifestPath == "" && rollback.ManifestSHA256 == "" && rollback.LockPath == "" && rollback.LockSHA256 == ""
+}
+
+func dependencyClosureMatches(manifest assemblyManifestDocument, lock generatedLockDocument) bool {
+	type dependency struct{ version, checksum string }
+	compare := func(manifestValues map[string]dependency, locked []LockedDependency) bool {
+		if len(manifestValues) != len(locked) {
+			return false
+		}
+		for _, value := range locked {
+			want, ok := manifestValues[value.ID]
+			if !ok || want.version != value.Version || !digestEqual(want.checksum, value.Checksum) {
+				return false
+			}
+			delete(manifestValues, value.ID)
+		}
+		return len(manifestValues) == 0
+	}
+	packages := make(map[string]dependency, len(manifest.Packages))
+	for _, value := range manifest.Packages {
+		if _, duplicate := packages[value.PackageID]; duplicate {
+			return false
+		}
+		packages[value.PackageID] = dependency{value.Version, value.Checksum}
+	}
+	templates := make(map[string]dependency, len(manifest.Templates))
+	for _, value := range manifest.Templates {
+		if _, duplicate := templates[value.TemplateID]; duplicate {
+			return false
+		}
+		templates[value.TemplateID] = dependency{value.Version, value.Checksum}
+	}
+	sdks := make(map[string]dependency, len(manifest.SDKs))
+	for _, value := range manifest.SDKs {
+		if _, duplicate := sdks[value.SDKID]; duplicate {
+			return false
+		}
+		sdks[value.SDKID] = dependency{value.Version, value.Checksum}
+	}
+	return compare(packages, lock.Packages) && compare(templates, lock.Templates) && compare(sdks, lock.SDKs)
+}
+
+func secretRefsMatch(expected, actual []SecretRef) bool {
+	if len(expected) != len(actual) {
+		return false
+	}
+	for index := range expected {
+		if expected[index] != actual[index] {
 			return false
 		}
 	}
@@ -292,8 +347,9 @@ func recoverableOutputsMatch(expected []OutputSpec, actual []manifestOutput) boo
 	return len(byPath) == 0
 }
 
-func recoverableEvidenceMatches(expected, actual []Evidence) bool {
-	if len(expected) != len(actual) {
+func recoverableEvidenceMatches(request Request, expectedSourceSnapshotChecksum string, actual []Evidence, documents map[string][]byte) bool {
+	expected := request.ArtifactContext.Evidence
+	if len(expected) != len(actual) || len(documents) != len(actual) {
 		return false
 	}
 	byID := make(map[string]Evidence, len(expected))
@@ -305,12 +361,40 @@ func recoverableEvidenceMatches(expected, actual []Evidence) bool {
 	}
 	for _, evidence := range actual {
 		want, ok := byID[evidence.EvidenceID]
-		if !ok || evidence != want {
+		if !ok || evidence.Type != want.Type || evidence.Status != want.Status || evidence.Path != want.Path {
 			return false
+		}
+		if evidence.SHA256 != want.SHA256 {
+			if evidence.EvidenceID != "evidence.generator-contract" || !recoverableGeneratorReportMatches(request, expectedSourceSnapshotChecksum, documents[evidence.Path]) {
+				return false
+			}
 		}
 		delete(byID, evidence.EvidenceID)
 	}
 	return len(byID) == 0
+}
+
+func recoverableGeneratorReportMatches(request Request, expectedSourceSnapshotChecksum string, raw []byte) bool {
+	var report struct {
+		SchemaVersion          string `json:"schema_version"`
+		RequestID              string `json:"request_id"`
+		ExecutionID            string `json:"execution_id"`
+		PlanChecksum           string `json:"plan_checksum"`
+		BlueprintChecksum      string `json:"blueprint_checksum"`
+		CatalogChecksum        string `json:"catalog_checksum"`
+		TargetSnapshotChecksum string `json:"target_snapshot_checksum"`
+		GeneratorChecksum      string `json:"generator_checksum"`
+		Status                 string `json:"status"`
+	}
+	executionID := request.ArtifactContext.RunID
+	if request.ArtifactContext.LifecycleOperationID != "" {
+		executionID = request.ArtifactContext.LifecycleOperationID
+	}
+	return jsonUnmarshalStrict(raw, &report) == nil && report.SchemaVersion == "1.0.0" &&
+		report.RequestID == request.RequestID && report.ExecutionID == executionID && report.Status == "passed" &&
+		digestEqual(report.PlanChecksum, request.PlanChecksum) && digestEqual(report.BlueprintChecksum, request.ArtifactContext.Blueprint.Checksum) &&
+		digestEqual(report.CatalogChecksum, request.ArtifactContext.CatalogChecksum) && digestEqual(report.TargetSnapshotChecksum, expectedSourceSnapshotChecksum) &&
+		digestEqual(report.GeneratorChecksum, request.Generator.Checksum)
 }
 
 func resultTargetChecksum(result generatorResultDocument) string {
@@ -329,8 +413,8 @@ func resultTargetChecksum(result generatorResultDocument) string {
 	return checksum
 }
 
-func recoverableArtifactIdentityMatches(request Request, expectedSourceSnapshotChecksum string, manifest assemblyManifestDocument, lock generatedLockDocument, rollback rollbackPointDocument, journal commitJournalDocument, result generatorResultDocument) bool {
-	if journal.State != "prepared" && journal.State != "committed" {
+func recoverableArtifactIdentityMatches(request Request, expectedSourceSnapshotChecksum string, manifest assemblyManifestDocument, lock generatedLockDocument, rollback rollbackPointDocument, journal commitJournalDocument, result generatorResultDocument, requireCommitted bool) bool {
+	if (requireCommitted && journal.State != "committed") || (!requireCommitted && journal.State != "prepared" && journal.State != "committed") {
 		return false
 	}
 	return manifest.AssemblyID == request.ArtifactContext.AssemblyID && manifest.RunID == request.ArtifactContext.RunID &&
@@ -338,6 +422,7 @@ func recoverableArtifactIdentityMatches(request Request, expectedSourceSnapshotC
 		lock.RunID == request.ArtifactContext.RunID && lock.LifecycleOperationID == request.ArtifactContext.LifecycleOperationID &&
 		rollback.RollbackID == request.ArtifactContext.RollbackID && rollback.WorkspaceRef == request.WorkspaceRef &&
 		journal.RequestID == request.RequestID && journal.WorkspaceRef == request.WorkspaceRef &&
+		!journal.RollbackAttempted && !journal.RollbackCompleted &&
 		validDigest(expectedSourceSnapshotChecksum) && digestEqual(journal.TargetSnapshotChecksum, expectedSourceSnapshotChecksum) &&
 		digestEqual(rollback.TargetSnapshotChecksum, expectedSourceSnapshotChecksum) &&
 		result.RequestID == request.RequestID && result.Status == "succeeded" && result.AtomicCommitCompleted &&
@@ -356,7 +441,7 @@ func validateEmbeddedDigest(raw []byte, field, expected string) error {
 	return nil
 }
 
-func stagedFileSetMatches(stageRoot, finalRelative string, expected map[string]struct{}) bool {
+func artifactFileSetMatches(stageRoot, finalRelative string, expected map[string]struct{}) bool {
 	seen := make(map[string]struct{}, len(expected))
 	err := filepath.Walk(stageRoot, func(current string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info.Mode()&os.ModeSymlink != 0 {

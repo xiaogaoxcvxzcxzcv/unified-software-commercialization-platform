@@ -140,7 +140,7 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
-		return r.finalizeInterrupted(ctx, dispatch.OperationID, "assembly.lifecycle_lease_lost", errors.Join(err, renewErr))
+		return r.requeueInterrupted(ctx, dispatch.OperationID, "assembly.lifecycle_lease_lost", errors.Join(err, renewErr))
 	default:
 	}
 	if executionErr != nil {
@@ -151,7 +151,7 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		if errors.Is(executionErr, context.DeadlineExceeded) {
 			code = "assembly.lifecycle_execution_timeout"
 		}
-		return r.finalizeInterrupted(ctx, dispatch.OperationID, code, errors.Join(err, executionErr))
+		return r.requeueInterrupted(ctx, dispatch.OperationID, code, errors.Join(err, executionErr))
 	}
 	return err
 }
@@ -286,35 +286,6 @@ func (r *Runner) heartbeat(ctx context.Context, cancel context.CancelFunc, opera
 			}
 		}
 	}
-}
-
-func (r *Runner) finalizeInterrupted(parent context.Context, operationID, code string, cause error) error {
-	bound := r.lease
-	if bound > 10*time.Second {
-		bound = 10 * time.Second
-	}
-	if bound < time.Second {
-		bound = time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), bound)
-	defer cancel()
-	operation, readErr := r.reader.GetLifecycleOperation(ctx, operationID)
-	var persistErr error
-	if readErr == nil && operation.Status != core.LifecycleCompleted && operation.Status != core.LifecycleFailed && operation.Status != core.LifecycleCancelled && operation.Status != core.LifecycleRolledBack && operation.Status != core.LifecycleRollbackFailed {
-		status := core.LifecycleFailed
-		if operation.Status == core.LifecycleRollingBack {
-			status = core.LifecycleRollbackFailed
-		}
-		diagnostic := core.RunDiagnostic{DiagnosticID: r.mustID("diagnostic_"), Code: code, Severity: "error", Category: "generation", Message: "Lifecycle execution stopped before the worker lease could be safely maintained", Blocking: true, Retryable: false, Remediation: []string{"Inspect worker health and create a new lifecycle plan"}, RelatedPaths: []string{}, CreatedAt: r.now().UTC()}
-		failed, evolveErr := core.EvolveLifecycleOperation(operation, status, "", nil, core.LifecycleRecovery{}, []core.RunDiagnostic{diagnostic}, nil, r.nextTime(operation.UpdatedAt))
-		if evolveErr == nil {
-			_, persistErr = r.repository.UpdateLifecycleOperation(ctx, core.UpdateLifecycleOperationRecord{Operation: failed, ExpectedVersion: operation.Version, Diagnostics: []core.RunDiagnostic{diagnostic}, Event: r.event(failed, "assembly.lifecycle_failed.v1", "assembly.lifecycle.failed", "failure", code)})
-		} else {
-			persistErr = evolveErr
-		}
-	}
-	requeueErr := r.repository.RequeueLifecycleDispatch(ctx, operationID, r.workerID, code, r.now().UTC(), r.now().UTC(), true)
-	return errors.Join(cause, readErr, persistErr, requeueErr)
 }
 
 func (r *Runner) fail(ctx context.Context, current core.LifecycleOperation, transition core.LifecycleArtifactTransition, cause error) error {

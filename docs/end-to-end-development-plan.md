@@ -502,7 +502,7 @@ platform/client-ui/hosted-web/
 
 ### G1-10 公开升级、回滚与 Eject 生命周期
 
-状态：`in_progress`（2026-07-16）。ADR-0014、OpenAPI、`000013`、权限、Core/PostgreSQL/HTTP、durable worker、管理后台和组合层已实现；真实 PostgreSQL Full 18 项、110 项管理后台测试、生产构建以及桌面/移动空状态和失败关闭浏览器检查通过。生产受信目录仍为空，受控候选实际 upgrade、漂移/custom 阻断、rollback、eject 和后继 Manifest/lock 浏览器证据尚未完成，因此不得标记 `verified`。阶段证据见 `artifacts/reviews/G1-10/lifecycle-api.md`。
+状态：`candidate_verified_local`（2026-07-17，等待托管 CI）。ADR-0014、OpenAPI、`000013`、权限、Core/PostgreSQL/HTTP、durable worker、管理后台和组合层已实现；真实 PostgreSQL Full 18/18、133 项管理后台测试和生产构建通过。受控 experimental 候选已在真实浏览器完成近期重新认证回跳、upgrade、后继 Manifest/lock 验证、rollback、回滚后 Manifest/lock 验证和 generated 漂移阻断；执行前重建发现的 PostgreSQL 微秒时间精度 P1 已修复并加入回归测试。生产受信目录仍为空，完整包 ST-031 继续留在 G2C；托管 required check 绿色前不得标记 `verified`，G1-11 保持 `planned`。证据见 `artifacts/reviews/G1-10/lifecycle-api.md`。
 
 交付：`upgrade-plan`、`eject-plan`、`execute`、Run/Operation `cancel`、`rollback` 管理 API、OpenAPI、权限、近期认证、审计、幂等记录、durable dispatch、迁移/补偿状态与管理后台入口。
 

@@ -19,4 +19,9 @@ describe("lifecycle error projection", () => {
   it("does not expose non-API exception messages", () => {
     expect(lifecycleErrorMessage(new Error("C:/secret/source"), "生命周期请求失败")).toBe("生命周期请求失败");
   });
+
+  it("gives stale high-risk sessions an explicit reauthentication instruction", () => {
+    const error = new AuthApiError("Forbidden", { status: 403, code: "admin_auth.reauthentication_required", retryable: false });
+    expect(lifecycleErrorMessage(error, "执行失败")).toBe("此操作需要近期重新认证。请重新登录后返回当前页面继续。");
+  });
 });

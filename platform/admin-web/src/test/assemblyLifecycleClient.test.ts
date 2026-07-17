@@ -46,6 +46,13 @@ describe("assembly lifecycle client", () => {
     await expect(assemblyClient.getLifecyclePlan("lifecycle-plan-1")).rejects.toThrow("unknown or missing fields");
   });
 
+  it("fails closed when lifecycle execution projections disagree", async () => {
+    authenticatedRequest.mockResolvedValue({ ...plan, conflicts: [{ conflict_id: "conflict-1", code: "assembly.target_conflict", category: "target", blocking: true, message: "Resolve target conflict", paths: [], remediation: ["Select a compatible target"] }], blocking_conflict_count: 0, executable: true });
+    await expect(assemblyClient.getLifecyclePlan("lifecycle-plan-1")).rejects.toThrow("execution projection is inconsistent");
+    authenticatedRequest.mockResolvedValue({ ...plan, blocking_conflict_count: 0, executable: false });
+    await expect(assemblyClient.getLifecyclePlan("lifecycle-plan-1")).rejects.toThrow("execution projection is inconsistent");
+  });
+
   it("rejects path-like display values even when embedded in lifecycle projections", async () => {
     authenticatedRequest.mockResolvedValue({ ...plan, statements: ["Review failed at D:/private/workspace"] });
     await expect(assemblyClient.getLifecyclePlan("lifecycle-plan-1")).rejects.toThrow("confirmation statement");

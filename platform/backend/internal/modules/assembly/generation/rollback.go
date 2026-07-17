@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -41,19 +42,31 @@ func (e *RollbackExecutor) Rollback(ctx context.Context, targetRoot, rollbackPoi
 		!digestEqual(rollback.TargetSnapshotChecksum, journal.TargetSnapshotChecksum) || len(rollback.Files) != len(journal.Changes) {
 		return TargetSnapshot{}, ErrArtifactConflict
 	}
+	lockPath := path.Join(path.Dir(rollbackPointPath), "generated-project-lock.json")
+	lockRaw, err := readSafeWorkspaceFile(e.artifacts.root, lockPath)
+	if err != nil || e.contracts.Validate("generated-project-lock", lockRaw) != nil {
+		return TargetSnapshot{}, ErrArtifactStore
+	}
+	finalLock, err := DecodeProjectLock(lockRaw)
+	if err != nil || validateEmbeddedDigest(lockRaw, "lock_checksum", finalLock.LockChecksum) != nil || finalLock.RollbackPointPath != rollbackPointPath {
+		return TargetSnapshot{}, ErrArtifactConflict
+	}
 	if journal.State == "rolled_back" {
-		return verifyRollbackSnapshot(targetRoot, rollback, journal)
+		return verifyRollbackSnapshot(targetRoot, rollback, journal, finalLock)
 	}
 	if journal.State != "committed" {
 		return TargetSnapshot{}, ErrArtifactConflict
+	}
+	if snapshot, verifyErr := verifyRollbackSnapshot(targetRoot, rollback, journal, finalLock); verifyErr == nil {
+		if err := e.markRollbackJournal(commitJournalPath, true); err != nil {
+			return TargetSnapshot{}, err
+		}
+		return snapshot, nil
 	}
 	select {
 	case <-ctx.Done():
 		return TargetSnapshot{}, ctx.Err()
 	default:
-	}
-	if err := verifyCommittedChanges(targetRoot, journal); err != nil {
-		return TargetSnapshot{}, err
 	}
 	recoveryRelative := ".runtime/generator/rollback-" + strings.TrimPrefix(digestBytes([]byte(rollback.RollbackID)), "sha256:")[:24]
 	recoveryRoot, err := resolveNonexistentPath(targetRoot, recoveryRelative)
@@ -68,7 +81,28 @@ func (e *RollbackExecutor) Rollback(ctx context.Context, targetRoot, rollbackPoi
 	applied := make([]appliedChange, 0, len(journal.Changes))
 	for _, change := range journal.Changes {
 		if change.Action == "unchanged" {
+			content, exists, readErr := readOptionalSafeFile(targetRoot, change.Path)
+			if readErr != nil || !exists || !digestEqual(digestBytes(content), change.AfterSHA256) {
+				return TargetSnapshot{}, ErrTargetChanged
+			}
 			continue
+		}
+		content, exists, readErr := readOptionalSafeFile(targetRoot, change.Path)
+		if readErr != nil {
+			return TargetSnapshot{}, readErr
+		}
+		actual := ""
+		if exists {
+			actual = digestBytes(content)
+		}
+		if change.Action == "created" && !exists {
+			continue
+		}
+		if change.Action == "updated" && exists && digestEqual(actual, change.BeforeSHA256) {
+			continue
+		}
+		if !exists || !digestEqual(actual, change.AfterSHA256) {
+			return TargetSnapshot{}, ErrTargetChanged
 		}
 		item := appliedChange{change: FileChange{Path: change.Path, Ownership: change.Ownership, Action: change.Action, SHA256: change.AfterSHA256, PreviousSHA256: change.BeforeSHA256}, mode: 0o644}
 		targetPath := filepath.Join(targetRoot, filepath.FromSlash(change.Path))
@@ -94,7 +128,7 @@ func (e *RollbackExecutor) Rollback(ctx context.Context, targetRoot, rollbackPoi
 		_ = e.markRollbackJournal(commitJournalPath, false)
 		return TargetSnapshot{}, ErrRollbackFailed
 	}
-	snapshot, err := verifyRollbackSnapshot(targetRoot, rollback, journal)
+	snapshot, err := verifyRollbackSnapshot(targetRoot, rollback, journal, finalLock)
 	if err != nil {
 		_ = e.markRollbackJournal(commitJournalPath, false)
 		return TargetSnapshot{}, err
@@ -105,27 +139,30 @@ func (e *RollbackExecutor) Rollback(ctx context.Context, targetRoot, rollbackPoi
 	return snapshot, nil
 }
 
-func verifyCommittedChanges(targetRoot string, journal commitJournalDocument) error {
-	for _, change := range journal.Changes {
-		content, err := readSafeWorkspaceFile(targetRoot, change.Path)
-		if err != nil || !digestEqual(digestBytes(content), change.AfterSHA256) {
-			return ErrTargetChanged
-		}
+func verifyRollbackSnapshot(targetRoot string, rollback rollbackPointDocument, journal commitJournalDocument, finalLock ProjectLock) (TargetSnapshot, error) {
+	files := make(map[string]LockedFile, len(finalLock.Files))
+	for _, file := range finalLock.Files {
+		files[file.Path] = file
 	}
-	return nil
-}
-
-func verifyRollbackSnapshot(targetRoot string, rollback rollbackPointDocument, journal commitJournalDocument) (TargetSnapshot, error) {
-	lock := ProjectLock{Files: make([]LockedFile, 0, len(journal.Changes))}
 	for _, change := range journal.Changes {
 		if change.Action == "created" {
+			delete(files, change.Path)
 			continue
 		}
 		before := change.BeforeSHA256
 		if change.Action == "unchanged" && before == "" {
 			before = change.AfterSHA256
 		}
-		lock.Files = append(lock.Files, LockedFile{Path: change.Path, Ownership: change.Ownership, SHA256: before, UpdatePolicy: updatePolicy(change.Ownership)})
+		file, ok := files[change.Path]
+		if !ok || file.Ownership != change.Ownership {
+			return TargetSnapshot{}, ErrRollbackFailed
+		}
+		file.SHA256 = before
+		files[change.Path] = file
+	}
+	lock := ProjectLock{Files: make([]LockedFile, 0, len(files))}
+	for _, file := range files {
+		lock.Files = append(lock.Files, file)
 	}
 	snapshot, err := InspectTarget(targetRoot, lock)
 	if err != nil || !digestEqual(snapshot.Checksum, rollback.TargetSnapshotChecksum) {
