@@ -57,6 +57,7 @@ type UserSessionContext struct {
 	TenantID      string
 	AccountStatus string
 	AuthTime      time.Time
+	AccessToken   string `json:"-"`
 }
 
 type UserSessionResolver interface {
@@ -641,6 +642,7 @@ func (h *UserHandler) logoutUser(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, r)
 		return
 	}
+	user.AccessToken = token
 	if err := h.service.LogoutUser(r.Context(), user); err != nil && !errors.Is(err, ErrUserSessionRevoked) {
 		h.writeUserError(w, r, err)
 		return
@@ -688,6 +690,7 @@ func (h *UserHandler) requireUser(w http.ResponseWriter, r *http.Request) (UserS
 		unauthorized(w, r)
 		return UserSessionContext{}, false
 	}
+	value.AccessToken = token
 	return value, true
 }
 

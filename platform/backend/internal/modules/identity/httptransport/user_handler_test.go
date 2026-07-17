@@ -76,6 +76,7 @@ type userResolverStub struct {
 	clientCalls, userCalls, logoutCalls int
 	clientToken, userToken, logoutToken string
 	clientErr, userErr, logoutErr       error
+	userAccessToken, logoutAccessToken  string
 }
 
 func (r *userResolverStub) ResolveClientSession(_ context.Context, token string) (ClientSessionContext, error) {
@@ -86,12 +87,12 @@ func (r *userResolverStub) ResolveClientSession(_ context.Context, token string)
 func (r *userResolverStub) ResolveUserSession(_ context.Context, token string) (UserSessionContext, error) {
 	r.userCalls++
 	r.userToken = token
-	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", AccountStatus: "active"}, r.userErr
+	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", AccountStatus: "active", AccessToken: r.userAccessToken}, r.userErr
 }
 func (r *userResolverStub) ResolveLogoutSession(_ context.Context, token string) (UserSessionContext, error) {
 	r.logoutCalls++
 	r.logoutToken = token
-	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", AccountStatus: "active"}, r.logoutErr
+	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", AccountStatus: "active", AccessToken: r.logoutAccessToken}, r.logoutErr
 }
 
 func TestUserHandlerImplementsFrozenRouteSurface(t *testing.T) {
@@ -220,6 +221,39 @@ func TestUserHandlerStrictBearerAndContextSeparation(t *testing.T) {
 	}
 	if resolver.userCalls != 0 {
 		t.Fatalf("client route used user resolver: %d", resolver.userCalls)
+	}
+}
+
+func TestUserHandlerBindsRequestBearerForApplicationWithoutSerialization(t *testing.T) {
+	const injected = "resolver-injected-token-must-not-win"
+	const requestToken = "request-access-token-123456"
+	service := &userServiceStub{current: CurrentUserSession{SessionID: "session-current", User: UserSummary{UserID: "user-a", AccountStatus: "active"}}}
+	resolver := &userResolverStub{userAccessToken: injected, logoutAccessToken: injected}
+	handler := NewUserHandler(service, resolver)
+
+	response := serveUser(handler, http.MethodGet, "/api/v1/auth/session", "", "Bearer "+requestToken, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("session status=%d", response.Code)
+	}
+	contextValue, ok := service.last.(UserSessionContext)
+	if !ok || contextValue.AccessToken != requestToken {
+		t.Fatal("application context did not use the request bearer")
+	}
+	encoded, err := json.Marshal(contextValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(requestToken)) || bytes.Contains(encoded, []byte(injected)) || strings.Contains(response.Body.String(), requestToken) || strings.Contains(response.Body.String(), injected) {
+		t.Fatal("access credential appeared in serialized data")
+	}
+
+	response = serveUser(handler, http.MethodPost, "/api/v1/auth/logout", "", "Bearer "+requestToken, "")
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("logout status=%d", response.Code)
+	}
+	contextValue, ok = service.last.(UserSessionContext)
+	if !ok || contextValue.AccessToken != requestToken {
+		t.Fatal("logout context did not use the request bearer")
 	}
 }
 
