@@ -27,7 +27,7 @@
 - Identity、HTTP transport、PostgreSQL repository、主服务 adapter、Account composition 和 Product User Access 专项测试通过。
 - 真实 PostgreSQL 验证注册/资料/密码并发幂等、refresh 恢复与重放、产品隔离、准入拒绝零 Session 写入、PUA audit 与范围撤销，以及三类 Identity 数据态回滚拒绝。
 - `go vet` 与 `git diff --check` 通过。
-- Full `-RequirePostgres`：18/18；机器报告为 `artifacts/reviews/F0-03/quality-gate-report.json`，提交为 `d8ca9334167b03de8ef1543672e7d409cbaf4dd9`。
+- Full `-RequirePostgres`：18/18；专属机器报告为 `artifacts/reviews/G2A-03/quality-gate-full.json`，验证提交为 `d643dd38ceeb669f51bc95c0272aeb3831be38fa`。
 - Full 内含 SDK 8/8、Client UI 14/14、Standard-A Web/desktop 各 7/7、Admin 133/133，以及所有生产构建。
 
 ## 尚未满足
