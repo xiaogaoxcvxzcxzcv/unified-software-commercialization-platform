@@ -11,6 +11,7 @@ var (
 	ErrConflict         = errors.New("PRODUCT_USER_ACCESS_CONFLICT")
 	ErrProductSuspended = errors.New("PRODUCT_USER_ACCESS_SUSPENDED")
 	ErrTenantSuspended  = errors.New("TENANT_USER_ACCESS_SUSPENDED")
+	ErrOutboxNotFound   = errors.New("product user access outbox event not found")
 )
 
 type Status string
@@ -63,6 +64,7 @@ type StatusChangeResult struct {
 	UserID        string    `json:"user_id"`
 	Status        Status    `json:"status"`
 	AccessVersion int64     `json:"access_version"`
+	AuditID       string    `json:"audit_id"`
 }
 
 type SetProductAccessStatusCommand struct {
@@ -73,6 +75,8 @@ type SetProductAccessStatusCommand struct {
 	ReasonCode      string
 	OperatorNote    string
 	IdempotencyKey  string
+	ActorID         string
+	TraceID         string
 }
 
 type SetTenantAccessStatusCommand struct {
@@ -84,6 +88,8 @@ type SetTenantAccessStatusCommand struct {
 	ReasonCode      string
 	OperatorNote    string
 	IdempotencyKey  string
+	ActorID         string
+	TraceID         string
 }
 
 type ListScopedUserIDsQuery struct {
@@ -104,5 +110,43 @@ type ChangeRecord struct {
 	RequestDigest     []byte
 	StatusEventID     string
 	RevocationEventID string
+	AuditID           string
+	ActorID           string
+	TraceID           string
 	Now               time.Time
+}
+
+// EventPayload is owned by Product User Access and can be mapped to Audit or
+// Identity by the composition root without introducing a module dependency.
+type EventPayload struct {
+	AuditID         string         `json:"audit_id"`
+	OccurredAt      time.Time      `json:"occurred_at"`
+	ActorID         string         `json:"actor_id"`
+	Permission      string         `json:"permission,omitempty"`
+	ScopeType       string         `json:"scope_type,omitempty"`
+	ScopeID         string         `json:"scope_id,omitempty"`
+	ProductID       string         `json:"product_id,omitempty"`
+	TenantID        string         `json:"tenant_id,omitempty"`
+	Action          string         `json:"action"`
+	TargetType      string         `json:"target_type"`
+	TargetID        string         `json:"target_id"`
+	Result          string         `json:"result"`
+	ReasonCode      string         `json:"reason_code,omitempty"`
+	TraceID         string         `json:"trace_id"`
+	RiskLevel       string         `json:"risk_level"`
+	RedactedSummary map[string]any `json:"redacted_summary,omitempty"`
+	UserID          string         `json:"user_id"`
+	Status          Status         `json:"status"`
+	AccessVersion   int64          `json:"access_version"`
+	StatusChangedAt time.Time      `json:"status_changed_at"`
+}
+
+type ClaimedOutboxEvent struct {
+	EventID      string
+	AggregateID  string
+	EventType    string
+	Payload      EventPayload
+	PayloadError string
+	OccurredAt   time.Time
+	AttemptCount int
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"time"
@@ -47,7 +48,7 @@ func (s *Service) SetProductAccessStatus(ctx context.Context, command SetProduct
 	if !validID(command.Product.ProductID) || !validID(command.User.UserID) {
 		return StatusChangeResult{}, ErrInvalidArgument
 	}
-	return s.setStatus(ctx, ChangeRecord{ScopeType: ScopeProduct, ProductID: command.Product.ProductID, UserID: command.User.UserID, Status: command.Status, ExpectedVersion: command.ExpectedVersion, ReasonCode: command.ReasonCode, OperatorNote: command.OperatorNote}, command.IdempotencyKey)
+	return s.setStatus(ctx, ChangeRecord{ScopeType: ScopeProduct, ProductID: command.Product.ProductID, UserID: command.User.UserID, Status: command.Status, ExpectedVersion: command.ExpectedVersion, ReasonCode: command.ReasonCode, OperatorNote: command.OperatorNote, ActorID: command.ActorID, TraceID: command.TraceID}, command.IdempotencyKey)
 }
 
 func (s *Service) SetTenantAccessStatus(ctx context.Context, command SetTenantAccessStatusCommand) (StatusChangeResult, error) {
@@ -57,11 +58,11 @@ func (s *Service) SetTenantAccessStatus(ctx context.Context, command SetTenantAc
 	if command.Tenant.ProductID != command.Product.ProductID {
 		return StatusChangeResult{}, ErrScopeMismatch
 	}
-	return s.setStatus(ctx, ChangeRecord{ScopeType: ScopeTenant, ProductID: command.Product.ProductID, TenantID: command.Tenant.TenantID, UserID: command.User.UserID, Status: command.Status, ExpectedVersion: command.ExpectedVersion, ReasonCode: command.ReasonCode, OperatorNote: command.OperatorNote}, command.IdempotencyKey)
+	return s.setStatus(ctx, ChangeRecord{ScopeType: ScopeTenant, ProductID: command.Product.ProductID, TenantID: command.Tenant.TenantID, UserID: command.User.UserID, Status: command.Status, ExpectedVersion: command.ExpectedVersion, ReasonCode: command.ReasonCode, OperatorNote: command.OperatorNote, ActorID: command.ActorID, TraceID: command.TraceID}, command.IdempotencyKey)
 }
 
 func (s *Service) setStatus(ctx context.Context, record ChangeRecord, idempotencyKey string) (StatusChangeResult, error) {
-	if s == nil || s.repository == nil || s.ids == nil || len(s.digestKey) < 32 || (record.Status != StatusActive && record.Status != StatusSuspended) || record.ExpectedVersion < 0 || !validReason(record.ReasonCode) || !validOperatorNote(record.OperatorNote) || len(idempotencyKey) < 16 || len(idempotencyKey) > 256 {
+	if s == nil || s.repository == nil || s.ids == nil || len(s.digestKey) < 32 || (record.Status != StatusActive && record.Status != StatusSuspended) || record.ExpectedVersion < 0 || !validReason(record.ReasonCode) || !validOperatorNote(record.OperatorNote) || !validID(record.ActorID) || !validID(record.TraceID) || len(idempotencyKey) < 16 || len(idempotencyKey) > 256 {
 		return StatusChangeResult{}, ErrInvalidArgument
 	}
 	keyDigest := hmacDigest(s.digestKey, []byte(idempotencyKey))
@@ -74,11 +75,15 @@ func (s *Service) setStatus(ctx context.Context, record ChangeRecord, idempotenc
 		ExpectedVersion int64     `json:"expected_version"`
 		ReasonCode      string    `json:"reason_code"`
 		OperatorNote    string    `json:"operator_note"`
-	}{record.ScopeType, record.ProductID, record.TenantID, record.UserID, record.Status, record.ExpectedVersion, record.ReasonCode, record.OperatorNote})
+		ActorID         string    `json:"actor_id"`
+	}{record.ScopeType, record.ProductID, record.TenantID, record.UserID, record.Status, record.ExpectedVersion, record.ReasonCode, record.OperatorNote, record.ActorID})
 	if err != nil {
 		return StatusChangeResult{}, err
 	}
 	requestDigest := hmacDigest(s.digestKey, request)
+	auditInput := []byte("product-user-access-audit\x00" + string(record.ScopeType) + "\x00" + record.ProductID + "\x00" + record.TenantID + "\x00" + record.UserID + "\x00")
+	auditDigest := hmacDigest(s.digestKey, append(auditInput, keyDigest...))
+	record.AuditID = "audit_" + hex.EncodeToString(auditDigest[:16])
 	statusEventID, err := s.ids.ID("product_user_access_event_")
 	if err != nil {
 		return StatusChangeResult{}, err
@@ -116,6 +121,32 @@ func (s *Service) ListScopedUserIDs(ctx context.Context, query ListScopedUserIDs
 		tenantID = query.Tenant.TenantID
 	}
 	return s.repository.ListScopedUserIDs(ctx, query.Product.ProductID, tenantID)
+}
+
+func (s *Service) ClaimOutbox(ctx context.Context, limit int) ([]ClaimedOutboxEvent, error) {
+	if s == nil || s.repository == nil || limit < 1 || limit > 200 {
+		return nil, ErrInvalidArgument
+	}
+	return s.repository.ClaimOutbox(ctx, s.now().UTC(), limit)
+}
+
+func (s *Service) MarkOutboxPublished(ctx context.Context, eventID string) error {
+	if s == nil || s.repository == nil || !validID(eventID) {
+		return ErrInvalidArgument
+	}
+	return s.repository.MarkOutboxPublished(ctx, eventID, s.now().UTC())
+}
+
+func (s *Service) MarkOutboxFailed(ctx context.Context, eventID, summary string, next time.Time, dead bool) error {
+	summary = strings.TrimSpace(summary)
+	if s == nil || s.repository == nil || !validID(eventID) || summary == "" || next.IsZero() {
+		return ErrInvalidArgument
+	}
+	runes := []rune(summary)
+	if len(runes) > 500 {
+		summary = string(runes[:500])
+	}
+	return s.repository.MarkOutboxFailed(ctx, eventID, summary, next.UTC(), dead)
 }
 
 func validID(value string) bool {

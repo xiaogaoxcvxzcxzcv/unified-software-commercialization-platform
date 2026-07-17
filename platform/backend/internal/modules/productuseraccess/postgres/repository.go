@@ -83,8 +83,16 @@ func (r *Repository) setStatus(ctx context.Context, record productuseraccess.Cha
 		}
 		return productuseraccess.StatusChangeResult{}, productuseraccess.ErrConflict
 	}
+	var databaseNow time.Time
+	if err := tx.QueryRow(ctx, `SELECT CURRENT_TIMESTAMP`).Scan(&databaseNow); err != nil {
+		return productuseraccess.StatusChangeResult{}, err
+	}
+	record.Now = databaseNow.UTC()
 	if exists && currentStatus == record.Status {
-		result := productuseraccess.StatusChangeResult{ScopeType: record.ScopeType, ProductID: record.ProductID, TenantID: record.TenantID, UserID: record.UserID, Status: currentStatus, AccessVersion: currentVersion}
+		result := productuseraccess.StatusChangeResult{ScopeType: record.ScopeType, ProductID: record.ProductID, TenantID: record.TenantID, UserID: record.UserID, Status: currentStatus, AccessVersion: currentVersion, AuditID: record.AuditID}
+		if err := insertAuditEvent(ctx, tx, record, currentVersion, currentChangedAt); err != nil {
+			return productuseraccess.StatusChangeResult{}, err
+		}
 		if err := finishIdempotency(ctx, tx, record, "completed", &currentVersion, record.Now); err != nil {
 			return productuseraccess.StatusChangeResult{}, err
 		}
@@ -93,11 +101,6 @@ func (r *Repository) setStatus(ctx context.Context, record productuseraccess.Cha
 		}
 		return result, nil
 	}
-	var databaseNow time.Time
-	if err := tx.QueryRow(ctx, `SELECT CURRENT_TIMESTAMP`).Scan(&databaseNow); err != nil {
-		return productuseraccess.StatusChangeResult{}, err
-	}
-	record.Now = databaseNow.UTC()
 	if exists && !record.Now.After(currentChangedAt) {
 		record.Now = currentChangedAt.Add(time.Microsecond)
 	}
@@ -110,7 +113,7 @@ func (r *Repository) setStatus(ctx context.Context, record productuseraccess.Cha
 	if err != nil {
 		return productuseraccess.StatusChangeResult{}, mapWriteError(err)
 	}
-	result := productuseraccess.StatusChangeResult{ScopeType: record.ScopeType, ProductID: record.ProductID, TenantID: record.TenantID, UserID: record.UserID, Status: record.Status, AccessVersion: nextVersion}
+	result := productuseraccess.StatusChangeResult{ScopeType: record.ScopeType, ProductID: record.ProductID, TenantID: record.TenantID, UserID: record.UserID, Status: record.Status, AccessVersion: nextVersion, AuditID: record.AuditID}
 	if err := insertEvents(ctx, tx, record, nextVersion); err != nil {
 		return productuseraccess.StatusChangeResult{}, err
 	}
@@ -124,7 +127,7 @@ func (r *Repository) setStatus(ctx context.Context, record productuseraccess.Cha
 }
 
 func reserveIdempotency(ctx context.Context, tx pgx.Tx, record productuseraccess.ChangeRecord) (productuseraccess.StatusChangeResult, bool, error) {
-	result, err := tx.Exec(ctx, `INSERT INTO product_user_access.idempotency_records(operation,scope_type,product_id,scope_id,user_id,key_digest,request_digest,state,created_at,updated_at) VALUES('set_access_status',$1,$2,$3,$4,$5,$6,'pending',$7,$7) ON CONFLICT DO NOTHING`, record.ScopeType, record.ProductID, scopeID(record), record.UserID, record.KeyDigest, record.RequestDigest, record.Now)
+	result, err := tx.Exec(ctx, `INSERT INTO product_user_access.idempotency_records(operation,scope_type,product_id,scope_id,user_id,key_digest,request_digest,audit_id,state,created_at,updated_at) VALUES('set_access_status',$1,$2,$3,$4,$5,$6,$7,'pending',$8,$8) ON CONFLICT DO NOTHING`, record.ScopeType, record.ProductID, scopeID(record), record.UserID, record.KeyDigest, record.RequestDigest, record.AuditID, record.Now)
 	if err != nil {
 		return productuseraccess.StatusChangeResult{}, false, err
 	}
@@ -134,14 +137,15 @@ func reserveIdempotency(ctx context.Context, tx pgx.Tx, record productuseraccess
 	var storedDigest []byte
 	var state string
 	var version *int64
-	err = tx.QueryRow(ctx, `SELECT request_digest,state,result_version FROM product_user_access.idempotency_records WHERE operation='set_access_status' AND scope_type=$1 AND product_id=$2 AND scope_id=$3 AND user_id=$4 AND key_digest=$5 FOR UPDATE`, record.ScopeType, record.ProductID, scopeID(record), record.UserID, record.KeyDigest).Scan(&storedDigest, &state, &version)
+	var auditID string
+	err = tx.QueryRow(ctx, `SELECT request_digest,state,result_version,COALESCE(audit_id,'') FROM product_user_access.idempotency_records WHERE operation='set_access_status' AND scope_type=$1 AND product_id=$2 AND scope_id=$3 AND user_id=$4 AND key_digest=$5 FOR UPDATE`, record.ScopeType, record.ProductID, scopeID(record), record.UserID, record.KeyDigest).Scan(&storedDigest, &state, &version, &auditID)
 	if err != nil {
 		return productuseraccess.StatusChangeResult{}, false, err
 	}
-	if !bytes.Equal(storedDigest, record.RequestDigest) || state != "completed" || version == nil {
+	if !bytes.Equal(storedDigest, record.RequestDigest) || state != "completed" || version == nil || auditID == "" {
 		return productuseraccess.StatusChangeResult{}, false, productuseraccess.ErrConflict
 	}
-	return productuseraccess.StatusChangeResult{ScopeType: record.ScopeType, ProductID: record.ProductID, TenantID: record.TenantID, UserID: record.UserID, Status: record.Status, AccessVersion: *version}, false, nil
+	return productuseraccess.StatusChangeResult{ScopeType: record.ScopeType, ProductID: record.ProductID, TenantID: record.TenantID, UserID: record.UserID, Status: record.Status, AccessVersion: *version, AuditID: auditID}, false, nil
 }
 
 func lockCurrent(ctx context.Context, tx pgx.Tx, record productuseraccess.ChangeRecord) (int64, productuseraccess.Status, time.Time, bool, error) {
@@ -190,10 +194,7 @@ func updateFact(ctx context.Context, tx pgx.Tx, record productuseraccess.ChangeR
 }
 
 func insertEvents(ctx context.Context, tx pgx.Tx, record productuseraccess.ChangeRecord, version int64) error {
-	payload := map[string]any{"scope_type": record.ScopeType, "product_id": record.ProductID, "user_id": record.UserID, "status": record.Status, "access_version": version, "reason_code": record.ReasonCode, "status_changed_at": record.Now}
-	if record.TenantID != "" {
-		payload["tenant_id"] = record.TenantID
-	}
+	payload := eventPayload(record, version, record.Now)
 	if err := insertOutbox(ctx, tx, record.StatusEventID, aggregateID(record), "product-user-access.status-changed.v1", payload, record.Now); err != nil {
 		return err
 	}
@@ -205,13 +206,101 @@ func insertEvents(ctx context.Context, tx pgx.Tx, record productuseraccess.Chang
 	return nil
 }
 
-func insertOutbox(ctx context.Context, tx pgx.Tx, eventID, aggregateID, eventType string, payload map[string]any, now time.Time) error {
+func insertAuditEvent(ctx context.Context, tx pgx.Tx, record productuseraccess.ChangeRecord, version int64, statusChangedAt time.Time) error {
+	return insertOutbox(ctx, tx, record.StatusEventID, aggregateID(record), "product-user-access.command-audited.v1", eventPayload(record, version, statusChangedAt), record.Now)
+}
+
+func eventPayload(record productuseraccess.ChangeRecord, version int64, statusChangedAt time.Time) productuseraccess.EventPayload {
+	targetID := aggregateID(record)
+	return productuseraccess.EventPayload{
+		AuditID: record.AuditID, OccurredAt: record.Now, ActorID: record.ActorID,
+		Permission: "product.user-access.manage", ScopeType: string(record.ScopeType), ScopeID: scopeID(record),
+		ProductID: record.ProductID, TenantID: record.TenantID, Action: "product_user_access.set_status",
+		TargetType: "product_user_access", TargetID: targetID, Result: "success", ReasonCode: record.ReasonCode,
+		TraceID: record.TraceID, RiskLevel: "high", UserID: record.UserID, Status: record.Status,
+		AccessVersion: version, StatusChangedAt: statusChangedAt,
+		RedactedSummary: map[string]any{"user_id": record.UserID, "status": record.Status, "access_version": version, "status_changed_at": statusChangedAt},
+	}
+}
+
+func insertOutbox(ctx context.Context, tx pgx.Tx, eventID, aggregateID, eventType string, payload productuseraccess.EventPayload, now time.Time) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO product_user_access.outbox_events(event_id,aggregate_id,event_type,payload,occurred_at,next_attempt_at) VALUES($1,$2,$3,$4,$5,$5)`, eventID, aggregateID, eventType, raw, now)
 	return err
+}
+
+func (r *Repository) ClaimOutbox(ctx context.Context, now time.Time, limit int) ([]productuseraccess.ClaimedOutboxEvent, error) {
+	if r == nil || r.pool == nil || limit < 1 {
+		return nil, productuseraccess.ErrInvalidArgument
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `SELECT event_id,aggregate_id,event_type,payload,occurred_at,attempt_count FROM product_user_access.outbox_events WHERE published_at IS NULL AND dead=FALSE AND next_attempt_at <= $1 ORDER BY occurred_at,event_id LIMIT $2 FOR UPDATE SKIP LOCKED`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]productuseraccess.ClaimedOutboxEvent, 0)
+	for rows.Next() {
+		var item productuseraccess.ClaimedOutboxEvent
+		var payload []byte
+		if err := rows.Scan(&item.EventID, &item.AggregateID, &item.EventType, &payload, &item.OccurredAt, &item.AttemptCount); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := json.Unmarshal(payload, &item.Payload); err != nil {
+			item.PayloadError = "invalid product user access outbox payload"
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for index := range items {
+		items[index].AttemptCount++
+		if _, err := tx.Exec(ctx, `UPDATE product_user_access.outbox_events SET attempt_count=attempt_count+1,next_attempt_at=$2 WHERE event_id=$1 AND published_at IS NULL AND dead=FALSE`, items[index].EventID, now.Add(30*time.Second)); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *Repository) MarkOutboxPublished(ctx context.Context, eventID string, now time.Time) error {
+	if r == nil || r.pool == nil {
+		return productuseraccess.ErrInvalidArgument
+	}
+	result, err := r.pool.Exec(ctx, `UPDATE product_user_access.outbox_events SET published_at=COALESCE(published_at,$2),last_error=NULL WHERE event_id=$1`, eventID, now)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return productuseraccess.ErrOutboxNotFound
+	}
+	return nil
+}
+
+func (r *Repository) MarkOutboxFailed(ctx context.Context, eventID, summary string, next time.Time, dead bool) error {
+	if r == nil || r.pool == nil {
+		return productuseraccess.ErrInvalidArgument
+	}
+	result, err := r.pool.Exec(ctx, `UPDATE product_user_access.outbox_events SET next_attempt_at=$2,last_error=$3,dead=$4 WHERE event_id=$1 AND published_at IS NULL AND dead=FALSE`, eventID, next, summary, dead)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return productuseraccess.ErrOutboxNotFound
+	}
+	return nil
 }
 
 func (r *Repository) ListScopedUserIDs(ctx context.Context, productID, tenantID string) ([]string, error) {
