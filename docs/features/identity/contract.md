@@ -16,6 +16,9 @@ auth_time: 最近认证时间
 - 新建最终用户会话必须把可信 Client Session 的 `environment` 与 Product/Application/Tenant 一起持久化；客户端不能提交或覆盖该值。
 - Hosted auth proof 必须持久化相同的 `environment`，proof redemption 必须精确匹配 Product/Application/Tenant/Environment。迁移前环境为空的旧 proof 不得用于 Hosted exchange。
 - `ValidateHostedSession(scope, user_id, session_id)` 是 Identity 的公开应用服务：使用数据库时钟验证会话未撤销、未过期、账号仍为 active，并精确匹配用户、会话和完整范围。迁移前环境为空的旧会话不得用于 Hosted account，用户重新登录后取得带环境的新会话。
+- External auth flow、external identity proof 与 registration verification challenge 都必须绑定服务端解析的 environment。proof 必须与来源 flow 的 environment 精确一致；迁移前 environment 为空的 registration challenge 不得跨环境或继续消费。
+- 新注册、密码登录、外部登录、refresh 与 Hosted grant redemption 创建的 User Session 必须持久化非空合法 environment；HTTP UserSessionContext 必须携带该可信值，不能在 Adapter 中丢失或用服务器默认值猜测。
+- Hosted grant 幂等恢复只在既有 Session 仍未撤销、未过期且账号 active 时返回同一确定性 token；Repository 还必须验证待插入 Session 的完整 scope 与 proof/grant scope 一致，不能信任上层构造。
 
 ## 最终用户存储与 Repository 边界
 
