@@ -2,7 +2,7 @@
 
 日期：2026-07-17
 
-结论：`local_verified_ci_pending`。本地契约、真实 PostgreSQL、Full 18 项和两轮交叉审查均已通过；本地提交尚未上传，Git HTTPS 上传连续被连接重置，故本关尚未标记 `verified`，G2A-04 保持 `planned`。
+结论：`verified`。本地契约、真实 PostgreSQL、Full 18 项、两轮交叉审查，以及 GitHub push/PR 两次托管门禁均已通过。G2A-03 已收口，下一唯一关口为 G2A-04；这不代表 `package.account` 或 ST-038 全流程已完成。
 
 ## 交付
 
@@ -30,9 +30,13 @@
 - Full `-RequirePostgres`：18/18；专属机器报告为 `artifacts/reviews/G2A-03/quality-gate-full.json`，验证提交为 `d643dd38ceeb669f51bc95c0272aeb3831be38fa`。
 - Full 内含 SDK 8/8、Client UI 14/14、Standard-A Web/desktop 各 7/7、Admin 133/133，以及所有生产构建。
 
-## 尚未满足
+## 托管验证
 
-- 本地提交尚未成功上传；托管 push/PR `quality-gate` 尚无本次提交证据。
-- 本关没有用户登录页面。HostedInteraction 和登录/账号 UI 的长期所有权与真实后端属于 G2A-04.1，不在 G2A-03 伪造临时页面。
+- Git HTTPS 在本机连续被连接重置；使用 GitHub Git Data API 逐个上传并校验全部 blob/tree/commit，远端引用仅做 fast-forward。本地 Full 验证提交 `d643dd38ceeb669f51bc95c0272aeb3831be38fa` 与规范化远端父提交 `b3f50c2ce2f21adba979a69b0294f8651d105874` 的 tree 均为 `077bd4bc3b87d40ee59fecde94782c12d33d0323`；最终远端头 `a652c031e049719ef845ac4cbd7d326ad6a41089` 新增专属报告和证据更新，tree 为 `79fc8b5f2ed7ed955bfab081b2dbac76d07f8907`，并由下列 push/PR 两次 Full 直接验证。
+- push run `29574770932` / job `87866627040`：成功，2m40s。
+- PR #12 run `29574865219` / job `87866926961`：成功，2m51s；PR 状态 `CLEAN`，保持 Draft，未合并。
+- Actions 报告 Node.js 20 action runtime 将弃用、当前被强制运行于 Node.js 24；这是非阻断维护提示，不影响本关验证，后续 CI 维护需升级对应 actions major。
 
-托管 CI 成功并复核远端提交后，才可把 G2A-03 标记 `verified` 并将唯一关口推进到 G2A-04。
+## 下一关硬边界
+
+本关没有用户登录页面。G2A-04 才实现外部身份与安全通知 Provider；HostedInteraction 和登录/账号 UI 的长期所有权与真实后端属于 G2A-04.1。注册/恢复入口在 Provider 未配置时继续失败关闭，不得用临时页面或伪 Provider 冒充可用。
