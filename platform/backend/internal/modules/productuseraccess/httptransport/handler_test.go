@@ -135,6 +135,12 @@ func TestHandlerStrictRoutesRequestsAndIdempotency(t *testing.T) {
 		code, allow                string
 	}{
 		{name: "unknown field including client proof", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","reason_code":"manual.restore","recent_auth_proof":"untrusted"}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001"}, status: 400, code: "product_user_access.invalid_request"},
+		{name: "duplicate top-level field", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","status":"suspended","reason_code":"manual.restore"}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001"}, status: 400, code: "product_user_access.invalid_request"},
+		{name: "duplicate nested field", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","reason_code":"manual.restore","unknown":{"value":1,"value":2}}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001"}, status: 400, code: "product_user_access.invalid_request"},
+		{name: "trailing json value", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","reason_code":"manual.restore"} {}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001"}, status: 400, code: "product_user_access.invalid_request"},
+		{name: "wrong content type", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","reason_code":"manual.restore"}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001", "Content-Type": "text/plain"}, status: 400, code: "product_user_access.invalid_request"},
+		{name: "missing content type", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","reason_code":"manual.restore"}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001", "Content-Type": ""}, status: 400, code: "product_user_access.invalid_request"},
+		{name: "oversized body", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"expected_version":0,"status":"active","reason_code":"manual.restore","operator_note":"` + strings.Repeat("a", maxRequestBody) + `"}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001"}, status: 413, code: "product_user_access.request_too_large"},
 		{name: "missing expected version", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{"status":"active","reason_code":"manual.restore"}`, headers: map[string]string{"Idempotency-Key": "idempotency-product-0001"}, status: 400, code: "product_user_access.invalid_request"},
 		{name: "missing idempotency", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{}`, status: 400, code: "product_user_access.invalid_idempotency_key"},
 		{name: "whitespace idempotency", method: http.MethodPut, target: "/api/v1/admin/products/product-a/users/user-a/access", body: `{}`, headers: map[string]string{"Idempotency-Key": " idempotency-product-0001"}, status: 400, code: "product_user_access.invalid_idempotency_key"},
@@ -187,6 +193,16 @@ func TestHandlerMapsStableDomainErrorsAndRejectsMismatchedResult(t *testing.T) {
 	assertErrorCode(t, recorder, "internal_error", "")
 }
 
+func TestHandlerAcceptsApplicationJSONParameters(t *testing.T) {
+	service := &serviceStub{productResult: productuseraccess.StatusChangeResult{ScopeType: productuseraccess.ScopeProduct, ProductID: "product-a", UserID: "user-a", Status: productuseraccess.StatusActive, AccessVersion: 1, AuditID: "audit-a"}}
+	recorder := serve(allowedHandler(service), http.MethodPut, "/api/v1/admin/products/product-a/users/user-a/access",
+		`{"expected_version":0,"status":"active","reason_code":"manual.restore"}`,
+		map[string]string{"Idempotency-Key": "idempotency-product-0001", "Content-Type": "application/json; charset=utf-8"})
+	if recorder.Code != http.StatusOK || service.productCalls != 1 {
+		t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.productCalls, recorder.Body.String())
+	}
+}
+
 func allowedHandler(service Service) http.Handler {
 	return New(service, adminrequest.New(
 		&authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-a"}},
@@ -196,6 +212,9 @@ func allowedHandler(service Service) http.Handler {
 
 func serve(handler http.Handler, method, target, body string, headers map[string]string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	for key, value := range headers {
 		request.Header.Set(key, value)
 	}

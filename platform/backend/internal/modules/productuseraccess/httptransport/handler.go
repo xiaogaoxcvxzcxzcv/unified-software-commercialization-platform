@@ -1,10 +1,12 @@
 package httptransport
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"regexp"
 	"strings"
@@ -18,7 +20,7 @@ import (
 const (
 	managePermission = "product.user-access.manage"
 	productsPrefix   = "/api/v1/admin/products/"
-	maxRequestBody   = 1 << 20
+	maxRequestBody   = 32 << 10
 )
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
@@ -174,12 +176,26 @@ func requireIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		httpx.Error(w, r, http.StatusBadRequest, "product_user_access.invalid_request", "Content-Type must be application/json")
+		return false
+	}
 	if r.ContentLength > maxRequestBody {
-		httpx.Error(w, r, http.StatusRequestEntityTooLarge, "product_user_access.request_too_large", "request body exceeds 1 MiB")
+		httpx.Error(w, r, http.StatusRequestEntityTooLarge, "product_user_access.request_too_large", "request body exceeds 32 KiB")
 		return false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
-	decoder := json.NewDecoder(r.Body)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeDecodeError(w, r, err)
+		return false
+	}
+	if len(raw) == 0 || !validJSONShape(raw) {
+		httpx.Error(w, r, http.StatusBadRequest, "product_user_access.invalid_request", "invalid request body")
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		writeDecodeError(w, r, err)
@@ -199,10 +215,60 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	return true
 }
 
+func validJSONShape(raw []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if !consumeUniqueJSONValue(decoder) {
+		return false
+	}
+	_, err := decoder.Token()
+	return errors.Is(err, io.EOF)
+}
+
+func consumeUniqueJSONValue(decoder *json.Decoder) bool {
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	delimiter, composite := token.(json.Delim)
+	if !composite {
+		return true
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			key, ok := keyToken.(string)
+			if err != nil || !ok {
+				return false
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return false
+			}
+			seen[key] = struct{}{}
+			if !consumeUniqueJSONValue(decoder) {
+				return false
+			}
+		}
+		end, err := decoder.Token()
+		return err == nil && end == json.Delim('}')
+	case '[':
+		for decoder.More() {
+			if !consumeUniqueJSONValue(decoder) {
+				return false
+			}
+		}
+		end, err := decoder.Token()
+		return err == nil && end == json.Delim(']')
+	default:
+		return false
+	}
+}
+
 func writeDecodeError(w http.ResponseWriter, r *http.Request, err error) {
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
-		httpx.Error(w, r, http.StatusRequestEntityTooLarge, "product_user_access.request_too_large", "request body exceeds 1 MiB")
+		httpx.Error(w, r, http.StatusRequestEntityTooLarge, "product_user_access.request_too_large", "request body exceeds 32 KiB")
 		return
 	}
 	httpx.Error(w, r, http.StatusBadRequest, "product_user_access.invalid_request", "invalid request body")
