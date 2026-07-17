@@ -84,6 +84,9 @@ func (d productUserAccessDispatcher) deliver(ctx context.Context, item productus
 	switch item.EventType {
 	case "product-user-access.status-changed.v1", "product-user-access.command-audited.v1":
 		p := item.Payload
+		if err := validateProductUserAccessAudit(item); err != nil {
+			return err
+		}
 		_, err := d.audit.AppendAuditEvent(ctx, audit.Event{
 			AuditID: p.AuditID, OccurredAt: p.OccurredAt, ActorID: p.ActorID,
 			Permission: p.Permission, ScopeType: p.ScopeType, ScopeID: p.ScopeID,
@@ -102,18 +105,19 @@ func (d productUserAccessDispatcher) deliver(ctx context.Context, item productus
 
 func (d productUserAccessDispatcher) revokeScopedSessions(ctx context.Context, item productuseraccess.ClaimedOutboxEvent) error {
 	p := item.Payload
-	if p.ProductID == "" || p.UserID == "" || p.AccessVersion < 1 || p.StatusChangedAt.IsZero() {
+	if err := validateProductUserAccessScope(item); err != nil {
+		return err
+	}
+	if p.Status != productuseraccess.StatusSuspended {
+		return errors.New("invalid product user access revocation status")
+	}
+	if p.ProductID == "" || p.UserID == "" || p.AccessVersion < 1 || p.StatusChangedAt.IsZero() || p.ActorID == "" || p.TraceID == "" || p.ReasonCode == "" {
 		return errors.New("invalid product user access revocation payload")
 	}
 	var tenantID *string
 	if p.ScopeType == "tenant" {
-		if p.TenantID == "" {
-			return errors.New("invalid tenant revocation payload")
-		}
 		value := p.TenantID
 		tenantID = &value
-	} else if p.ScopeType != "product" {
-		return errors.New("invalid revocation scope type")
 	}
 	now := d.now().UTC()
 	eventDigest := d.hasher.Digest("product-user-access-event:" + item.EventID)
@@ -134,6 +138,39 @@ func (d productUserAccessDispatcher) revokeScopedSessions(ctx context.Context, i
 			ProductID: p.ProductID, TenantID: p.TenantID,
 		}},
 	})
+}
+
+func validateProductUserAccessAudit(item productuseraccess.ClaimedOutboxEvent) error {
+	p := item.Payload
+	if err := validateProductUserAccessScope(item); err != nil {
+		return err
+	}
+	if p.AuditID == "" || p.OccurredAt.IsZero() || !p.OccurredAt.Equal(item.OccurredAt) ||
+		p.ActorID == "" || p.Permission != "product.user-access.manage" ||
+		p.Action != "product_user_access.set_status" || p.TargetType != "product_user_access" || p.TargetID == "" ||
+		p.Result != "success" || p.ReasonCode == "" || p.TraceID == "" || p.RiskLevel != "high" ||
+		p.UserID == "" || p.AccessVersion < 1 || p.StatusChangedAt.IsZero() ||
+		(p.Status != productuseraccess.StatusActive && p.Status != productuseraccess.StatusSuspended) {
+		return errors.New("invalid product user access audit payload")
+	}
+	return nil
+}
+
+func validateProductUserAccessScope(item productuseraccess.ClaimedOutboxEvent) error {
+	p := item.Payload
+	switch p.ScopeType {
+	case "product":
+		if p.ProductID == "" || p.ScopeID != p.ProductID || p.TenantID != "" {
+			return errors.New("invalid product access event scope")
+		}
+	case "tenant":
+		if p.ProductID == "" || p.TenantID == "" || p.ScopeID != p.TenantID {
+			return errors.New("invalid tenant access event scope")
+		}
+	default:
+		return errors.New("invalid product user access event scope")
+	}
+	return nil
 }
 
 func (d productUserAccessDispatcher) logError(message string, args ...any) {

@@ -56,14 +56,17 @@ func TestProductUserAccessDispatcherRoutesAuditAndRevocation(t *testing.T) {
 	payload := productuseraccess.EventPayload{
 		AuditID: "audit-pua-1", OccurredAt: now, ActorID: "admin-a", Permission: "product.user-access.manage",
 		ScopeType: "product", ScopeID: "product-a", ProductID: "product-a", UserID: "user-a",
-		Action: "product_user_access.status_changed", TargetType: "end_user", TargetID: "user-a",
+		Action: "product_user_access.set_status", TargetType: "product_user_access", TargetID: "access-product-a-user-a",
 		Result: "success", ReasonCode: "security.review", TraceID: "trace-a", RiskLevel: "high",
 		Status: productuseraccess.StatusSuspended, AccessVersion: 2, StatusChangedAt: now,
 	}
 	source := &puaOutboxStub{items: []productuseraccess.ClaimedOutboxEvent{
-		{EventID: "status-event", EventType: "product-user-access.status-changed.v1", Payload: payload, AttemptCount: 1},
-		{EventID: "revoke-event", EventType: "product-user-access.session-revocation-requested.v1", Payload: payload, AttemptCount: 1},
+		{EventID: "status-event", EventType: "product-user-access.status-changed.v1", Payload: payload, OccurredAt: now, AttemptCount: 1},
+		{EventID: "revoke-event", EventType: "product-user-access.session-revocation-requested.v1", Payload: payload, OccurredAt: now, AttemptCount: 1},
 	}}
+	if err := validateProductUserAccessAudit(source.items[0]); err != nil {
+		t.Fatalf("valid audit payload rejected: %v payload=%+v", err, payload)
+	}
 	auditRepository := &puaAuditRepositoryStub{}
 	revoker := &scopedRevokerStub{}
 	hasher, _ := securevalue.NewHasher(strings.Repeat("p", 32))
@@ -89,5 +92,36 @@ func TestProductUserAccessDispatcherRetriesWithoutPublishing(t *testing.T) {
 	dispatcher.dispatch(context.Background())
 	if len(source.published) != 0 || len(source.failed) != 1 || source.failed[0] != "revoke-event" {
 		t.Fatalf("published=%v failed=%v", source.published, source.failed)
+	}
+}
+
+func TestProductUserAccessDispatcherRejectsSemanticPoison(t *testing.T) {
+	now := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	base := productuseraccess.EventPayload{
+		AuditID: "audit-pua-1", OccurredAt: now, ActorID: "admin-a", Permission: "product.user-access.manage",
+		ScopeType: "product", ScopeID: "product-a", ProductID: "product-a", UserID: "user-a",
+		Action: "product_user_access.set_status", TargetType: "product_user_access", TargetID: "target-a",
+		Result: "success", ReasonCode: "security.review", TraceID: "trace-a", RiskLevel: "high",
+		Status: productuseraccess.StatusSuspended, AccessVersion: 1, StatusChangedAt: now,
+	}
+	wrongPermission := base
+	wrongPermission.Permission = "product_user_access.manage"
+	activeRevocation := base
+	activeRevocation.Status = productuseraccess.StatusActive
+	wrongTenant := base
+	wrongTenant.ScopeType, wrongTenant.ScopeID, wrongTenant.TenantID = "tenant", "other-tenant", "tenant-a"
+
+	source := &puaOutboxStub{items: []productuseraccess.ClaimedOutboxEvent{
+		{EventID: "bad-audit", EventType: "product-user-access.status-changed.v1", Payload: wrongPermission, OccurredAt: now, AttemptCount: 1},
+		{EventID: "active-revoke", EventType: "product-user-access.session-revocation-requested.v1", Payload: activeRevocation, OccurredAt: now, AttemptCount: 1},
+		{EventID: "wrong-tenant", EventType: "product-user-access.session-revocation-requested.v1", Payload: wrongTenant, OccurredAt: now, AttemptCount: 1},
+	}}
+	hasher, _ := securevalue.NewHasher(strings.Repeat("p", 32))
+	auditRepository := &puaAuditRepositoryStub{}
+	revoker := &scopedRevokerStub{}
+	dispatcher := productUserAccessDispatcher{source: source, audit: audit.NewService(auditRepository), revoker: revoker, hasher: hasher, now: func() time.Time { return now }}
+	dispatcher.dispatch(context.Background())
+	if len(source.failed) != 3 || len(source.published) != 0 || len(auditRepository.items) != 0 || revoker.command.ProductID != "" {
+		t.Fatalf("failed=%v published=%v audits=%v revocation=%+v", source.failed, source.published, auditRepository.items, revoker.command)
 	}
 }
