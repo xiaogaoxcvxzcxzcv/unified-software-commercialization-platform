@@ -24,6 +24,7 @@
 - Config Schema 对抗：disabled Provider 合法；enabled 缺 secret/config/return target 拒绝；disabled 携带凭据引用拒绝。
 - Core：6/6，566 个文本文件严格 UTF-8、13 对迁移、125 个 Markdown 文件链接、秘密扫描和 whitespace 通过。
 - Full：18/18，使用本机真实 `platform_test_control` PostgreSQL；Go 全套与 vet、SDK 8/8、Client UI 14/14、Standard-A Web/desktop 各 7/7、Admin 133/133 和三个生产构建通过。
+- 托管门禁：push run `29561310927` / job `87824174500` 通过（2m36s）；PR run `29561329031` / job `87824233949` 通过（2m48s）。
 - 机器报告：`artifacts/reviews/G2A-01/quality-gate-core-final.json`、`artifacts/reviews/G2A-01/quality-gate-full.json`。
 
 ## 后续边界
