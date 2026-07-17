@@ -869,6 +869,72 @@
         "responses": { "200": { "$ref": "#/components/responses/UsagePage" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
+    "/api/v1/hosted/interactions": {
+      "post": {
+        "tags": ["HostedInteraction"], "operationId": "createHostedInteraction", "summary": "Create a trusted hosted.auth or hosted.account interaction",
+        "security": [{ "ClientSessionBearer": [] }, { "UserBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateHostedInteractionRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/HostedInteractionLaunch" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/hosted/interactions/{interaction_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/HostedInteractionId" }],
+      "get": {
+        "tags": ["HostedInteraction"], "operationId": "getHostedInteraction", "summary": "Recover a redacted hosted interaction projection",
+        "security": [{ "ClientSessionBearer": [] }, { "UserBearer": [] }, { "HostedSessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/HostedInteraction" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/hosted/interactions/{interaction_id}/browser-session": {
+      "parameters": [{ "$ref": "#/components/parameters/HostedInteractionId" }],
+      "post": {
+        "tags": ["HostedInteraction"], "operationId": "openHostedBrowserSession", "summary": "Open or rotate the short-lived hosted browser session",
+        "security": [], "x-idempotency-exemption": "Each valid interaction launch intentionally rotates the active browser session and revokes the old cookie.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/HostedBrowserSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/hosted/interactions/{interaction_id}/auth/password": {
+      "parameters": [{ "$ref": "#/components/parameters/HostedInteractionId" }],
+      "post": {
+        "tags": ["HostedInteraction"], "operationId": "authenticateHostedPassword", "summary": "Authenticate inside hosted.auth and issue a one-time completion code",
+        "security": [{ "HostedSessionCookie": [] }], "x-idempotency-exemption": "Credential attempts are rate-limited security events and never create two grants for one interaction.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/HostedCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedPasswordRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/HostedCompletion" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/hosted/interactions/{interaction_id}/account/complete": {
+      "parameters": [{ "$ref": "#/components/parameters/HostedInteractionId" }],
+      "post": {
+        "tags": ["HostedInteraction"], "operationId": "completeHostedAccount", "summary": "Complete an authenticated hosted.account interaction",
+        "security": [{ "HostedSessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/HostedCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompleteHostedAccountRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/HostedCompletion" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/hosted/interactions/{interaction_id}/cancel": {
+      "parameters": [{ "$ref": "#/components/parameters/HostedInteractionId" }],
+      "post": {
+        "tags": ["HostedInteraction"], "operationId": "cancelHostedInteraction", "summary": "Cancel a non-terminal hosted interaction",
+        "security": [{ "HostedSessionCookie": [] }], "x-idempotency-exemption": "Cancellation is a terminal idempotent state transition for the authenticated browser session.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/HostedCsrfToken" }],
+        "responses": { "200": { "$ref": "#/components/responses/HostedInteraction" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/hosted/interactions/{interaction_id}/exchange": {
+      "parameters": [{ "$ref": "#/components/parameters/HostedInteractionId" }],
+      "post": {
+        "tags": ["HostedInteraction"], "operationId": "exchangeHostedCompletion", "summary": "Exchange the one-time completion code from the original trusted client scope",
+        "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "The short-lived completion code is the single-use grant; replay is rejected by the lease-backed grant state machine.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedExchangeRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/HostedExchange" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/api/v1/admin/access/role-bindings/{binding_id}": {
       "parameters": [{ "$ref": "#/components/parameters/BindingId" }],
       "put": {
@@ -892,6 +958,7 @@
     "securitySchemes": {
       "ClientSessionBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Short-lived client session containing server-resolved ProductContext, ApplicationContext and TenantContext." },
       "UserBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "User session bound to trusted Product/Application and server-resolved Tenant context." },
+      "HostedSessionCookie": { "type": "apiKey", "in": "cookie", "name": "__Host-platform_hosted_session", "description": "Short-lived Hosted UI browser session. Server sets Secure, HttpOnly, SameSite=Lax, Path=/ and no Domain. Unsafe methods also require exact Hosted Origin and X-CSRF-Token." },
       "AdminAccessCookie": { "type": "apiKey", "in": "cookie", "name": "__Host-platform_admin_access", "description": "Default browser administrator access. Server sets Secure, HttpOnly, SameSite=Strict, Path=/ and no Domain. Unsafe methods also require exact Origin and X-CSRF-Token." },
       "AdminRefreshCookie": { "type": "apiKey", "in": "cookie", "name": "__Secure-platform_admin_refresh", "description": "Rotating browser refresh proof. Server sets Secure, HttpOnly, SameSite=Strict, Path=/api/v1/admin/auth and no Domain; accepted only by admin refresh/logout." },
       "AdminBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "opaque", "description": "Optional non-browser administrator transport explicitly issued to controlled CLI/automation; every target product/tenant is re-authorized by Access Control." },
@@ -901,6 +968,8 @@
       "RequestId": { "name": "X-Request-Id", "in": "header", "required": false, "description": "Optional caller correlation ID; not an authorization or idempotency fact.", "schema": { "type": "string", "minLength": 8, "maxLength": 128 } },
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Opaque operation-scoped idempotency key. Reuse with a different payload returns conflict.", "schema": { "type": "string", "minLength": 16, "maxLength": 128 } },
       "AdminCsrfToken": { "name": "X-CSRF-Token", "in": "header", "required": false, "description": "Required with exact Origin for unsafe requests authenticated by an administrator access Cookie, except refresh which recovers after access expiry using exact Origin plus SameSite refresh Cookie. Bound to the server session and rotated with it. Omit for Admin Bearer.", "schema": { "type": "string", "minLength": 32, "maxLength": 256 } },
+      "HostedCsrfToken": { "name": "X-CSRF-Token", "in": "header", "required": true, "description": "Required with exact Hosted UI Origin for every unsafe request authenticated by HostedSessionCookie.", "schema": { "type": "string", "minLength": 32, "maxLength": 256 } },
+      "HostedInteractionId": { "name": "interaction_id", "in": "path", "required": true, "description": "Opaque high-entropy HostedInteraction identifier; never selects Product/Application/Tenant by itself.", "schema": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" } },
       "Cursor": { "name": "cursor", "in": "query", "schema": { "type": "string", "maxLength": 512 } },
       "PageSize": { "name": "page_size", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
       "ProductId": { "name": "product_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
@@ -978,6 +1047,11 @@
       "ExternalExchange": { "description": "Platform session or explicit conflict", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalExchangeResult" } } } },
       "ExternalIdentity": { "description": "Redacted linked identity", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalIdentity" } } } },
       "ExternalIdentityPage": { "description": "Redacted linked identities for the current user", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalIdentityPage" } } } },
+      "HostedInteractionLaunch": { "description": "Short-lived Hosted UI launch containing only the opaque interaction identifier in its URL", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedInteractionLaunch" } } } },
+      "HostedInteraction": { "description": "Redacted recoverable HostedInteraction projection", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedInteraction" } } } },
+      "HostedBrowserSession": { "description": "Opened Hosted browser session. The opaque session is set only as a secure HttpOnly cookie; csrf_token stays in browser memory.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Set-Cookie": { "description": "__Host-platform_hosted_session with Secure, HttpOnly, SameSite=Lax, Path=/ and no Domain.", "schema": { "type": "string" } }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedBrowserSession" } } } },
+      "HostedCompletion": { "description": "Safe registered return URL carrying only code, state and interaction_id", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedCompletion" } } } },
+      "HostedExchange": { "description": "One-time hosted completion exchange. Tokens are returned only for authorization_code grants.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedExchangeResult" } } } },
       "EntitlementDecision": { "description": "Authoritative entitlement decision", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementDecision" } } } },
       "EntitlementGrant": { "description": "Entitlement grant", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementGrant" } } } },
       "DevicePage": { "description": "Redacted devices", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DevicePage" } } } },
@@ -1124,6 +1198,18 @@
       "VerificationChallenge": { "type": "object", "required": ["accepted", "continuation_id"], "properties": { "accepted": { "type": "boolean", "const": true }, "continuation_id": { "$ref": "#/components/schemas/Identifier", "description": "Always returned from the same opaque namespace, including when the identifier is already registered." } }, "additionalProperties": false },
       "ExternalIdentity": { "type": "object", "required": ["external_identity_id", "provider", "status", "linked_at"], "properties": { "external_identity_id": { "$ref": "#/components/schemas/Identifier" }, "provider": { "type": "string" }, "masked_subject": { "type": "string" }, "status": { "type": "string", "enum": ["active", "revoked"] }, "linked_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier", "description": "Present on the link mutation response; omitted from list projections." } }, "additionalProperties": false },
       "ExternalIdentityPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalIdentity" } } }, "additionalProperties": false },
+      "HostedRouteId": { "type": "string", "enum": ["hosted.auth", "hosted.account"] },
+      "HostedChannel": { "type": "string", "enum": ["web", "h5", "desktop", "app"] },
+      "HostedInteractionStatus": { "type": "string", "enum": ["created", "opened", "authenticating", "completed", "exchanged", "cancelled", "failed", "expired"] },
+      "CreateHostedInteractionRequest": { "type": "object", "required": ["route_id", "channel", "return_target_code", "state"], "properties": { "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "channel": { "$ref": "#/components/schemas/HostedChannel" }, "return_target_code": { "$ref": "#/components/schemas/StableCode" }, "state": { "type": "string", "minLength": 22, "maxLength": 512, "writeOnly": true }, "nonce": { "type": "string", "minLength": 22, "maxLength": 512, "writeOnly": true }, "code_challenge": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "writeOnly": true }, "code_challenge_method": { "type": "string", "const": "S256" }, "locale": { "type": "string", "minLength": 2, "maxLength": 32 }, "theme_variant": { "type": "string", "minLength": 1, "maxLength": 64 } }, "additionalProperties": false },
+      "HostedInteractionLaunch": { "type": "object", "required": ["interaction_id", "interaction_url", "route_id", "status", "expires_at"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "interaction_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+/ui/v1/(auth|account)\\?interaction_id=hint_[A-Za-z0-9_-]{24,160}$" }, "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "status": { "$ref": "#/components/schemas/HostedInteractionStatus" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "HostedInteraction": { "type": "object", "required": ["interaction_id", "route_id", "channel", "status", "allowed_actions", "created_at", "expires_at"], "properties": { "interaction_id": { "$ref": "#/components/parameters/HostedInteractionId/schema" }, "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "channel": { "$ref": "#/components/schemas/HostedChannel" }, "status": { "$ref": "#/components/schemas/HostedInteractionStatus" }, "allowed_actions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "enum": ["open", "authenticate", "complete", "cancel", "exchange", "restart"] } }, "result_kind": { "type": ["string", "null"], "enum": ["authorization_code", "account_completed", "cancelled", "failed", null] }, "failure_code": { "type": ["string", "null"], "maxLength": 128 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "opened_at": { "type": ["string", "null"], "format": "date-time" }, "completed_at": { "type": ["string", "null"], "format": "date-time" } }, "additionalProperties": false },
+      "HostedBrowserSession": { "type": "object", "required": ["interaction", "csrf_token", "browser_session_expires_at"], "properties": { "interaction": { "$ref": "#/components/schemas/HostedInteraction" }, "csrf_token": { "type": "string", "minLength": 32, "maxLength": 256, "writeOnly": true }, "browser_session_expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "HostedPasswordRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 3, "maxLength": 320, "writeOnly": true }, "credential": { "type": "string", "minLength": 8, "maxLength": 1024, "writeOnly": true }, "risk_summary": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": ["string", "number", "boolean", "null"] } } }, "additionalProperties": false },
+      "CompleteHostedAccountRequest": { "type": "object", "required": ["result"], "properties": { "result": { "type": "string", "enum": ["closed", "self_service_completed"] } }, "additionalProperties": false },
+      "HostedCompletion": { "type": "object", "required": ["interaction_id", "status", "return_url", "expires_at"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "status": { "type": "string", "const": "completed" }, "return_url": { "type": "string", "format": "uri", "description": "Server-built registered return target with only code, state and interaction_id." }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "HostedExchangeRequest": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "minLength": 32, "maxLength": 512, "writeOnly": true }, "code_verifier": { "type": "string", "minLength": 43, "maxLength": 128, "pattern": "^[A-Za-z0-9._~-]+$", "writeOnly": true } }, "additionalProperties": false },
+      "HostedExchangeResult": { "type": "object", "required": ["interaction_id", "result_type"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "result_type": { "type": "string", "enum": ["user_session", "account_completed"] }, "user_session": { "$ref": "#/components/schemas/UserSession" }, "account_result": { "type": "object", "required": ["result"], "properties": { "result": { "type": "string", "enum": ["closed", "self_service_completed"] } }, "additionalProperties": false } }, "additionalProperties": false },
       "RefreshRequest": { "type": "object", "required": ["refresh_token", "client_request_id"], "properties": { "refresh_token": { "type": "string", "minLength": 16, "writeOnly": true }, "client_request_id": { "type": "string", "minLength": 16, "maxLength": 128 } }, "additionalProperties": false },
       "AdminControlledClientProof": { "type": "object", "required": ["client_id", "credential_id", "proof_type", "proof"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "credential_id": { "$ref": "#/components/schemas/Identifier" }, "proof_type": { "type": "string", "const": "shared_secret_v1" }, "proof": { "type": "string", "minLength": 43, "maxLength": 512, "writeOnly": true, "description": "At least 256 bits of random secret material, delivered once and never returned or logged." } }, "additionalProperties": false },
       "AdminLoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "transport": { "type": "string", "enum": ["cookie", "bearer"], "default": "cookie", "description": "Browsers use cookie. Bearer is only a request intent and also requires controlled_client." }, "controlled_client": { "$ref": "#/components/schemas/AdminControlledClientProof" }, "risk_summary": { "type": "object", "additionalProperties": true } }, "allOf": [{ "if": { "required": ["transport"], "properties": { "transport": { "const": "bearer" } } }, "then": { "required": ["controlled_client"] }, "else": { "properties": { "controlled_client": false } } }], "additionalProperties": false },

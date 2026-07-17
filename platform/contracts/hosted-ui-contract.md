@@ -76,13 +76,15 @@ expires_at: 过期时间
 
 ```text
 created | opened | authenticating | processing | awaiting_payment |
-completed | cancelled | failed | expired
+completed | exchanged | cancelled | failed | expired
 ```
 
 - 交互票据短期有效、不可预测，并在终态后拒绝再次完成。
 - 同一交互重复打开时返回当前状态，不重复创建订单、支付或权益。
 - 页面刷新、浏览器重开和网络中断必须能从服务端恢复当前状态。
 - 登录授权码、支付查询和完成回跳分别定义一次性语义；不能把内存状态作为唯一事实。
+- HostedInteraction 由独立 `hosted-interaction` 模块长期拥有。Identity 只拥有登录 proof 和最终用户 Session；Product Application 只拥有命名 return target；后续 Catalog/Order/Payment/Entitlement 仍拥有各自业务事实。
+- `hosted.auth` 与 `hosted.account` 的 API、浏览器 Cookie、CSRF、grant lease 和 Identity 幂等 redemption 见 `docs/features/hosted-interaction/contract.md` 与 ADR-0018。
 
 ## 5. 安全返回目标
 

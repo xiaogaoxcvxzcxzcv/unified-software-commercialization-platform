@@ -14,6 +14,7 @@
 
 - 当前阶段：F0、G1、G2A-01、G2A-02、G2A-03 和 G2A-04 已退出；`package.account` 仍为 contracted。当前唯一关口为 G2A-04.1 HostedInteraction 所有权与登录/账号后端。真实工具/能力包版本尚未发布，普通创建入口继续真实空状态并失败关闭。
 - 正式代码目录：`platform/`。
+- HostedInteraction 是独立短期编排模块：拥有 interaction、浏览器会话、恢复投影和完成 grant；只通过公开服务调用 Identity、Product Application 及后续业务模块，不拥有用户、回跳白名单、订单、支付或权益事实。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建/恢复 Client、`/create` 五步向导、真实 Product 工作区和 `/assemblies` 连接真实后端，未标记 ready 的业务页面仍不得混同为生产数据源。
 - Assembly 后端执行/恢复闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选、创建向导、单款软件工作区和 lifecycle API 已实现；lifecycle 本地候选闭环待托管 CI 裁决。业务 Feature Block 和首个装配验收软件尚未实现，当前不能声称“勾选能力即可得到完整前后台”。

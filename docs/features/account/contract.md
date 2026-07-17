@@ -8,7 +8,7 @@
 
 - Identity：Global User、凭据、会话、资料、找回和外部身份。
 - Product User Access：Product/Tenant 准入事实与实时判定。
-- HostedInteraction：浏览器 auth/account 交互的短期状态与恢复；由 G2A-04.1 封口实现。
+- HostedInteraction：浏览器 auth/account 交互的短期状态、浏览器会话、恢复和完成 grant；由独立 `hosted-interaction` 模块按 ADR-0018 拥有，Account 只组合其公开服务。
 - `notification.security`：找回和安全通知的必需 Provider Port。
 - 微信/OIDC：可选 Provider。未配置时对应入口不得呈现；请求启用但配置或密钥引用不完整时，装配和启动检查必须失败。
 

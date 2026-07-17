@@ -21,5 +21,6 @@ ADR 记录长期决策历史。只有 `accepted` 可以指导当前实现；`sup
 | ADR-0015 可信产品扩展目录与创建前绑定 | accepted | Extension Catalog scope、`product_code -> product_id` 绑定、摘要与扩展安全边界 |
 | ADR-0016 Product User Access 独立访问边界 | accepted | 全局身份、Product/Tenant 准入和 Entitlement 的事实所有权、优先级、错误与权限 |
 | ADR-0017 外部身份与安全通知边界 | accepted | Identity flow/proof、Product Application return target、Notification security outbox 与 Provider secret 的所有权和调用方向 |
+| ADR-0018 HostedInteraction 所有权与浏览器认证交换 | accepted | 短期 Hosted 状态、浏览器会话、完成码、PKCE、Identity proof/grant 组合与未来业务路由调用方向 |
 
 新增或替代 ADR 时同步更新本表。不得删除旧 ADR，也不得让 superseded ADR 覆盖当前产品总纲。

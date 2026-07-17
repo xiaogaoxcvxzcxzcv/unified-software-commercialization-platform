@@ -43,6 +43,13 @@ const requiredOperations = new Set([
   "GET /api/v1/account/access",
   "POST /api/v1/auth/refresh",
   "POST /api/v1/auth/logout",
+  "POST /api/v1/hosted/interactions",
+  "GET /api/v1/hosted/interactions/{interaction_id}",
+  "POST /api/v1/hosted/interactions/{interaction_id}/browser-session",
+  "POST /api/v1/hosted/interactions/{interaction_id}/auth/password",
+  "POST /api/v1/hosted/interactions/{interaction_id}/account/complete",
+  "POST /api/v1/hosted/interactions/{interaction_id}/cancel",
+  "POST /api/v1/hosted/interactions/{interaction_id}/exchange",
   "POST /api/v1/admin/auth/login",
   "GET /api/v1/admin/auth/session",
   "POST /api/v1/admin/auth/refresh",
@@ -169,7 +176,7 @@ const currentSessionProperties = document.components?.schemas?.CurrentUserSessio
 for (const forbidden of ["access_token", "refresh_token", "token_pair"]) {
   if (Object.hasOwn(currentSessionProperties, forbidden)) errors.push(`CurrentUserSession must not contain ${forbidden}`);
 }
-for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPair", "RecoveryChallenge", "VerificationChallenge", "ExternalLoginFlow", "ExternalExchange"]) {
+for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPair", "RecoveryChallenge", "VerificationChallenge", "ExternalLoginFlow", "ExternalExchange", "HostedInteractionLaunch", "HostedInteraction", "HostedBrowserSession", "HostedCompletion", "HostedExchange"]) {
   const cacheControl = document.components?.responses?.[responseName]?.headers?.["Cache-Control"]?.schema?.const;
   if (cacheControl !== "no-store") errors.push(`${responseName} response must declare Cache-Control: no-store`);
 }
@@ -200,6 +207,40 @@ if (Object.hasOwn(linkExternalProperties, "recent_auth_proof")) {
 const externalStartCodeRef = document.components?.schemas?.StartExternalLoginRequest?.properties?.return_target_code?.$ref;
 if (externalStartCodeRef !== "#/components/schemas/StableCode") {
   errors.push("external return_target_code must use StableCode");
+}
+const hostedCreate = document.paths?.["/api/v1/hosted/interactions"]?.post;
+const hostedCreateSecurity = hostedCreate?.security ?? [];
+if (!hostedCreateSecurity.some((item) => Object.hasOwn(item, "ClientSessionBearer")) || !hostedCreateSecurity.some((item) => Object.hasOwn(item, "UserBearer"))) {
+  errors.push("hosted interaction creation must declare both route-specific ClientSessionBearer and UserBearer transports");
+}
+const hostedCreateProperties = document.components?.schemas?.CreateHostedInteractionRequest?.properties ?? {};
+for (const forbidden of ["product_id", "application_id", "tenant_id", "user_id", "session_id", "return_target", "return_url", "return_uri"]) {
+  if (Object.hasOwn(hostedCreateProperties, forbidden)) errors.push(`CreateHostedInteractionRequest must not accept ${forbidden}`);
+}
+for (const required of ["route_id", "channel", "return_target_code", "state"]) {
+  if (!(document.components?.schemas?.CreateHostedInteractionRequest?.required ?? []).includes(required)) errors.push(`CreateHostedInteractionRequest must require ${required}`);
+}
+const hostedPassword = document.paths?.["/api/v1/hosted/interactions/{interaction_id}/auth/password"]?.post;
+const hostedPasswordSecurity = hostedPassword?.security ?? [];
+const hostedPasswordParameters = hostedPassword?.parameters ?? [];
+if (hostedPasswordSecurity.length !== 1 || !Object.hasOwn(hostedPasswordSecurity[0] ?? {}, "HostedSessionCookie")) {
+  errors.push("hosted password authentication must use only HostedSessionCookie");
+}
+if (!hostedPasswordParameters.some((parameter) => parameter.$ref === "#/components/parameters/HostedCsrfToken")) {
+  errors.push("hosted password authentication must require HostedCsrfToken");
+}
+const hostedOpen = document.paths?.["/api/v1/hosted/interactions/{interaction_id}/browser-session"]?.post;
+if ((hostedOpen?.security ?? null)?.length !== 0 || !hostedOpen?.["x-idempotency-exemption"]) {
+  errors.push("hosted browser-session open must be anonymous interaction launch with explicit rotation exemption");
+}
+const hostedExchange = document.paths?.["/api/v1/hosted/interactions/{interaction_id}/exchange"]?.post;
+const hostedExchangeSecurity = hostedExchange?.security ?? [];
+if (hostedExchangeSecurity.length !== 1 || !Object.hasOwn(hostedExchangeSecurity[0] ?? {}, "ClientSessionBearer") || !hostedExchange?.["x-idempotency-exemption"]) {
+  errors.push("hosted completion exchange must use only ClientSessionBearer and the one-time grant exemption");
+}
+const hostedCompletionProperties = Object.keys(document.components?.schemas?.HostedCompletion?.properties ?? {}).sort();
+if (hostedCompletionProperties.join(",") !== ["expires_at", "interaction_id", "return_url", "status"].sort().join(",")) {
+  errors.push("HostedCompletion may expose only interaction_id, status, return_url and expires_at");
 }
 
 function visit(value, location = "#") {
