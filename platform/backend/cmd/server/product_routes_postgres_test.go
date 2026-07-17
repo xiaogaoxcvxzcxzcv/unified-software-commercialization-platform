@@ -101,7 +101,7 @@ func TestProductApplicationTenantAndClientSessionHTTPFlow(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	requestid.Middleware(clientcontexthttp.New(clientSessions)).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusCreated {
-		t.Fatalf("client session status=%d body=%s", recorder.Code, recorder.Body.String())
+		t.Fatalf("client session status=%d content_type=%q", recorder.Code, recorder.Header().Get("Content-Type"))
 	}
 	var session map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &session); err != nil {
@@ -111,7 +111,7 @@ func TestProductApplicationTenantAndClientSessionHTTPFlow(t *testing.T) {
 	applicationContext := session["application_context"].(map[string]any)
 	tenantContext := session["tenant_context"].(map[string]any)
 	if productContext["product_id"] != productID || applicationContext["application_id"] != applicationID || tenantContext["tenant_id"] != officialTenantID || tenantContext["resolved_by"] != "official_channel" {
-		t.Fatalf("session=%v", session)
+		t.Fatalf("client context mismatch: product=%v application=%v tenant=%v resolved_by=%v", productContext["product_id"], applicationContext["application_id"], tenantContext["tenant_id"], tenantContext["resolved_by"])
 	}
 	clientSessionToken := stringField(t, session, "client_session_token")
 
@@ -164,18 +164,18 @@ func TestProductApplicationTenantAndClientSessionHTTPFlow(t *testing.T) {
 	firstOpenRecorder := httptest.NewRecorder()
 	hostedHandler.ServeHTTP(firstOpenRecorder, firstOpen)
 	if firstOpenRecorder.Code != http.StatusOK || len(firstOpenRecorder.Result().Cookies()) != 1 {
-		t.Fatalf("hosted first open status=%d body=%s", firstOpenRecorder.Code, firstOpenRecorder.Body.String())
+		t.Fatalf("hosted first open status=%d cookie_count=%d", firstOpenRecorder.Code, len(firstOpenRecorder.Result().Cookies()))
 	}
 	firstCookie := firstOpenRecorder.Result().Cookies()[0]
 	secondOpen := httptest.NewRequest(http.MethodPost, openPath, nil)
 	secondOpenRecorder := httptest.NewRecorder()
 	hostedHandler.ServeHTTP(secondOpenRecorder, secondOpen)
 	if secondOpenRecorder.Code != http.StatusOK || len(secondOpenRecorder.Result().Cookies()) != 1 {
-		t.Fatalf("hosted reopen status=%d body=%s", secondOpenRecorder.Code, secondOpenRecorder.Body.String())
+		t.Fatalf("hosted reopen status=%d cookie_count=%d", secondOpenRecorder.Code, len(secondOpenRecorder.Result().Cookies()))
 	}
 	secondCookie := secondOpenRecorder.Result().Cookies()[0]
 	if firstCookie.Value == secondCookie.Value || !firstCookie.Secure || !firstCookie.HttpOnly || firstCookie.Path != "/" {
-		t.Fatalf("hosted cookie rotation invalid: first=%+v second=%+v", firstCookie, secondCookie)
+		t.Fatalf("hosted cookie rotation invalid: same_value=%t first_present=%t second_present=%t secure=%t http_only=%t path=%q", firstCookie.Value == secondCookie.Value, firstCookie.Value != "", secondCookie.Value != "", firstCookie.Secure, firstCookie.HttpOnly, firstCookie.Path)
 	}
 
 	readPath := "/api/v1/hosted/interactions/" + interactionID
@@ -215,7 +215,7 @@ func stringField(t *testing.T, value map[string]any, key string) string {
 	t.Helper()
 	result, ok := value[key].(string)
 	if !ok || result == "" {
-		t.Fatalf("field %q missing from %v", key, value)
+		t.Fatalf("field %q missing or invalid", key)
 	}
 	return result
 }
