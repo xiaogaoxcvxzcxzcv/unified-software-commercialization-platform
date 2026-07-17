@@ -80,6 +80,13 @@ func assertMigrationState(t *testing.T, database testpostgres.Database) {
 		"assembly.assembly_run_dispatches",
 		"assembly.assembly_run_diagnostics",
 		"assembly.assembly_run_reports",
+		"assembly.lifecycle_plans",
+		"assembly.lifecycle_operations",
+		"assembly.lifecycle_heads",
+		"assembly.lifecycle_dispatches",
+		"assembly.lifecycle_artifact_transitions",
+		"assembly.lifecycle_diagnostics",
+		"assembly.lifecycle_reports",
 		"assembly.assembly_manifests",
 		"assembly.generated_project_locks",
 		"assembly.idempotency_records",
@@ -101,7 +108,7 @@ func assertMigrationState(t *testing.T, database testpostgres.Database) {
 		t.Fatalf("audit append-only trigger count = %d, want 1", triggerCount)
 	}
 
-	for _, trigger := range []string{"products_identity_immutable", "product_applications_identity_immutable", "product_tenants_identity_immutable", "assembly_blueprints_document_immutable", "assembly_plans_contract_immutable", "assembly_runs_contract_immutable", "assembly_runs_retry_chain_valid", "assembly_run_steps_contract_immutable", "assembly_runs_delete_immutable", "assembly_run_steps_delete_immutable", "assembly_run_diagnostics_immutable", "assembly_run_reports_immutable"} {
+	for _, trigger := range []string{"products_identity_immutable", "product_applications_identity_immutable", "product_tenants_identity_immutable", "assembly_blueprints_document_immutable", "assembly_plans_contract_immutable", "assembly_runs_contract_immutable", "assembly_runs_retry_chain_valid", "assembly_run_steps_contract_immutable", "assembly_runs_delete_immutable", "assembly_run_steps_delete_immutable", "assembly_run_diagnostics_immutable", "assembly_run_reports_immutable", "assembly_manifests_lifecycle_source_valid", "generated_project_locks_lifecycle_source_valid", "lifecycle_plans_immutable", "lifecycle_operations_insert_valid", "lifecycle_operations_contract_immutable", "lifecycle_operations_delete_immutable", "lifecycle_artifact_transitions_contract_immutable", "lifecycle_artifact_transitions_delete_immutable", "lifecycle_diagnostics_immutable", "lifecycle_reports_immutable", "lifecycle_heads_contract_immutable", "lifecycle_heads_delete_immutable"} {
 		if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_trigger WHERE tgname=$1 AND NOT tgisinternal`, trigger).Scan(&triggerCount); err != nil {
 			t.Fatalf("query trigger %q: %v", trigger, err)
 		}
@@ -110,10 +117,12 @@ func assertMigrationState(t *testing.T, database testpostgres.Database) {
 		}
 	}
 	for permission, risk := range map[string]string{
-		"assembly.blueprint.manage": "normal",
-		"assembly.plan":             "normal",
-		"assembly.execute":          "high",
-		"assembly.read":             "normal",
+		"assembly.blueprint.manage":  "normal",
+		"assembly.plan":              "normal",
+		"assembly.execute":           "high",
+		"assembly.lifecycle.execute": "high",
+		"assembly.lifecycle.plan":    "normal",
+		"assembly.read":              "normal",
 	} {
 		var actualRisk string
 		if err := database.Pool.QueryRow(ctx, `SELECT risk_level FROM access_control.admin_permissions WHERE permission_code=$1`, permission).Scan(&actualRisk); err != nil {

@@ -27,6 +27,14 @@ func (v validatorStub) Validate(name string, document json.RawMessage) (Validate
 	return ValidatedDocument{SchemaName: name, SchemaVersion: "1.0.0", CanonicalJSON: append(json.RawMessage(nil), document...), SHA256: testDigestA}, nil
 }
 
+func TestRunTerminalStatesCannotEvolveInPlace(t *testing.T) {
+	for _, status := range []RunStatus{RunStatusCompleted, RunStatusFailed, RunStatusCancelled, RunStatusRolledBack} {
+		if validTransition(status, status) {
+			t.Fatalf("terminal status %q accepted an in-place transition", status)
+		}
+	}
+}
+
 type plannerStub struct {
 	document PlannedDocument
 	err      error
@@ -375,6 +383,61 @@ func TestRunEvolutionRejectsLockedFieldDrift(t *testing.T) {
 	next.CreatedAt = now.Add(time.Second)
 	if !errors.Is(validateRunEvolution(current, next), ErrInvalidRunTransition) {
 		t.Fatal("created_at drift was accepted")
+	}
+}
+
+func TestRunEvolutionCarriesForwardTerminalStepStates(t *testing.T) {
+	now := fixedClock()()
+	started, finished := now.Add(-2*time.Minute), now.Add(-time.Minute)
+	current := Run{
+		RunID: "run.progress", RootRunID: "run.progress", AttemptNumber: 1,
+		PlanID: "plan.progress", PlanSHA256: testDigestA, IdempotencyKeyDigest: testDigestB,
+		OutputTargetRef: "workspace.default", Status: RunStatusGenerating,
+		Steps: []RunStep{
+			{StepID: "step.provision", Kind: "provision", Status: "completed", Attempt: 1, CompensationStatus: "pending", StartedAt: &started, FinishedAt: &finished},
+			{StepID: "step.generate", Kind: "generate", Status: "running", Attempt: 1, CompensationStatus: "pending", StartedAt: &started},
+			{StepID: "step.optional", Kind: "validate", Status: "skipped", CompensationStatus: "not_required"},
+		},
+		CreatedAt: now.Add(-3 * time.Minute), UpdatedAt: now,
+	}
+	next := current
+	next.Status = RunStatusValidating
+	next.UpdatedAt = now.Add(time.Second)
+	next.Steps = append([]RunStep(nil), current.Steps...)
+	next.Steps[1].Status = "completed"
+	next.Steps[1].FinishedAt = &finished
+	if err := validateRunEvolution(current, next); err != nil {
+		t.Fatalf("completed and skipped steps must remain stable across later run phases: %v", err)
+	}
+}
+
+func TestRunEvolutionAcceptsPostgresTimestampPrecisionRoundTrip(t *testing.T) {
+	now := fixedClock()().Add(123456 * time.Nanosecond)
+	started := now.Add(-time.Minute).Truncate(time.Microsecond)
+	current := Run{
+		RunID: "run.timestamp", RootRunID: "run.timestamp", AttemptNumber: 1,
+		PlanID: "plan.timestamp", PlanSHA256: testDigestA, IdempotencyKeyDigest: testDigestB,
+		OutputTargetRef: "workspace.default", Status: RunStatusGenerating,
+		Steps:     []RunStep{{StepID: "step.generate", Kind: "generate", Status: "running", Attempt: 1, CompensationStatus: "pending", StartedAt: &started}},
+		CreatedAt: now.Truncate(time.Microsecond), UpdatedAt: now.Truncate(time.Microsecond),
+	}
+	next := current
+	next.Status = RunStatusValidating
+	next.CreatedAt = current.CreatedAt.Add(900 * time.Nanosecond)
+	next.UpdatedAt = current.UpdatedAt.Add(time.Second)
+	next.Steps = append([]RunStep(nil), current.Steps...)
+	nextStarted := started.Add(900 * time.Nanosecond)
+	finished := next.UpdatedAt
+	next.Steps[0].StartedAt = &nextStarted
+	next.Steps[0].FinishedAt = &finished
+	next.Steps[0].Status = "completed"
+	if err := validateRunEvolution(current, next); err != nil {
+		t.Fatalf("PostgreSQL microsecond round-trip must not look like timestamp drift: %v", err)
+	}
+
+	next.CreatedAt = current.CreatedAt.Add(time.Microsecond)
+	if !errors.Is(validateRunEvolution(current, next), ErrInvalidRunTransition) {
+		t.Fatal("real persisted created_at drift was accepted")
 	}
 }
 

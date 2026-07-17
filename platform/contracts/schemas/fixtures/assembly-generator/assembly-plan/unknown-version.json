@@ -4,7 +4,7 @@
   "blueprint_id": "bp_demo-product",
   "blueprint_version": 1,
   "environment": "test",
-  "catalog_snapshot": { "revision": "catalog-abcdef123456", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "catalog_snapshot": { "revision": "catalog-abcdef123456", "scope": "ordinary", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
   "packages": [{ "package_id": "package.account", "version": "1.0.0", "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
   "applications": [{ "application_id": "demo-product.web", "target": "web", "channel": "official", "environment": "test", "delivery_mode": "generated_source", "output_path": "apps/web", "template": { "template_id": "standard-web", "version": "1.0.0", "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } }],
   "extensions": [],

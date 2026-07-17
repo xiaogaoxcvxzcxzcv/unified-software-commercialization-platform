@@ -79,7 +79,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, { ...init, headers, credentials: "include" });
-  } catch {
+  } catch (reason) {
+    if (init.signal?.aborted) {
+      throw init.signal.reason ?? reason;
+    }
+    if (reason && typeof reason === "object" && "name" in reason && reason.name === "AbortError") {
+      throw reason;
+    }
     throw new AuthApiError("认证服务不可用，请确认后端已经启动后重试", {
       status: 0,
       code: "admin_auth.service_unavailable",

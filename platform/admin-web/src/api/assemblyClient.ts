@@ -1,5 +1,8 @@
 import { authenticatedAdminRequest } from "./authClient";
 import { parseAssemblyRun, parseAssemblyRunPage } from "./assemblyRunProjection";
+import { parseLifecycleArtifactState, parseLifecycleOperation, parseLifecyclePlan, validateLifecyclePath, validateLifecycleTarget } from "./assemblyLifecycleProjection";
+import type { AssemblyLifecycleOperation, AssemblyLifecyclePlan, LifecycleTargetVersions } from "./assemblyLifecycleProjection";
+export type { AssemblyLifecycleOperation, AssemblyLifecyclePlan, LifecycleTargetVersions, LifecycleVersionRef } from "./assemblyLifecycleProjection";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -120,7 +123,7 @@ export interface AssemblyPlanRecord {
   audit_id: string;
 }
 
-export type AssemblyRunStatus = "planned" | "provisioning" | "generating" | "validating" | "completed" | "failed" | "rolling_back" | "rolled_back";
+export type AssemblyRunStatus = "planned" | "provisioning" | "generating" | "validating" | "completed" | "failed" | "cancelled" | "rolling_back" | "rolled_back";
 
 export type AssemblyRunStepStatus = "pending" | "running" | "completed" | "failed" | "compensated" | "skipped";
 export type AssemblyRunStepKind = "provision" | "enable_capability" | "generate" | "validate" | "commit" | "rollback";
@@ -214,7 +217,8 @@ export interface AssemblyRunRecord {
 export interface AssemblyManifestRecord {
   assembly_id: string;
   product_id: string;
-  run_id: string;
+  run_id?: string;
+  lifecycle_operation_id?: string;
   schema_version: string;
   document: JsonObject;
   document_checksum: string;
@@ -225,7 +229,8 @@ export interface AssemblyManifestRecord {
 export interface GeneratedProjectLockRecord {
   lock_id: string;
   product_id: string;
-  run_id: string;
+  run_id?: string;
+  lifecycle_operation_id?: string;
   assembly_id: string;
   schema_version: string;
   document: JsonObject;
@@ -265,6 +270,8 @@ export interface ListAssemblyRunsInput {
   status?: AssemblyRunStatus;
   product_id?: string;
 }
+export interface CreateUpgradePlanInput { expected_manifest_checksum: string; expected_lock_checksum: string; target: LifecycleTargetVersions }
+export interface CreateEjectPlanInput { expected_manifest_checksum: string; expected_lock_checksum: string; paths: string[] }
 
 const trustedToolKeys = new Set(["id", "version"]);
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -303,6 +310,11 @@ function assertNonEmpty(value: string, field: string) {
 function assertIdentifier(value: string, field: string) {
   assertNonEmpty(value, field);
   if (!identifierPattern.test(value)) throw new TypeError(`${field} is invalid`);
+}
+
+function assertLifecycleWrite(expectedVersion: number, reason: string) {
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new TypeError("expectedVersion is invalid");
+  if (!reason.trim() || [...reason].length > 500 || containsPathLikeDisplayValue(reason)) throw new TypeError("reason is invalid");
 }
 
 function containsForbiddenDisplayCharacter(value: string) {
@@ -644,6 +656,77 @@ function parsePlan(value: unknown): AssemblyPlanRecord {
     created_at: parseTimestamp(source.created_at, "assembly plan created_at"), updated_at: parseTimestamp(source.updated_at, "assembly plan updated_at"), audit_id: safeIdentifier(source.audit_id, "assembly plan audit_id") };
 }
 
+function parseManifest(value: unknown): AssemblyManifestRecord {
+  const candidate = value as Record<string, unknown> | null;
+  const hasRun = candidate !== null && Object.prototype.hasOwnProperty.call(candidate, "run_id");
+  const hasLifecycleOperation = candidate !== null && Object.prototype.hasOwnProperty.call(candidate, "lifecycle_operation_id");
+  if (hasRun === hasLifecycleOperation) throw new TypeError("assembly manifest must have exactly one source");
+  const sourceKey = hasRun ? "run_id" : "lifecycle_operation_id";
+  const source = exactObject(value, ["assembly_id", "product_id", sourceKey, "schema_version", "document", "document_checksum", "checksum", "created_at"], "assembly manifest");
+  const result: AssemblyManifestRecord = {
+    assembly_id: safeIdentifier(source.assembly_id, "assembly manifest assembly_id"),
+    product_id: safeIdentifier(source.product_id, "assembly manifest product_id"),
+    schema_version: parseSchemaVersion(source.schema_version, "assembly manifest schema_version"),
+    document: parseDocument(source.document, "assembly manifest document"),
+    document_checksum: parseChecksum(source.document_checksum, "assembly manifest document_checksum"),
+    checksum: parseChecksum(source.checksum, "assembly manifest checksum"),
+    created_at: parseTimestamp(source.created_at, "assembly manifest created_at"),
+  };
+  if (hasRun) result.run_id = safeIdentifier(source.run_id, "assembly manifest run_id");
+  else result.lifecycle_operation_id = safeIdentifier(source.lifecycle_operation_id, "assembly manifest lifecycle_operation_id");
+  return result;
+}
+
+function parseGeneratedProjectLock(value: unknown): GeneratedProjectLockRecord {
+  const candidate = value as Record<string, unknown> | null;
+  const hasRun = candidate !== null && Object.prototype.hasOwnProperty.call(candidate, "run_id");
+  const hasLifecycleOperation = candidate !== null && Object.prototype.hasOwnProperty.call(candidate, "lifecycle_operation_id");
+  if (hasRun === hasLifecycleOperation) throw new TypeError("generated project lock must have exactly one source");
+  const sourceKey = hasRun ? "run_id" : "lifecycle_operation_id";
+  const source = exactObject(value, ["lock_id", "product_id", sourceKey, "assembly_id", "schema_version", "document", "document_checksum", "checksum", "created_at"], "generated project lock");
+  const result: GeneratedProjectLockRecord = {
+    lock_id: safeIdentifier(source.lock_id, "generated project lock lock_id"),
+    product_id: safeIdentifier(source.product_id, "generated project lock product_id"),
+    assembly_id: safeIdentifier(source.assembly_id, "generated project lock assembly_id"),
+    schema_version: parseSchemaVersion(source.schema_version, "generated project lock schema_version"),
+    document: parseDocument(source.document, "generated project lock document"),
+    document_checksum: parseChecksum(source.document_checksum, "generated project lock document_checksum"),
+    checksum: parseChecksum(source.checksum, "generated project lock checksum"),
+    created_at: parseTimestamp(source.created_at, "generated project lock created_at"),
+  };
+  if (hasRun) result.run_id = safeIdentifier(source.run_id, "generated project lock run_id");
+  else result.lifecycle_operation_id = safeIdentifier(source.lifecycle_operation_id, "generated project lock lifecycle_operation_id");
+  return result;
+}
+
+function requireLifecyclePlanIdentity(result: AssemblyLifecyclePlan, expected: { planId?: string; assemblyId?: string; operation?: "upgrade" | "eject" }) {
+  if ((expected.planId !== undefined && result.lifecycle_plan_id !== expected.planId)
+    || (expected.assemblyId !== undefined && result.assembly_id !== expected.assemblyId)
+    || (expected.operation !== undefined && result.operation !== expected.operation)) {
+    throw new TypeError("assembly lifecycle plan does not match the request");
+  }
+  return result;
+}
+
+function requireInitialLifecycleOperation(result: AssemblyLifecycleOperation, planId: string) {
+  if (result.lifecycle_plan_id !== planId || result.kind === "rollback" || result.rollback_of_operation_id !== null || result.root_operation_id !== result.operation_id) {
+    throw new TypeError("assembly lifecycle operation does not match the executed plan");
+  }
+  return result;
+}
+
+function requireLifecycleOperationIdentity(result: AssemblyLifecycleOperation, operationId: string) {
+  if (result.operation_id !== operationId) throw new TypeError("assembly lifecycle operation does not match the request");
+  return result;
+}
+
+function requireRollbackLifecycleOperation(result: AssemblyLifecycleOperation, predecessorOperationId: string) {
+  if (result.operation_id === predecessorOperationId || result.kind !== "rollback" || result.rollback_of_operation_id !== predecessorOperationId || result.lifecycle_plan_id !== null) {
+    throw new TypeError("assembly lifecycle rollback does not match the request");
+  }
+  return result;
+}
+
 export const assemblyClient = {
   async listOrdinaryCatalogOptions(filter: AssemblyCatalogFilter, options: AssemblyRequestOptions = {}) {
     const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-catalog-options?${catalogQuery(filter)}`, readInit(options));
@@ -725,13 +808,102 @@ export const assemblyClient = {
     return parseAssemblyRun(result);
   },
 
-  getManifest(assemblyId: string, options: AssemblyRequestOptions = {}) {
-    assertIdentifier(assemblyId, "assemblyId");
-    return authenticatedAdminRequest<AssemblyManifestRecord>(`/api/v1/admin/assembly-manifests/${encodeURIComponent(assemblyId)}`, readInit(options));
+  async cancelRun(runId: string, expectedVersion: number, reason: string, options: AssemblyWriteOptions) {
+    assertIdentifier(runId, "runId");
+    assertLifecycleWrite(expectedVersion, reason);
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/assembly-runs/${encodeURIComponent(runId)}/cancel`,
+      writeInit({ expected_version: expectedVersion, reason: reason.trim() }, options),
+    );
+    return parseAssemblyRun(result);
   },
 
-  getGeneratedProjectLock(lockId: string, options: AssemblyRequestOptions = {}) {
+  async createUpgradePlan(assemblyId: string, input: CreateUpgradePlanInput, options: AssemblyWriteOptions) {
+    assertIdentifier(assemblyId, "assemblyId");
+    parseChecksum(input.expected_manifest_checksum, "expected_manifest_checksum");
+    parseChecksum(input.expected_lock_checksum, "expected_lock_checksum");
+    validateLifecycleTarget(input.target);
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/assemblies/${encodeURIComponent(assemblyId)}/upgrade-plans`,
+      writeInit(input as unknown as JsonValue, options),
+    );
+    return requireLifecyclePlanIdentity(parseLifecyclePlan(result), { assemblyId, operation: "upgrade" });
+  },
+
+  async getLifecycleSource(assemblyId: string, options: AssemblyRequestOptions = {}) {
+    assertIdentifier(assemblyId, "assemblyId");
+    return parseLifecycleArtifactState(await authenticatedAdminRequest<unknown>(`/api/v1/admin/assemblies/${encodeURIComponent(assemblyId)}/lifecycle-source`, readInit(options)));
+  },
+
+  async createEjectPlan(assemblyId: string, input: CreateEjectPlanInput, options: AssemblyWriteOptions) {
+    assertIdentifier(assemblyId, "assemblyId");
+    parseChecksum(input.expected_manifest_checksum, "expected_manifest_checksum");
+    parseChecksum(input.expected_lock_checksum, "expected_lock_checksum");
+    if (!Array.isArray(input.paths) || input.paths.length < 1 || input.paths.length > 500) throw new TypeError("paths is invalid");
+    input.paths.forEach(validateLifecyclePath);
+    if (new Set(input.paths).size !== input.paths.length) throw new TypeError("paths contains duplicates");
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/assemblies/${encodeURIComponent(assemblyId)}/eject-plans`,
+      writeInit(input as unknown as JsonValue, options),
+    );
+    return requireLifecyclePlanIdentity(parseLifecyclePlan(result), { assemblyId, operation: "eject" });
+  },
+
+  async getLifecyclePlan(planId: string, options: AssemblyRequestOptions = {}) {
+    assertIdentifier(planId, "planId");
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-lifecycle-plans/${encodeURIComponent(planId)}`, readInit(options));
+    return requireLifecyclePlanIdentity(parseLifecyclePlan(result), { planId });
+  },
+
+  async executeLifecyclePlan(planId: string, expectedVersion: number, planChecksum: string, confirmationChecksum: string, options: AssemblyWriteOptions) {
+    assertIdentifier(planId, "planId");
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new TypeError("expectedVersion is invalid");
+    parseChecksum(planChecksum, "planChecksum");
+    parseChecksum(confirmationChecksum, "confirmationChecksum");
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/assembly-lifecycle-plans/${encodeURIComponent(planId)}/execute`,
+      writeInit({ expected_version: expectedVersion, plan_checksum: planChecksum, confirmation_checksum: confirmationChecksum }, options),
+    );
+    return requireInitialLifecycleOperation(parseLifecycleOperation(result), planId);
+  },
+
+  async getLifecycleOperation(operationId: string, options: AssemblyRequestOptions = {}) {
+    assertIdentifier(operationId, "operationId");
+    const result = await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-lifecycle-operations/${encodeURIComponent(operationId)}`, readInit(options));
+    return requireLifecycleOperationIdentity(parseLifecycleOperation(result), operationId);
+  },
+
+  async cancelLifecycleOperation(operationId: string, expectedVersion: number, reason: string, options: AssemblyWriteOptions) {
+    assertIdentifier(operationId, "operationId");
+    assertLifecycleWrite(expectedVersion, reason);
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/assembly-lifecycle-operations/${encodeURIComponent(operationId)}/cancel`,
+      writeInit({ expected_version: expectedVersion, reason: reason.trim() }, options),
+    );
+    return requireLifecycleOperationIdentity(parseLifecycleOperation(result), operationId);
+  },
+
+  async rollbackLifecycleOperation(operationId: string, expectedVersion: number, reason: string, options: AssemblyWriteOptions) {
+    assertIdentifier(operationId, "operationId");
+    assertLifecycleWrite(expectedVersion, reason);
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/assembly-lifecycle-operations/${encodeURIComponent(operationId)}/rollback`,
+      writeInit({ expected_version: expectedVersion, reason: reason.trim() }, options),
+    );
+    return requireRollbackLifecycleOperation(parseLifecycleOperation(result), operationId);
+  },
+
+  async getManifest(assemblyId: string, options: AssemblyRequestOptions = {}) {
+    assertIdentifier(assemblyId, "assemblyId");
+    const result = parseManifest(await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-manifests/${encodeURIComponent(assemblyId)}`, readInit(options)));
+    if (result.assembly_id !== assemblyId) throw new TypeError("assembly manifest does not match the request");
+    return result;
+  },
+
+  async getGeneratedProjectLock(lockId: string, options: AssemblyRequestOptions = {}) {
     assertIdentifier(lockId, "lockId");
-    return authenticatedAdminRequest<GeneratedProjectLockRecord>(`/api/v1/admin/generated-project-locks/${encodeURIComponent(lockId)}`, readInit(options));
+    const result = parseGeneratedProjectLock(await authenticatedAdminRequest<unknown>(`/api/v1/admin/generated-project-locks/${encodeURIComponent(lockId)}`, readInit(options)));
+    if (result.lock_id !== lockId) throw new TypeError("generated project lock does not match the request");
+    return result;
   },
 };

@@ -14,9 +14,10 @@
     "catalog_snapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "checksum"],
+      "required": ["revision", "scope", "checksum"],
       "properties": {
         "revision": { "$ref": "common.schema.json#/$defs/identifier" },
+        "scope": { "type": "string", "enum": ["ordinary", "experimental"] },
         "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },

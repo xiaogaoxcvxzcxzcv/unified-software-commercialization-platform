@@ -5,9 +5,15 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "lock_id", "assembly_manifest_checksum", "blueprint_checksum", "catalog_checksum", "target_snapshot_checksum", "rollback_point_path", "generator", "packages", "templates", "sdks", "files", "created_at", "lock_checksum"],
+  "oneOf": [
+    { "required": ["run_id"], "not": { "required": ["lifecycle_operation_id"] } },
+    { "required": ["lifecycle_operation_id"], "not": { "required": ["run_id"] } }
+  ],
   "properties": {
     "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
     "lock_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "lifecycle_operation_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "assembly_manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
     "blueprint_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
     "catalog_checksum": { "$ref": "common.schema.json#/$defs/sha256" },

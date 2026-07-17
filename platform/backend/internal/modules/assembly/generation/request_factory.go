@@ -13,6 +13,7 @@ import (
 type RequestSpec struct {
 	WorkspaceRef         string
 	RunID                string
+	LifecycleOperationID string
 	RunCreatedAt         time.Time
 	Product              ArtifactProduct
 	Blueprint            ArtifactBlueprint
@@ -28,7 +29,13 @@ func BuildRequest(targetRoot string, spec RequestSpec) (Input, PreviousArtifacts
 	if json.Unmarshal(spec.PlanDocument, &planDocument) != nil || planDocument.PlanID == "" || planDocument.PlanChecksum == "" || len(spec.BlueprintDocument) == 0 {
 		return Input{}, PreviousArtifacts{}, ErrInvalidInput
 	}
-	if !stableIdentifierPattern.MatchString(spec.WorkspaceRef) || !stableIdentifierPattern.MatchString(spec.RunID) || spec.RunCreatedAt.IsZero() ||
+	executionID := spec.RunID
+	if spec.LifecycleOperationID != "" {
+		executionID = spec.LifecycleOperationID
+	}
+	validSource := (stableIdentifierPattern.MatchString(spec.RunID) && spec.LifecycleOperationID == "") ||
+		(stableIdentifierPattern.MatchString(spec.LifecycleOperationID) && spec.RunID == "")
+	if !stableIdentifierPattern.MatchString(spec.WorkspaceRef) || !validSource || spec.RunCreatedAt.IsZero() ||
 		!validDigest(spec.Blueprint.Checksum) || spec.Blueprint.BlueprintID != planDocument.BlueprintID || spec.Blueprint.Version != planDocument.BlueprintVersion {
 		return Input{}, PreviousArtifacts{}, ErrPlanMismatch
 	}
@@ -36,13 +43,13 @@ func BuildRequest(targetRoot string, spec RequestSpec) (Input, PreviousArtifacts
 	if err != nil {
 		return Input{}, PreviousArtifacts{}, err
 	}
-	seed := strings.TrimPrefix(digestBytes([]byte(spec.RunID+"\x00"+planDocument.PlanChecksum+"\x00"+spec.WorkspaceRef)), "sha256:")[:24]
+	seed := strings.TrimPrefix(digestBytes([]byte(executionID+"\x00"+planDocument.PlanChecksum+"\x00"+spec.WorkspaceRef)), "sha256:")[:24]
 	requestID := "request." + seed
 	assemblyID := "assembly." + seed
 	artifactRoot := path.Join("artifacts", "assembly", assemblyID)
 	reportPath := path.Join(artifactRoot, "reports", "generator-contract.json")
 	reportRaw, err := json.Marshal(map[string]any{
-		"schema_version": "1.0.0", "request_id": requestID, "run_id": spec.RunID,
+		"schema_version": "1.0.0", "request_id": requestID, "execution_id": executionID,
 		"plan_checksum": planDocument.PlanChecksum, "blueprint_checksum": spec.Blueprint.Checksum,
 		"catalog_checksum": planDocument.CatalogSnapshot.Checksum, "target_snapshot_checksum": snapshot.Checksum,
 		"generator_checksum": planDocument.Generator.Checksum, "status": "passed",
@@ -84,7 +91,7 @@ func BuildRequest(targetRoot string, spec RequestSpec) (Input, PreviousArtifacts
 		StagingPath: path.Join(".runtime", "generator", requestID), RollbackPointPath: path.Join(artifactRoot, "rollback-point.json"),
 		ConflictPolicy: "stop", Determinism: Determinism{Timezone: "UTC", Locale: "C", SortOrder: "bytewise"},
 		ArtifactContext: ArtifactContext{
-			AssemblyID: assemblyID, LockID: "lock." + seed, RollbackID: "rollback." + seed, RunID: spec.RunID,
+			AssemblyID: assemblyID, LockID: "lock." + seed, RollbackID: "rollback." + seed, RunID: spec.RunID, LifecycleOperationID: spec.LifecycleOperationID,
 			Product: spec.Product, Blueprint: spec.Blueprint, CatalogChecksum: planDocument.CatalogSnapshot.Checksum,
 			Evidence:  []Evidence{{EvidenceID: "evidence.generator-contract", Type: "contract_report", Status: "passed", Path: reportPath, SHA256: digestBytes(report)}},
 			CreatedAt: spec.RunCreatedAt.UTC().Format(time.RFC3339Nano),

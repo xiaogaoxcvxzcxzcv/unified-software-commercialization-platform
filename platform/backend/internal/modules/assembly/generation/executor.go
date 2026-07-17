@@ -45,13 +45,14 @@ func (e *Executor) Execute(ctx context.Context, targetRoot string, input Input, 
 	if err != nil || e.contracts.Validate("generator-request", requestRaw) != nil {
 		return ExecutionOutcome{}, ErrInvalidInput
 	}
-	if published, found, err := e.artifacts.LoadPublished(input.Request); err != nil {
+	expectedSourceSnapshotChecksum := input.Request.TargetSnapshotChecksum
+	if validDigest(previousLock.TargetSnapshotChecksum) {
+		expectedSourceSnapshotChecksum = previousLock.TargetSnapshotChecksum
+	}
+	if recovered, found, err := e.recover(ctx, targetRoot, input, expectedSourceSnapshotChecksum, true); err != nil {
 		return ExecutionOutcome{}, err
 	} else if found {
-		if err := e.validateSuccessBundle(published); err != nil || verifyFinalSnapshot(targetRoot, published.FinalSnapshot) != nil {
-			return ExecutionOutcome{}, ErrArtifactConflict
-		}
-		return ExecutionOutcome{Commit: CommitResult{AtomicCommitCompleted: true, StagingCleanupCompleted: true, TargetUnchanged: true}, Bundle: published, Published: true}, nil
+		return recovered, nil
 	}
 	preCommit := CommitResult{StagingCleanupCompleted: true, TargetUnchanged: true}
 	rendered, err := e.renderer.Render(ctx, input)
@@ -96,6 +97,262 @@ func (e *Executor) Execute(ctx context.Context, targetRoot string, input Input, 
 		return e.rollbackAndFail(targetRoot, input.Request, prepared, bundle, transaction, commit, err)
 	}
 	return ExecutionOutcome{Commit: commit, Bundle: bundle, Published: true}, nil
+}
+
+// Recover completes an already-published or deterministically staged success
+// transaction without rendering or writing product files. The expected source
+// checksum must come from the durable lifecycle operation, not the current
+// workspace, which may already contain the committed successor snapshot.
+func (e *Executor) Recover(ctx context.Context, targetRoot string, input Input, expectedSourceSnapshotChecksum string) (ExecutionOutcome, bool, error) {
+	if e == nil || rootsOverlap(targetRoot, e.artifacts.Root()) || !validDigest(expectedSourceSnapshotChecksum) {
+		return ExecutionOutcome{}, false, ErrInvalidInput
+	}
+	requestRaw, err := json.Marshal(input.Request)
+	if err != nil || e.contracts.Validate("generator-request", requestRaw) != nil {
+		return ExecutionOutcome{}, false, ErrInvalidInput
+	}
+	return e.recover(ctx, targetRoot, input, expectedSourceSnapshotChecksum, false)
+}
+
+func (e *Executor) recover(ctx context.Context, targetRoot string, input Input, expectedSourceSnapshotChecksum string, restartInPlace bool) (ExecutionOutcome, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return ExecutionOutcome{}, false, err
+	}
+	if published, found, err := e.artifacts.loadPublishedRecoverable(input.Request, expectedSourceSnapshotChecksum); err != nil {
+		return ExecutionOutcome{}, found, err
+	} else if found {
+		if err := e.validateSuccessBundle(published); err != nil || !recoveryBundleMatchesPlan(input, published) || verifyFinalSnapshot(targetRoot, published.FinalSnapshot) != nil {
+			return ExecutionOutcome{}, true, ErrArtifactConflict
+		}
+		return ExecutionOutcome{Commit: CommitResult{AtomicCommitCompleted: true, StagingCleanupCompleted: true, TargetUnchanged: true}, Bundle: published, Published: true}, true, nil
+	}
+	if staged, transaction, found, err := e.artifacts.loadRecoverableStaged(input.Request, expectedSourceSnapshotChecksum); err != nil {
+		return ExecutionOutcome{}, found, err
+	} else if found {
+		if err := e.validateSuccessBundle(staged); err != nil || !recoveryBundleMatchesPlan(input, staged) {
+			return ExecutionOutcome{}, true, ErrArtifactConflict
+		}
+		if verifyFinalSnapshot(targetRoot, staged.FinalSnapshot) != nil {
+			if err := restoreInterruptedStage(targetRoot, input.Request, staged, transaction, expectedSourceSnapshotChecksum); err != nil {
+				return ExecutionOutcome{}, true, err
+			}
+			if restartInPlace {
+				return ExecutionOutcome{}, false, nil
+			}
+			return ExecutionOutcome{}, true, ErrTargetChanged
+		}
+		if err := transaction.MarkCommitted(); err != nil {
+			return ExecutionOutcome{}, true, err
+		}
+		if err := transaction.Publish(); err != nil {
+			return ExecutionOutcome{}, true, err
+		}
+		return ExecutionOutcome{Commit: CommitResult{AtomicCommitCompleted: true, StagingCleanupCompleted: true, TargetUnchanged: true}, Bundle: staged, Published: true}, true, nil
+	}
+	return ExecutionOutcome{}, false, nil
+}
+
+func recoveryBundleMatchesPlan(input Input, bundle ArtifactBundle) bool {
+	var plan Plan
+	var manifest assemblyManifestDocument
+	if json.Unmarshal(input.Plan, &plan) != nil || jsonUnmarshalStrict(bundle.AssemblyManifest, &manifest) != nil || validateRequestPlan(input.Request, plan) != nil {
+		return false
+	}
+	type dependency struct{ version, checksum string }
+	packages := make(map[string]dependency, len(plan.Packages))
+	for _, value := range plan.Packages {
+		if _, duplicate := packages[value.PackageID]; duplicate {
+			return false
+		}
+		packages[value.PackageID] = dependency{value.Version, value.Checksum}
+	}
+	templates := make(map[string]dependency, len(plan.Applications))
+	for _, application := range plan.Applications {
+		value := application.Template
+		want := dependency{value.Version, value.Checksum}
+		if prior, duplicate := templates[value.TemplateID]; duplicate && prior != want {
+			return false
+		}
+		templates[value.TemplateID] = want
+	}
+	sdks := make(map[string]dependency, len(plan.SDKs))
+	for _, value := range plan.SDKs {
+		if _, duplicate := sdks[value.SDKID]; duplicate {
+			return false
+		}
+		sdks[value.SDKID] = dependency{value.Version, value.Checksum}
+	}
+	compare := func(expected map[string]dependency, actual map[string]dependency) bool {
+		if len(expected) != len(actual) {
+			return false
+		}
+		for id, want := range expected {
+			got, ok := actual[id]
+			if !ok || got.version != want.version || !digestEqual(got.checksum, want.checksum) {
+				return false
+			}
+		}
+		return true
+	}
+	manifestPackages := make(map[string]dependency, len(manifest.Packages))
+	for _, value := range manifest.Packages {
+		manifestPackages[value.PackageID] = dependency{value.Version, value.Checksum}
+	}
+	manifestTemplates := make(map[string]dependency, len(manifest.Templates))
+	for _, value := range manifest.Templates {
+		manifestTemplates[value.TemplateID] = dependency{value.Version, value.Checksum}
+	}
+	manifestSDKs := make(map[string]dependency, len(manifest.SDKs))
+	for _, value := range manifest.SDKs {
+		manifestSDKs[value.SDKID] = dependency{value.Version, value.Checksum}
+	}
+	return compare(packages, manifestPackages) && compare(templates, manifestTemplates) && compare(sdks, manifestSDKs)
+}
+
+func restoreInterruptedStage(targetRoot string, request Request, bundle ArtifactBundle, transaction *ArtifactTransaction, expectedSourceSnapshotChecksum string) error {
+	var journal commitJournalDocument
+	var result generatorResultDocument
+	if transaction == nil || jsonUnmarshalStrict(bundle.CommitJournal, &journal) != nil || jsonUnmarshalStrict(bundle.GeneratorResult, &result) != nil ||
+		!digestEqual(journal.TargetSnapshotChecksum, expectedSourceSnapshotChecksum) {
+		return ErrArtifactConflict
+	}
+	source, err := sourceSnapshotFromRecovery(journal, result)
+	if err != nil || !digestEqual(source.Checksum, expectedSourceSnapshotChecksum) {
+		return ErrArtifactConflict
+	}
+	if err := cleanupGeneratorStage(targetRoot, request.StagingPath); err != nil {
+		return err
+	}
+	if verifyFinalSnapshot(targetRoot, source) != nil {
+		applied, classifyErr := classifyInterruptedChanges(targetRoot, journal, transaction)
+		if classifyErr != nil {
+			return classifyErr
+		}
+		if rollbackErr := rollbackApplied(targetRoot, applied, nil); rollbackErr != nil || verifyFinalSnapshot(targetRoot, source) != nil {
+			return ErrRollbackFailed
+		}
+	}
+	if !transaction.Cleanup() {
+		return ErrArtifactStore
+	}
+	return nil
+}
+
+func sourceSnapshotFromRecovery(journal commitJournalDocument, result generatorResultDocument) (TargetSnapshot, error) {
+	files := make([]ExistingFile, 0, len(journal.Changes)+len(result.PreservedFiles))
+	for _, change := range journal.Changes {
+		if change.Action == "created" {
+			continue
+		}
+		before := change.BeforeSHA256
+		if change.Action == "unchanged" && before == "" {
+			before = change.AfterSHA256
+		}
+		if !validDigest(before) {
+			return TargetSnapshot{}, ErrArtifactConflict
+		}
+		files = append(files, ExistingFile{Path: change.Path, Ownership: change.Ownership, SHA256: before})
+	}
+	for _, file := range result.PreservedFiles {
+		files = append(files, ExistingFile{Path: file.Path, Ownership: file.Ownership, SHA256: file.SHA256})
+	}
+	sortExistingFiles(files)
+	checksum, err := snapshotChecksum(files)
+	if err != nil {
+		return TargetSnapshot{}, ErrArtifactConflict
+	}
+	return TargetSnapshot{Files: files, Checksum: checksum}, nil
+}
+
+func classifyInterruptedChanges(targetRoot string, journal commitJournalDocument, transaction *ArtifactTransaction) ([]appliedChange, error) {
+	applied := make([]appliedChange, 0, len(journal.Changes))
+	for _, change := range journal.Changes {
+		content, exists, err := readOptionalSafeFile(targetRoot, change.Path)
+		if err != nil {
+			return nil, err
+		}
+		actual := ""
+		if exists {
+			actual = digestBytes(content)
+		}
+		switch change.Action {
+		case "unchanged":
+			if !exists || !digestEqual(actual, change.AfterSHA256) {
+				return nil, ErrArtifactConflict
+			}
+		case "created":
+			if !exists {
+				continue
+			}
+			if !digestEqual(actual, change.AfterSHA256) {
+				return nil, ErrArtifactConflict
+			}
+			applied = append(applied, appliedChange{change: FileChange{Path: change.Path, Ownership: change.Ownership, Action: change.Action, SHA256: change.AfterSHA256}, mode: 0o644})
+		case "updated":
+			if exists && digestEqual(actual, change.BeforeSHA256) {
+				continue
+			}
+			if !exists || !digestEqual(actual, change.AfterSHA256) {
+				return nil, ErrArtifactConflict
+			}
+			backupPath, pathErr := transaction.stagePathForFinal(change.BackupPath)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			info, statErr := os.Stat(filepath.Join(targetRoot, filepath.FromSlash(change.Path)))
+			if statErr != nil || !info.Mode().IsRegular() {
+				return nil, ErrArtifactConflict
+			}
+			applied = append(applied, appliedChange{change: FileChange{Path: change.Path, Ownership: change.Ownership, Action: change.Action, SHA256: change.AfterSHA256, PreviousSHA256: change.BeforeSHA256}, backupPath: backupPath, mode: info.Mode().Perm()})
+		default:
+			return nil, ErrArtifactConflict
+		}
+	}
+	return applied, nil
+}
+
+func readOptionalSafeFile(root, relative string) ([]byte, bool, error) {
+	if err := machinecontract.ValidateSafeRelativePath(relative); err != nil {
+		return nil, false, ErrTargetUnsafe
+	}
+	full := filepath.Join(root, filepath.FromSlash(relative))
+	if err := ensurePathInsideRoot(root, full); err != nil {
+		return nil, false, err
+	}
+	if _, err := os.Lstat(full); os.IsNotExist(err) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, ErrTargetUnsafe
+	}
+	content, err := readSafeWorkspaceFile(root, relative)
+	return content, err == nil, err
+}
+
+func cleanupGeneratorStage(root, relative string) error {
+	if err := machinecontract.ValidateSafeRelativePath(relative); err != nil {
+		return ErrTargetUnsafe
+	}
+	full := filepath.Join(root, filepath.FromSlash(relative))
+	if err := ensurePathInsideRoot(root, full); err != nil {
+		return err
+	}
+	info, err := os.Lstat(full)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return ErrTargetUnsafe
+	}
+	for current := full; current != root; current = filepath.Dir(current) {
+		unsafe, checkErr := isUnsafeFilesystemEntry(current)
+		if checkErr != nil || unsafe {
+			return ErrTargetUnsafe
+		}
+	}
+	if err := os.RemoveAll(full); err != nil {
+		return ErrArtifactStore
+	}
+	return nil
 }
 
 func (e *Executor) rollbackAndFail(targetRoot string, request Request, prepared PreparedChangeSet, bundle ArtifactBundle, transaction *ArtifactTransaction, commit CommitResult, cause error) (ExecutionOutcome, error) {

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/assembly-lifecycle-operation.schema.json",
+  "title": "Assembly Lifecycle Operation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "operation_id", "root_operation_id", "rollback_of_operation_id", "lifecycle_plan_id", "assembly_id", "product_id", "kind", "version", "status", "current_step", "source", "target", "recovery", "diagnostic_ids", "report_ids", "created_by", "created_at", "updated_at", "completed_at", "operation_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "operation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "root_operation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "rollback_of_operation_id": { "oneOf": [{ "$ref": "common.schema.json#/$defs/identifier" }, { "type": "null" }] },
+    "lifecycle_plan_id": { "oneOf": [{ "$ref": "common.schema.json#/$defs/identifier" }, { "type": "null" }] },
+    "assembly_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "product_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "kind": { "type": "string", "enum": ["upgrade", "eject", "rollback"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "status": { "type": "string", "enum": ["planned", "executing", "completed", "failed", "cancelled", "rolling_back", "rolled_back", "rollback_failed"] },
+    "current_step": { "oneOf": [{ "$ref": "common.schema.json#/$defs/identifier" }, { "type": "null" }] },
+    "source": { "$ref": "#/$defs/artifactState" },
+    "target": { "oneOf": [{ "$ref": "#/$defs/artifactState" }, { "type": "null" }] },
+    "recovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["retryable", "rollback_available", "cancel_allowed"],
+      "properties": { "retryable": { "type": "boolean" }, "rollback_available": { "type": "boolean" }, "cancel_allowed": { "type": "boolean" } }
+    },
+    "diagnostic_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "report_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "created_by": { "$ref": "common.schema.json#/$defs/identifier" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "operation_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "rollback" } }, "required": ["kind"] },
+      "then": { "properties": { "lifecycle_plan_id": { "type": "null" }, "rollback_of_operation_id": { "$ref": "common.schema.json#/$defs/identifier" } } },
+      "else": { "properties": { "lifecycle_plan_id": { "$ref": "common.schema.json#/$defs/identifier" }, "rollback_of_operation_id": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["completed", "rolled_back"] } }, "required": ["status"] },
+      "then": { "properties": { "target": { "$ref": "#/$defs/artifactState" }, "completed_at": { "type": "string", "format": "date-time" } } },
+      "else": {
+        "if": { "properties": { "status": { "enum": ["failed", "cancelled", "rollback_failed"] } }, "required": ["status"] },
+        "then": { "properties": { "target": { "type": "null" }, "completed_at": { "type": "string", "format": "date-time" } } },
+        "else": { "properties": { "target": { "type": "null" }, "completed_at": { "type": "null" } } }
+      }
+    }
+  ],
+  "$defs": {
+    "artifactState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest_id", "manifest_checksum", "lock_id", "lock_checksum", "catalog_checksum", "target_snapshot_checksum"],
+      "properties": {
+        "manifest_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "lock_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "lock_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "catalog_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

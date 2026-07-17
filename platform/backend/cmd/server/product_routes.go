@@ -34,6 +34,7 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/api/v1/admin/blueprints" || path == "/api/v1/admin/assembly-runs" || path == "/api/v1/admin/assembly-output-targets" || path == "/api/v1/admin/assembly-catalog-options" || path == "/api/v1/admin/experimental/assembly-catalog-options" || strings.HasPrefix(path, "/api/v1/admin/blueprints/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-plans/") || strings.HasPrefix(path, "/api/v1/admin/assembly-runs/") ||
+		strings.HasPrefix(path, "/api/v1/admin/assemblies/") || strings.HasPrefix(path, "/api/v1/admin/assembly-lifecycle-plans/") || strings.HasPrefix(path, "/api/v1/admin/assembly-lifecycle-operations/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-manifests/") || strings.HasPrefix(path, "/api/v1/admin/generated-project-locks/"):
 		h.assembly.ServeHTTP(w, r)
 	case strings.Contains(path, "/applications/") && strings.Contains(path, "/clients"):

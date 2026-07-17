@@ -111,16 +111,17 @@ type ArtifactPaths struct {
 }
 
 type ArtifactContext struct {
-	AssemblyID      string            `json:"assembly_id"`
-	LockID          string            `json:"lock_id"`
-	RollbackID      string            `json:"rollback_id"`
-	RunID           string            `json:"run_id"`
-	Product         ArtifactProduct   `json:"product"`
-	Blueprint       ArtifactBlueprint `json:"blueprint"`
-	CatalogChecksum string            `json:"catalog_checksum"`
-	Evidence        []Evidence        `json:"evidence"`
-	CreatedAt       string            `json:"created_at"`
-	Paths           ArtifactPaths     `json:"paths"`
+	AssemblyID           string            `json:"assembly_id"`
+	LockID               string            `json:"lock_id"`
+	RollbackID           string            `json:"rollback_id"`
+	RunID                string            `json:"run_id,omitempty"`
+	LifecycleOperationID string            `json:"lifecycle_operation_id,omitempty"`
+	Product              ArtifactProduct   `json:"product"`
+	Blueprint            ArtifactBlueprint `json:"blueprint"`
+	CatalogChecksum      string            `json:"catalog_checksum"`
+	Evidence             []Evidence        `json:"evidence"`
+	CreatedAt            string            `json:"created_at"`
+	Paths                ArtifactPaths     `json:"paths"`
 }
 
 type Request struct {
@@ -156,6 +157,7 @@ type Plan struct {
 	BlueprintID      string `json:"blueprint_id"`
 	BlueprintVersion int64  `json:"blueprint_version"`
 	CatalogSnapshot  struct {
+		Scope    string `json:"scope"`
 		Checksum string `json:"checksum"`
 	} `json:"catalog_snapshot"`
 	Generator          Tool         `json:"generator"`
@@ -214,6 +216,8 @@ type LockedFile struct {
 type ProjectLock struct {
 	SchemaVersion            string             `json:"schema_version"`
 	LockID                   string             `json:"lock_id,omitempty"`
+	RunID                    string             `json:"run_id,omitempty"`
+	LifecycleOperationID     string             `json:"lifecycle_operation_id,omitempty"`
 	AssemblyManifestChecksum string             `json:"assembly_manifest_checksum,omitempty"`
 	BlueprintChecksum        string             `json:"blueprint_checksum,omitempty"`
 	CatalogChecksum          string             `json:"catalog_checksum,omitempty"`

@@ -414,7 +414,7 @@ func (s *Service) ListRuns(ctx context.Context, filter RunListFilter) (RunPage, 
 		return RunPage{}, ErrInvalidCommand
 	}
 	switch filter.Status {
-	case "", RunStatusPlanned, RunStatusProvisioning, RunStatusGenerating, RunStatusValidating, RunStatusCompleted, RunStatusFailed, RunStatusRollingBack, RunStatusRolledBack:
+	case "", RunStatusPlanned, RunStatusProvisioning, RunStatusGenerating, RunStatusValidating, RunStatusCompleted, RunStatusFailed, RunStatusCancelled, RunStatusRollingBack, RunStatusRolledBack:
 	default:
 		return RunPage{}, ErrInvalidCommand
 	}
@@ -975,11 +975,11 @@ func parseRunDocument(validated ValidatedDocument, productID string, planVersion
 }
 
 func validTransition(current, next RunStatus) bool {
-	if current == next && current != RunStatusCompleted && current != RunStatusRolledBack {
+	if current == next && current != RunStatusCompleted && current != RunStatusFailed && current != RunStatusCancelled && current != RunStatusRolledBack {
 		return true
 	}
 	allowed := map[RunStatus]map[RunStatus]bool{
-		RunStatusPlanned:      {RunStatusProvisioning: true, RunStatusFailed: true},
+		RunStatusPlanned:      {RunStatusProvisioning: true, RunStatusFailed: true, RunStatusCancelled: true},
 		RunStatusProvisioning: {RunStatusGenerating: true, RunStatusFailed: true},
 		RunStatusGenerating:   {RunStatusValidating: true, RunStatusFailed: true},
 		RunStatusValidating:   {RunStatusCompleted: true, RunStatusFailed: true},
@@ -1002,17 +1002,17 @@ func validateRunEvolution(current, next Run) error {
 	if next.AttemptNumber == 0 {
 		next.AttemptNumber = 1
 	}
-	if current.Status == RunStatusCompleted || current.Status == RunStatusRolledBack ||
+	if current.Status == RunStatusCompleted || current.Status == RunStatusFailed || current.Status == RunStatusCancelled || current.Status == RunStatusRolledBack ||
 		next.RunID != current.RunID || next.PlanID != current.PlanID ||
 		next.RootRunID != current.RootRunID || next.RetryOfRunID != current.RetryOfRunID || next.AttemptNumber != current.AttemptNumber ||
 		!digestsEqual(next.PlanSHA256, current.PlanSHA256) ||
 		!digestsEqual(next.IdempotencyKeyDigest, current.IdempotencyKeyDigest) ||
-		next.OutputTargetRef != current.OutputTargetRef || !next.CreatedAt.Equal(current.CreatedAt) ||
+		next.OutputTargetRef != current.OutputTargetRef || !persistedTimeEqual(next.CreatedAt, current.CreatedAt) ||
 		next.UpdatedAt.Before(current.UpdatedAt) || !validTransition(current.Status, next.Status) ||
 		len(next.Steps) != len(current.Steps) {
 		return ErrInvalidRunTransition
 	}
-	terminal := next.Status == RunStatusCompleted || next.Status == RunStatusFailed || next.Status == RunStatusRolledBack
+	terminal := next.Status == RunStatusCompleted || next.Status == RunStatusFailed || next.Status == RunStatusCancelled || next.Status == RunStatusRolledBack
 	if terminal != (next.CompletedAt != nil) {
 		return ErrInvalidRunTransition
 	}
@@ -1042,7 +1042,7 @@ func validCompensationTransition(current, next string) bool {
 
 func validStepTransition(current, next string) bool {
 	if current == next {
-		return current != "completed" && current != "compensated" && current != "skipped"
+		return true
 	}
 	allowed := map[string]map[string]bool{
 		"pending":   {"running": true, "completed": true, "failed": true, "skipped": true},
@@ -1057,7 +1057,11 @@ func stableTime(current, next *time.Time) bool {
 	if current == nil {
 		return true
 	}
-	return next != nil && current.Equal(*next)
+	return next != nil && persistedTimeEqual(*current, *next)
+}
+
+func persistedTimeEqual(first, second time.Time) bool {
+	return first.UTC().Truncate(time.Microsecond).Equal(second.UTC().Truncate(time.Microsecond))
 }
 
 func assemblyEvent(eventID, auditID, eventType, action, targetType, targetID, productID, actorID, traceID, permission string, now time.Time, risk string, summary map[string]any) OutboxEvent {

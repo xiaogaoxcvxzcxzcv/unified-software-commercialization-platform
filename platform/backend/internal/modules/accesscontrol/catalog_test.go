@@ -17,6 +17,8 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 		"assembly.blueprint.manage",
 		"assembly.execute",
 		"assembly.experimental.use",
+		"assembly.lifecycle.execute",
+		"assembly.lifecycle.plan",
 		"assembly.plan",
 		"assembly.read",
 		"audit.read",
@@ -40,7 +42,7 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 	if err := catalog.ValidateRequiredPermissions(got); err != nil {
 		t.Fatalf("current catalog does not validate: %v", err)
 	}
-	const wantChecksum = "sha256:1ef5fdbe67b3f2bf323727c7cf0152004643a40b002c6353cd2d21783b56ca5b"
+	const wantChecksum = "sha256:91a93cf23689e8e0369aa45850ec81ba50209e2b090516fdbe4bcb09396a03e0"
 	if checksum := catalog.Checksum(); checksum != wantChecksum {
 		t.Fatalf("checksum = %q, want %q", checksum, wantChecksum)
 	}
@@ -49,11 +51,13 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 	catalog := CurrentPermissionCatalog()
 	want := map[string]PermissionRisk{
-		"assembly.blueprint.manage": PermissionRiskNormal,
-		"assembly.execute":          PermissionRiskHigh,
-		"assembly.experimental.use": PermissionRiskNormal,
-		"assembly.plan":             PermissionRiskNormal,
-		"assembly.read":             PermissionRiskNormal,
+		"assembly.blueprint.manage":  PermissionRiskNormal,
+		"assembly.execute":           PermissionRiskHigh,
+		"assembly.experimental.use":  PermissionRiskNormal,
+		"assembly.lifecycle.execute": PermissionRiskHigh,
+		"assembly.lifecycle.plan":    PermissionRiskNormal,
+		"assembly.plan":              PermissionRiskNormal,
+		"assembly.read":              PermissionRiskNormal,
 	}
 
 	for _, definition := range catalog.Definitions() {
@@ -80,6 +84,8 @@ func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 		"assembly.blueprint.manage",
 		"assembly.execute",
 		"assembly.experimental.use",
+		"assembly.lifecycle.execute",
+		"assembly.lifecycle.plan",
 		"assembly.plan",
 		"assembly.read",
 	}); err != nil {

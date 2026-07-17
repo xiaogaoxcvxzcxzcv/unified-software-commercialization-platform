@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/v1/assembly-lifecycle-plan.schema.json",
+  "title": "Assembly Lifecycle Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lifecycle_plan_id", "assembly_id", "product_id", "operation", "source", "target_snapshot_checksum", "changes", "migrations", "regression_tests", "conflicts", "rollback", "blocking_conflict_count", "executable", "confirmation", "created_at", "plan_checksum"],
+  "properties": {
+    "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
+    "lifecycle_plan_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "assembly_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "product_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "operation": { "type": "string", "enum": ["upgrade", "eject"] },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest_id", "manifest_checksum", "lock_id", "lock_checksum", "catalog_checksum", "target_snapshot_checksum"],
+      "properties": {
+        "manifest_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "lock_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "lock_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "catalog_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["catalog_checksum", "packages", "templates", "generator", "sdks"],
+      "properties": {
+        "catalog_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "packages": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/versionRef" } },
+        "templates": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/versionRef" } },
+        "generator": { "$ref": "#/$defs/versionRef" },
+        "sdks": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/versionRef" } }
+      }
+    },
+    "eject_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+    "target_snapshot_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+    "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } },
+    "migrations": { "type": "array", "items": { "$ref": "#/$defs/migration" } },
+    "regression_tests": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
+    "rollback": { "$ref": "#/$defs/rollback" },
+    "blocking_conflict_count": { "type": "integer", "minimum": 0 },
+    "executable": { "type": "boolean" },
+    "confirmation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["statements", "summary_checksum"],
+      "properties": {
+        "statements": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\r\\n\\t]+$" } },
+        "summary_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "plan_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "allOf": [
+    { "if": { "properties": { "operation": { "const": "upgrade" } }, "required": ["operation"] }, "then": { "required": ["target"], "not": { "required": ["eject_paths"] } } },
+    { "if": { "properties": { "operation": { "const": "eject" } }, "required": ["operation"] }, "then": { "required": ["eject_paths"], "not": { "required": ["target"] } } },
+    {
+      "if": { "properties": { "migrations": { "contains": { "type": "object", "required": ["reversibility"], "properties": { "reversibility": { "const": "manual" } } } } }, "required": ["migrations"] },
+      "then": {
+        "properties": {
+          "executable": { "const": false },
+          "conflicts": { "contains": { "type": "object", "required": ["category", "blocking"], "properties": { "category": { "const": "migration" }, "blocking": { "const": true } } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "rollback": { "type": "object", "required": ["strategy"], "properties": { "strategy": { "const": "manual" } } } }, "required": ["rollback"] },
+      "then": {
+        "properties": {
+          "executable": { "const": false },
+          "rollback": { "properties": { "automatic": { "const": false } } },
+          "conflicts": { "contains": { "type": "object", "required": ["category", "blocking"], "properties": { "category": { "const": "rollback" }, "blocking": { "const": true } } } }
+        }
+      },
+      "else": { "properties": { "rollback": { "properties": { "automatic": { "const": true } } } } }
+    },
+    {
+      "if": { "properties": { "executable": { "const": true } }, "required": ["executable"] },
+      "then": {
+        "properties": {
+          "blocking_conflict_count": { "const": 0 },
+          "conflicts": { "not": { "contains": { "type": "object", "required": ["blocking"], "properties": { "blocking": { "const": true } } } } },
+          "migrations": { "not": { "contains": { "type": "object", "required": ["reversibility"], "properties": { "reversibility": { "const": "manual" } } } } },
+          "rollback": { "properties": { "strategy": { "enum": ["restore_predecessor", "compensate"] }, "automatic": { "const": true } } }
+        }
+      },
+      "else": {
+        "properties": {
+          "blocking_conflict_count": { "minimum": 1 },
+          "conflicts": { "contains": { "type": "object", "required": ["blocking"], "properties": { "blocking": { "const": true } } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "versionRef": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "checksum"],
+      "properties": { "id": { "$ref": "common.schema.json#/$defs/identifier" }, "version": { "$ref": "common.schema.json#/$defs/semver" }, "checksum": { "$ref": "common.schema.json#/$defs/sha256" } }
+    },
+    "change": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "action", "ownership", "before_checksum", "after_checksum", "source_id", "source_version"],
+      "properties": {
+        "path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "action": { "type": "string", "enum": ["create", "update", "delete", "unchanged", "eject"] },
+        "ownership": { "type": "string", "enum": ["generated", "integration", "forked"] },
+        "before_checksum": { "oneOf": [{ "$ref": "common.schema.json#/$defs/sha256" }, { "type": "null" }] },
+        "after_checksum": { "oneOf": [{ "$ref": "common.schema.json#/$defs/sha256" }, { "type": "null" }] },
+        "source_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "source_version": { "$ref": "common.schema.json#/$defs/semver" }
+      }
+    },
+    "migration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["migration_id", "kind", "reversibility", "summary"],
+      "properties": {
+        "migration_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "kind": { "type": "string", "enum": ["database", "provider", "configuration"] },
+        "reversibility": { "type": "string", "enum": ["reversible", "compensatable", "manual"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\r\\n\\t]+$" }
+      }
+    },
+    "conflict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["conflict_id", "code", "category", "blocking", "message", "paths", "remediation"],
+      "properties": {
+        "conflict_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "code": { "$ref": "common.schema.json#/$defs/identifier" },
+        "category": { "type": "string", "enum": ["custom", "generated_drift", "integration", "catalog", "migration", "rollback", "target"] },
+        "blocking": { "type": "boolean" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\r\\n\\t]+$" },
+        "paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
+        "remediation": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\r\\n\\t]+$" } }
+      }
+    },
+    "rollback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["strategy", "automatic", "predecessor_manifest_checksum", "predecessor_lock_checksum"],
+      "properties": {
+        "strategy": { "type": "string", "enum": ["restore_predecessor", "compensate", "manual"] },
+        "automatic": { "type": "boolean" },
+        "predecessor_manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" },
+        "predecessor_lock_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

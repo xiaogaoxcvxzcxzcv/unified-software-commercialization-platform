@@ -29,21 +29,22 @@ type ArtifactBundle struct {
 }
 
 type assemblyManifestDocument struct {
-	SchemaVersion    string             `json:"schema_version"`
-	AssemblyID       string             `json:"assembly_id"`
-	RunID            string             `json:"run_id"`
-	Product          ArtifactProduct    `json:"product"`
-	Blueprint        ArtifactBlueprint  `json:"blueprint"`
-	CatalogChecksum  string             `json:"catalog_checksum"`
-	Generator        Tool               `json:"generator"`
-	Packages         []manifestPackage  `json:"packages"`
-	Templates        []manifestTemplate `json:"templates"`
-	SDKs             []manifestSDK      `json:"sdks"`
-	Outputs          []manifestOutput   `json:"outputs"`
-	Evidence         []Evidence         `json:"evidence"`
-	SecretRefs       []SecretRef        `json:"secret_refs"`
-	CreatedAt        string             `json:"created_at"`
-	ManifestChecksum string             `json:"manifest_checksum"`
+	SchemaVersion        string             `json:"schema_version"`
+	AssemblyID           string             `json:"assembly_id"`
+	RunID                string             `json:"run_id,omitempty"`
+	LifecycleOperationID string             `json:"lifecycle_operation_id,omitempty"`
+	Product              ArtifactProduct    `json:"product"`
+	Blueprint            ArtifactBlueprint  `json:"blueprint"`
+	CatalogChecksum      string             `json:"catalog_checksum"`
+	Generator            Tool               `json:"generator"`
+	Packages             []manifestPackage  `json:"packages"`
+	Templates            []manifestTemplate `json:"templates"`
+	SDKs                 []manifestSDK      `json:"sdks"`
+	Outputs              []manifestOutput   `json:"outputs"`
+	Evidence             []Evidence         `json:"evidence"`
+	SecretRefs           []SecretRef        `json:"secret_refs"`
+	CreatedAt            string             `json:"created_at"`
+	ManifestChecksum     string             `json:"manifest_checksum"`
 }
 
 type manifestPackage struct {
@@ -80,6 +81,8 @@ type manifestOutput struct {
 type generatedLockDocument struct {
 	SchemaVersion            string             `json:"schema_version"`
 	LockID                   string             `json:"lock_id"`
+	RunID                    string             `json:"run_id,omitempty"`
+	LifecycleOperationID     string             `json:"lifecycle_operation_id,omitempty"`
 	AssemblyManifestChecksum string             `json:"assembly_manifest_checksum"`
 	BlueprintChecksum        string             `json:"blueprint_checksum"`
 	CatalogChecksum          string             `json:"catalog_checksum"`
@@ -341,8 +344,10 @@ func genericDiagnostic(cause error) Diagnostic {
 
 func validateArtifactContext(request Request, planDocument Plan, previous PreviousArtifacts) error {
 	context := request.ArtifactContext
+	validSource := (stableIdentifierPattern.MatchString(context.RunID) && context.LifecycleOperationID == "") ||
+		(stableIdentifierPattern.MatchString(context.LifecycleOperationID) && context.RunID == "")
 	if !stableIdentifierPattern.MatchString(context.AssemblyID) || !stableIdentifierPattern.MatchString(context.LockID) ||
-		!stableIdentifierPattern.MatchString(context.RollbackID) || !stableIdentifierPattern.MatchString(context.RunID) ||
+		!stableIdentifierPattern.MatchString(context.RollbackID) || !validSource ||
 		!stableIdentifierPattern.MatchString(context.Product.ProductID) || !stableIdentifierPattern.MatchString(context.Product.OfficialTenantID) ||
 		context.Blueprint.BlueprintID != planDocument.BlueprintID || context.Blueprint.Version != planDocument.BlueprintVersion ||
 		!validDigest(context.Blueprint.Checksum) || !digestEqual(context.CatalogChecksum, planDocument.CatalogSnapshot.Checksum) ||
@@ -502,7 +507,7 @@ func buildAssemblyManifest(request Request, planDocument Plan, changes []FileCha
 		return secretRefs[i].Provider+"\x00"+secretRefs[i].Key+"\x00"+secretRefs[i].Environment < secretRefs[j].Provider+"\x00"+secretRefs[j].Key+"\x00"+secretRefs[j].Environment
 	})
 	return assemblyManifestDocument{
-		SchemaVersion: "1.0.0", AssemblyID: request.ArtifactContext.AssemblyID, RunID: request.ArtifactContext.RunID,
+		SchemaVersion: "1.0.0", AssemblyID: request.ArtifactContext.AssemblyID, RunID: request.ArtifactContext.RunID, LifecycleOperationID: request.ArtifactContext.LifecycleOperationID,
 		Product: request.ArtifactContext.Product, Blueprint: request.ArtifactContext.Blueprint,
 		CatalogChecksum: request.ArtifactContext.CatalogChecksum, Generator: planDocument.Generator, Packages: packages, Templates: templates, SDKs: sdks,
 		Outputs: outputs, Evidence: evidence, SecretRefs: secretRefs, CreatedAt: request.ArtifactContext.CreatedAt,
@@ -549,7 +554,7 @@ func buildGeneratedLock(request Request, planDocument Plan, prepared PreparedCha
 	sort.Slice(sdks, func(i, j int) bool { return sdks[i].ID < sdks[j].ID })
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return generatedLockDocument{
-		SchemaVersion: "1.0.0", LockID: request.ArtifactContext.LockID, AssemblyManifestChecksum: manifestChecksum,
+		SchemaVersion: "1.0.0", LockID: request.ArtifactContext.LockID, RunID: request.ArtifactContext.RunID, LifecycleOperationID: request.ArtifactContext.LifecycleOperationID, AssemblyManifestChecksum: manifestChecksum,
 		BlueprintChecksum: request.ArtifactContext.Blueprint.Checksum, CatalogChecksum: request.ArtifactContext.CatalogChecksum,
 		TargetSnapshotChecksum: finalSnapshotChecksum, RollbackPointPath: request.ArtifactContext.Paths.RollbackPointPath,
 		Generator: request.Generator, Packages: packages, Templates: templates, SDKs: sdks, Files: files,

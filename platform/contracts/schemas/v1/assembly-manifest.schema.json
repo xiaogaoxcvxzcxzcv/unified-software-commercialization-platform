@@ -4,11 +4,12 @@
   "title": "Assembly Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "assembly_id", "run_id", "product", "blueprint", "catalog_checksum", "generator", "packages", "templates", "sdks", "outputs", "evidence", "secret_refs", "created_at", "manifest_checksum"],
+  "required": ["schema_version", "assembly_id", "product", "blueprint", "catalog_checksum", "generator", "packages", "templates", "sdks", "outputs", "evidence", "secret_refs", "created_at", "manifest_checksum"],
   "properties": {
     "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
     "assembly_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "lifecycle_operation_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "product": {
       "type": "object",
       "additionalProperties": false,
@@ -53,6 +54,10 @@
     "created_at": { "type": "string", "format": "date-time" },
     "manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
   },
+  "oneOf": [
+    { "required": ["run_id"], "not": { "required": ["lifecycle_operation_id"] } },
+    { "required": ["lifecycle_operation_id"], "not": { "required": ["run_id"] } }
+  ],
   "$defs": {
     "versionedGenerator": {
       "type": "object", "additionalProperties": false, "required": ["generator_id", "version", "checksum"],
