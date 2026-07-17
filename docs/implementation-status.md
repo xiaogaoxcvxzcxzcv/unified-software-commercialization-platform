@@ -22,11 +22,11 @@
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 Full 18 项门禁；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
 | 产品蓝图与 Assembly | G1-11 verified | G1-04 至 G1-11 已验证；创建/恢复、生命周期 API、可信 Extension Catalog、确定性快照/计划、本地 Full 18/18 和托管 push/PR 检查均通过 | G2C 真实工具、扩展安装/升级/卸载与完整软件装配 |
-| 完整能力包目录 | package.account contracted | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 已完成用户认证/账号 API、准入管理与组合裁决；普通与实验能力包目录仍为空 | G2A-04 起实现 Provider、HostedInteraction、UI/SDK 等其余交付面；当前没有 verified/available 包 |
+| 完整能力包目录 | package.account contracted | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 已完成用户认证/账号 API、准入管理与组合裁决；G2A-04 已完成外部身份与安全通知后端基础；普通与实验能力包目录仍为空 | G2A-04.1 HostedInteraction、G2A-05/G2A-06 UI/SDK 等其余交付面；当前没有 verified/available 包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 装配验收软件 | planned | G2 黄金链和 A/B/C 创建、隔离、晋级、回归标准已确定；它们不承担真实正文开发 | 可运行验收软件仓库、软件本地 AI 交接、最小扩展边界夹具、account/entitlement 装配与回归证据 |
 | 管理后台 | auth/G1-08.1-G1-08.4 verified + G1-10 candidate | 生命周期 Plan/Operation、重新认证回跳、幂等冲突显式处理、工件验证和有界轮询已实现；133 项 Vitest、生产构建和真实浏览器闭环通过 | G1-10 托管 CI；其余业务 API Client、业务页面 E2E、平板视觉 QA |
-| Go 后端 | G1 + G2A-03 verified | Assembly 发布闭包，以及 Identity 最终用户、13 条认证/账号路由、Product User Access 管理/准入/范围撤销已通过真实 PostgreSQL、本地 Full 与托管 push/PR CI | G2A-04 Provider、后续 Account/Entitlement 完整能力包和生产部署验证 |
+| Go 后端 | G1 + G2A-04 verified | Assembly 发布闭包，以及 Identity 最终用户、认证/账号 API、外部身份、注册/恢复安全投递和 Product User Access 已通过真实 PostgreSQL、本地 Full 与托管 push/PR CI | G2A-04.1 HostedInteraction、后续 Account/Entitlement 完整能力包和生产部署验证 |
 | OpenAPI | implemented + G1-08.1/G1-08.3 verified | OpenAPI 3.1 公共契约，覆盖管理员认证、Product/Application/Tenant/CapabilitySet 只读投影、可信 Client Session、Access Control、Audit，以及 Blueprint/Plan/Run/Manifest/Generated Project Lock 和脱敏输出目标管理 API；含无依赖结构校验器，创建 Client 与产品工作区 Client 已按版本化契约实现 | 第三方 schema lint、其余业务生成 Client；公开 upgrade/eject/rollback 管理 API |
 | Client UI / Hosted UI | G1-06 foundation + G1-07 template verified | `@capability-platform/client-ui` v0.1.0 基座已验证；`standard-a` 已完成 Web/desktop WebView 生成、custom 路由、响应式 Shell、主题、离线安装、构建、浏览器视觉与键盘验收 | 业务 Feature Block、小程序/原生适配、真实 HostedInteraction 后端和浏览器/跨端 E2E |
 | SDK | G1-06 verified foundation | `@capability-platform/client-sdk` v0.1.0 已实现可信 Client/Product/Application/Tenant Context、内存 token、受保护 HTTP、分类错误、超时/取消/受限重试和未知枚举降级；8 条测试、构建与发布清单检查通过 | 业务模块专用方法、离线缓存策略、真实生成软件接入和旧版本兼容回归 |
@@ -43,7 +43,7 @@
 | assembly | G1-05/G1-07/G1-07.1/G1-08.1-G1-08.4/G1-10/G1-11 verified | 后端、Generator 文件安全、模板、工具/扩展目录基础、创建、工作区、durable Run/恢复和 lifecycle API 已验证；普通/实验 scope、权限、摘要、快照、Product 与环境绑定失败关闭 | G2C 发布真实工具、安装扩展并装配样板 |
 | product / product-application | verified foundation + admin workspace verified | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过自动化；Product CapabilitySet 只接受受信 Plan；真实管理 Client、独立工作区、Application/CapabilitySet 只读投影和多 Product 浏览器切换已通过 | Product 编辑、客户端身份轮换、完整能力包装配与生产部署 |
 | tenant | verified foundation + admin read verified | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过自动化；真实管理 Client 和 Product 切换后的 Tenant 投影已通过浏览器验收 | agent 停用/恢复管理入口、真实业务模块租户回归与生产部署 |
-| identity | admin auth + G2A-03 user API verified | 管理认证已补救复验；最终用户存储、认证/账号 Service、13 条 HTTP 路由、refresh 重放撤销、并发幂等和稳定错误已通过真实 PostgreSQL、本地 Full 与托管 CI | G2A-04 Provider；绑定/合并完整流程；G2A-04.1 HostedInteraction 后端；G2A-05/G2A-06 管理/用户 UI |
+| identity | admin auth + G2A-04 external identity verified | 管理认证已补救复验；最终用户认证/账号、refresh 重放撤销、外部身份 start/callback/微信一次性交换、绑定/查询/解绑、注册验证与恢复投递已通过真实 PostgreSQL、本地 Full 与托管 CI | 生产 OIDC/微信 Provider E2E；G2A-04.1 HostedInteraction 后端；G2A-05/G2A-06 管理/用户 UI |
 | product-user-access / account composition | G2A-03 verified | 独立 Product/Tenant 准入事实、Guard 管理 API、审计/撤销 Outbox、实时组合裁决和登录前准入已通过真实 PostgreSQL、本地 Full 与托管 CI | ST-038 后续装配验收、范围用户读模型与 entitlement 组合 |
 | access-control / audit | verified foundation + admin demo | Permission Catalog 1.1、permission + scope 实时授权、范围绑定幂等与授权版本、拒绝审计、append-only Audit、可信范围/trace_id 查询，以及 Identity/Product/Application/Tenant/Access Control Outbox 到 Audit 的进程组合已有正式代码和本地自动化；后台审计页面仍为演示 Client | 跨模块浏览器 E2E、大范围导出/保留、生产恢复与后台真实 API Client |
 | entitlement | contracted + admin demo | 授予、检查、撤销和来源流水契约已定 |
@@ -52,10 +52,13 @@
 | ai-gateway / usage | contracted | 动态模型、逻辑路由、预占、计量、价格版本和账本已定 |
 | deployment | contracted | 私有部署实例和签名许可证独立于 Tenant/激活码 |
 | release / config | planned | 产品范围和能力所有者已定，详细契约按 G6 的真实重复需求进入 |
-| storage / notification / analytics | planned | 产品范围和能力所有者已定，详细契约按 G6 的真实重复需求进入 |
+| storage / analytics | planned | 产品范围和能力所有者已定，详细契约按 G6 的真实重复需求进入 |
+| notification | G2A-04 security delivery foundation verified | 安全验证/恢复投递 Port、AEAD 负载、Provider 能力预检、持久投递/尝试/outbox、数据库租约与失败恢复已通过真实 PostgreSQL；不等于通用通知能力包完成 | ST-036 通用模板、偏好、用户通知查询、真实 Provider 与完整能力包装配 |
 | distribution / settlement / wallet / subscription | planned-later | 只有真实业务触发才立项，不塞入 Tenant、Usage 或 Payment |
 
 ## 最近验证（2026-07-17）
+
+- G2A-04：`verified`。两轮对抗审查和最终数据库审查的问题已修复；本地真实 PostgreSQL、OpenAPI 91/97、Full 18/18、SDK 8/8、Client UI 14/14、Standard-A 双目标各 7/7、Admin 133/133，以及修复后的 GitHub push run `29586445175` / PR #13 run `29586447148` 均通过。首次 PR run `29585568077` 暴露并否定短 TTL 缓存时钟测试，修复和复验历史已保留。证据见 `artifacts/reviews/G2A-04/external-identity-security-notification.md`；下一唯一关口为 G2A-04.1。
 
 - G2A-03：`verified`。两轮审查发现的 4 个 P1 已修复；本地真实 PostgreSQL、OpenAPI 89/95、Full 18/18、SDK 8/8、Client UI 14/14、Standard-A 双目标各 7/7、Admin 133/133，以及 GitHub push run `29574770932` / PR run `29574865219` 均通过。证据见 `artifacts/reviews/G2A-03/user-auth-account-api.md`；下一唯一关口为 G2A-04。
 

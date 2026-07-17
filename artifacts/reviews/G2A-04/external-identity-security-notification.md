@@ -2,7 +2,7 @@
 
 Date: 2026-07-17
 
-Status: local implementation and verification complete; hosted push/PR quality gate pending.
+Status: verified; local and hosted push/PR quality gates complete.
 
 ## Scope
 
@@ -60,4 +60,4 @@ Status: local implementation and verification complete; hosted push/PR quality g
 
 ## Hosted Verification
 
-Draft PR #13 is open. Initial push run `29585535288` passed; initial PR run `29585568077` exposed and invalidated the cached-clock short-TTL test. A remediation commit and fresh green push/PR `quality-gate` runs are still required. G2A-04 must not be marked `verified` and G2A-04.1 must remain `planned` until both fresh checks are green.
+Draft PR #13 remains open and unmerged. Initial push run `29585535288` passed; initial PR run `29585568077` exposed and invalidated the cached-clock short-TTL test. After remediation commit `303d69a0ebc795a59d4540d8c1bb26eddd2a1ad1`, fresh push run `29586445175` and PR run `29586447148` both passed `quality-gate`. This evidence supports G2A-04 `verified`; G2A-04.1 is now the only strict gate and remains `planned` until its own evidence is complete.
