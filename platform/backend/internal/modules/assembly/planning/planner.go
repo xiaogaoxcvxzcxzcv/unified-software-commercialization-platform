@@ -113,10 +113,13 @@ type resolvedSDK struct {
 }
 
 type resolvedExtension struct {
-	ExtensionID  string `json:"extension_id"`
-	Version      string `json:"version"`
-	ManifestPath string `json:"manifest_path"`
-	Checksum     string `json:"checksum"`
+	ExtensionID       string `json:"extension_id"`
+	Version           string `json:"version"`
+	ProductCode       string `json:"product_code"`
+	ManifestPath      string `json:"manifest_path"`
+	ManifestSHA256    string `json:"manifest_sha256"`
+	ContentTreeSHA256 string `json:"content_tree_sha256"`
+	DataNamespace     string `json:"data_namespace"`
 }
 
 type resolvedProvider struct {
@@ -204,14 +207,34 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	if err := json.Unmarshal(blueprint.Document, &input); err != nil || input.BlueprintID != blueprint.BlueprintID || len(input.Applications) == 0 {
 		return core.PlannedDocument{}, ErrBlueprintMismatch
 	}
-	if len(input.Extensions) != 0 {
-		return core.PlannedDocument{}, fmt.Errorf("%w: extension manifests require a trusted extension catalog", ErrBlueprintMismatch)
-	}
 	requirements := make([]machinecatalog.Requirement, 0, len(input.Packages))
 	for _, selected := range input.Packages {
 		requirements = append(requirements, machinecatalog.Requirement{PackageID: selected.PackageID, VersionRange: selected.Version})
 	}
 	sort.Slice(requirements, func(i, j int) bool { return requirements[i].PackageID < requirements[j].PackageID })
+	extensionRequirements := make([]machinecatalog.ExtensionRequirement, 0, len(input.Extensions))
+	extensionSelections := make(map[string]struct{}, len(input.Extensions))
+	selectedExtensionIDs := make(map[string]struct{}, len(input.Extensions))
+	for _, selected := range input.Extensions {
+		if _, duplicate := selectedExtensionIDs[selected.ExtensionID]; duplicate {
+			return core.PlannedDocument{}, fmt.Errorf("%w: duplicate extension_id %s", ErrBlueprintMismatch, selected.ExtensionID)
+		}
+		selectedExtensionIDs[selected.ExtensionID] = struct{}{}
+		key := selected.ExtensionID + "\x00" + selected.Version
+		if _, duplicate := extensionSelections[key]; duplicate {
+			return core.PlannedDocument{}, fmt.Errorf("%w: duplicate extension %s@%s", ErrBlueprintMismatch, selected.ExtensionID, selected.Version)
+		}
+		extensionSelections[key] = struct{}{}
+		extensionRequirements = append(extensionRequirements, machinecatalog.ExtensionRequirement{
+			ExtensionID: selected.ExtensionID, Version: selected.Version, ManifestPath: selected.ManifestPath,
+		})
+	}
+	sort.Slice(extensionRequirements, func(i, j int) bool {
+		if extensionRequirements[i].ExtensionID == extensionRequirements[j].ExtensionID {
+			return extensionRequirements[i].Version < extensionRequirements[j].Version
+		}
+		return extensionRequirements[i].ExtensionID < extensionRequirements[j].ExtensionID
+	})
 	applications := append([]struct {
 		ApplicationID string `json:"application_id"`
 		Target        string `json:"target"`
@@ -229,6 +252,7 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	resolvedApplications := make([]resolvedApplication, 0, len(applications))
 	expectedOutputs := make([]expectedOutput, 0)
 	packageByID := make(map[string]machinecatalog.PackageManifest)
+	extensionByID := make(map[string]machinecatalog.ExtensionManifest)
 	applicationIDs := make(map[string]struct{}, len(applications))
 	outputPaths := make([]string, 0, len(applications))
 	var generator machinecatalog.ToolManifest
@@ -258,11 +282,24 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 		generator = resolvedGeneratorTool
 		sdk = resolvedSDKTool
 		resolution, err := p.catalog.Resolve(machinecatalog.ResolveRequest{
-			Packages: requirements, TemplateID: application.UI.TemplateID, TemplateRange: application.UI.Version,
+			Packages: requirements, Extensions: extensionRequirements, ProductCode: input.Product.Code,
+			TemplateID: application.UI.TemplateID, TemplateRange: application.UI.Version,
 			Target: application.Target, DeliveryMode: application.UI.DeliveryMode, Environment: environment,
 		})
 		if err != nil {
 			return core.PlannedDocument{}, err
+		}
+		for _, manifest := range resolution.Extensions {
+			if manifest.ProductCode != input.Product.Code {
+				return core.PlannedDocument{}, fmt.Errorf("%w: extension %s belongs to product %s", ErrBlueprintMismatch, manifest.ExtensionID, manifest.ProductCode)
+			}
+			if previous, exists := extensionByID[manifest.ExtensionID]; exists {
+				if previous.Version != manifest.Version || previous.ManifestSHA256 != manifest.ManifestSHA256 || previous.ContentTreeSHA256 != manifest.ContentTreeSHA256 || previous.DataNamespace != manifest.DataNamespace {
+					return core.PlannedDocument{}, fmt.Errorf("%w: extension %s resolved inconsistently across applications", ErrBlueprintMismatch, manifest.ExtensionID)
+				}
+				continue
+			}
+			extensionByID[manifest.ExtensionID] = manifest
 		}
 		for _, manifest := range resolution.Packages {
 			if previous, exists := packageByID[manifest.PackageID]; exists && previous.Version != manifest.Version {
@@ -317,6 +354,24 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	}
 	sort.Strings(packageIDs)
 	resolvedPackages := make([]resolvedPackage, 0, len(packageIDs))
+	extensionIDs := make([]string, 0, len(extensionByID))
+	for extensionID := range extensionByID {
+		extensionIDs = append(extensionIDs, extensionID)
+	}
+	sort.Strings(extensionIDs)
+	resolvedExtensions := make([]resolvedExtension, 0, len(extensionIDs))
+	for _, extensionID := range extensionIDs {
+		manifest := extensionByID[extensionID]
+		_, exists := extensionSelections[manifest.ExtensionID+"\x00"+manifest.Version]
+		if !exists {
+			return core.PlannedDocument{}, fmt.Errorf("%w: extension %s was not selected", ErrBlueprintMismatch, manifest.ExtensionID)
+		}
+		resolvedExtensions = append(resolvedExtensions, resolvedExtension{
+			ExtensionID: manifest.ExtensionID, Version: manifest.Version, ProductCode: manifest.ProductCode,
+			ManifestPath: manifest.ManifestPath, ManifestSHA256: manifest.ManifestSHA256,
+			ContentTreeSHA256: manifest.ContentTreeSHA256, DataNamespace: manifest.DataNamespace,
+		})
+	}
 	dependencies := make([]resolvedDependency, 0)
 	capabilities := make([]product.CapabilityItem, 0)
 	capabilityIDs := make(map[string]struct{})
@@ -445,7 +500,7 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	document := planDocument{
 		SchemaVersion: "1.0.0", PlanID: planID, BlueprintID: blueprint.BlueprintID, BlueprintVersion: blueprint.Revision,
 		Environment: environment, CatalogSnapshot: catalogSnapshotRef{Revision: snapshot.Revision, Scope: snapshot.CatalogScope, Checksum: snapshot.SnapshotSHA256},
-		Packages: resolvedPackages, Applications: resolvedApplications, Extensions: []resolvedExtension{},
+		Packages: resolvedPackages, Applications: resolvedApplications, Extensions: resolvedExtensions,
 		Generator: resolvedGenerator{GeneratorID: generator.ToolID, Version: generator.Version, Checksum: generator.ManifestSHA256},
 		SDKs:      []resolvedSDK{{SDKID: sdk.ToolID, Version: sdk.Version, Checksum: sdk.ManifestSHA256}}, Capabilities: capabilities, Dependencies: dependencies,
 		Conflicts: []any{}, Risks: risks, Providers: providers, RequiredProviders: requiredProviders, RequiredSecretRefs: secretRefs, ExpectedOutputs: expectedOutputs,

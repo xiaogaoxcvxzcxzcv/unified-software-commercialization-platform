@@ -27,16 +27,18 @@ var (
 )
 
 type Catalog struct {
-	packages        map[string][]PackageManifest
-	templates       map[string][]TemplateManifest
-	tools           map[string][]ToolManifest
-	packageSources  map[string]sourceDocument
-	templateSources map[string]sourceDocument
-	toolSources     map[string]sourceDocument
-	contracts       *machinecontract.Registry
-	permissions     PermissionCatalog
-	blocks          *BlockCatalog
-	view            catalogView
+	packages         map[string][]PackageManifest
+	templates        map[string][]TemplateManifest
+	tools            map[string][]ToolManifest
+	extensions       map[string][]ExtensionManifest
+	packageSources   map[string]sourceDocument
+	templateSources  map[string]sourceDocument
+	toolSources      map[string]sourceDocument
+	extensionSources map[string]sourceDocument
+	contracts        *machinecontract.Registry
+	permissions      PermissionCatalog
+	blocks           *BlockCatalog
+	view             catalogView
 }
 
 type sourceDocument struct {
@@ -129,9 +131,11 @@ func build(packageDocuments, templateDocuments []sourceDocument, contracts *mach
 	catalog := &Catalog{
 		packages: make(map[string][]PackageManifest), templates: make(map[string][]TemplateManifest),
 		tools:          make(map[string][]ToolManifest),
+		extensions:     make(map[string][]ExtensionManifest),
 		packageSources: make(map[string]sourceDocument), templateSources: make(map[string]sourceDocument),
-		toolSources: make(map[string]sourceDocument),
-		contracts:   contracts, permissions: permissions, blocks: blocks, view: view,
+		toolSources:      make(map[string]sourceDocument),
+		extensionSources: make(map[string]sourceDocument),
+		contracts:        contracts, permissions: permissions, blocks: blocks, view: view,
 	}
 	for _, document := range packageDocuments {
 		if err := contracts.Validate("package-manifest", document.contents); err != nil {

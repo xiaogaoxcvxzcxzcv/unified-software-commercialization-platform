@@ -24,12 +24,14 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version() != "1.2.0" || len(catalog.Checksum()) != len("sha256:")+64 {
+	if catalog.Version() != "1.3.0" || len(catalog.Checksum()) != len("sha256:")+64 {
 		t.Fatalf("catalog identity = %s %s", catalog.Version(), catalog.Checksum())
 	}
 	ready := map[string]struct{}{
 		"assembly.blueprint-wizard": {},
 		"assembly.plan-review":      {},
+		"assembly.run-status":       {},
+		"assembly.upgrade-plan":     {},
 		"product.capability-menu":   {},
 		"product.overview":          {},
 		"product.switcher":          {},

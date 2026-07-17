@@ -21,7 +21,7 @@
 | 交付面 | 当前状态 | 已有成果 | 仍缺少 |
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 Full 18 项门禁；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
-| 产品蓝图与 Assembly | G1-10 verified | G1-04 至 G1-10 已验证；生命周期 API、持久 worker、管理后台、受控 upgrade/rollback/工件验证/generated 漂移阻断、本地 Full 18/18 和托管 push/PR 检查均通过 | 当前 G1-11 可信扩展目录 |
+| 产品蓝图与 Assembly | G1-11 verified | G1-04 至 G1-11 已验证；创建/恢复、生命周期 API、可信 Extension Catalog、确定性快照/计划、本地 Full 18/18 和托管 push/PR 检查均通过 | G2C 真实工具、扩展安装/升级/卸载与完整软件装配 |
 | 完整能力包目录 | planned | 首批 package 边界和交付标准、Manifest/目录机器基础已登记并验证；普通与实验能力包目录均为空 | 真实独立 Package Manifest、九个交付面、目标端 E2E；当前没有 available 包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 真实样板软件 | planned | G2 黄金链和验收标准已确定 | 可运行样板仓库、独有工作台、account/entitlement 装配与回归证据 |
@@ -40,7 +40,7 @@
 
 | 模块 | 当前状态 | 说明 |
 |---|---|---|
-| assembly | G1-05/G1-07/G1-07.1/G1-08.1-G1-08.4/G1-10 verified | 后端、Generator 文件安全、模板、工具目录基础、创建、工作区、durable Run/恢复和 lifecycle API 已验证；普通/实验 scope、权限、快照和环境绑定失败关闭 | 当前 G1-11 扩展目录；G2C 发布真实工具并装配样板 |
+| assembly | G1-05/G1-07/G1-07.1/G1-08.1-G1-08.4/G1-10/G1-11 verified | 后端、Generator 文件安全、模板、工具/扩展目录基础、创建、工作区、durable Run/恢复和 lifecycle API 已验证；普通/实验 scope、权限、摘要、快照、Product 与环境绑定失败关闭 | G2C 发布真实工具、安装扩展并装配样板 |
 | product / product-application | verified foundation + admin workspace verified | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过自动化；Product CapabilitySet 只接受受信 Plan；真实管理 Client、独立工作区、Application/CapabilitySet 只读投影和多 Product 浏览器切换已通过 | Product 编辑、客户端身份轮换、完整能力包装配与生产部署 |
 | tenant | verified foundation + admin read verified | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过自动化；真实管理 Client 和 Product 切换后的 Tenant 投影已通过浏览器验收 | agent 停用/恢复管理入口、真实业务模块租户回归与生产部署 |
 | identity | admin auth verified + user auth contracted | Cookie/受控 Bearer 登录、单调 session_version、会话轮换、严格 logout proof、同 family Cookie 原子退出、重放防护、受控客户端生命周期与真实 PostgreSQL/浏览器证据均已通过补救复验 | 最终用户密码、微信/OIDC、绑定与合并仍只有契约 |
