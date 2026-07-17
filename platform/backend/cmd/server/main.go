@@ -24,6 +24,7 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/identity"
 	identityhttp "platform.local/capability-platform/backend/internal/modules/identity/httptransport"
 	identitypostgres "platform.local/capability-platform/backend/internal/modules/identity/postgres"
+	notificationpostgres "platform.local/capability-platform/backend/internal/modules/notification/postgres"
 	"platform.local/capability-platform/backend/internal/modules/product"
 	producthttp "platform.local/capability-platform/backend/internal/modules/product/httptransport"
 	productpostgres "platform.local/capability-platform/backend/internal/modules/product/postgres"
@@ -259,6 +260,13 @@ func main() {
 	auditRepository := auditpostgres.New(db.Pool())
 	auditService := audit.NewService(auditRepository)
 	identityRepository := identitypostgres.New(db.Pool())
+	notificationRepository := notificationpostgres.New(db.Pool())
+	notificationRuntime, err := newSecurityNotificationRuntime(cfg.SecurityNotification, notificationRepository, notificationRepository, auditService)
+	clearSecurityNotificationConfig(&cfg.SecurityNotification)
+	if err != nil {
+		logger.Error("security notification initialization failed", "error", securityNotificationInitializationError(err))
+		os.Exit(1)
+	}
 	identityService, err := identity.NewService(identityRepository, accessService, identity.Bcrypt{Cost: cfg.AdminAuth.BcryptCost}, hasher, identity.Policy{
 		AccessTTL: cfg.AdminAuth.AccessTTL, RefreshTTL: cfg.AdminAuth.RefreshTTL,
 		LoginWindow: cfg.AdminAuth.LoginWindow, LoginMaximumAttempts: cfg.AdminAuth.LoginMaximumAttempts,
@@ -298,9 +306,20 @@ func main() {
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
 	productUserAccessService := productuseraccess.NewService(productuseraccesspostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), nil)
 	accountAccessWorkflow := accountaccess.New(productUserAccessService)
+	var registrationVerificationService *identity.RegistrationVerificationService
+	if notificationRuntime.delivery != nil {
+		registrationVerificationService, err = identity.NewRegistrationVerificationService(
+			identityRepository, identity.StrictIdentifierNormalizer{}, userHasher, notificationRuntime.delivery,
+			identity.RegistrationVerificationPolicy{TTL: 10 * time.Minute, MaxAttempts: cfg.UserAuth.RecoveryMaximumAttempts}, nil,
+		)
+		if err != nil {
+			logger.Error("registration verification initialization failed", "error", err)
+			os.Exit(1)
+		}
+	}
 	endUserService, err := identity.NewEndUserService(
 		identityRepository, identity.StrictIdentifierNormalizer{}, identity.Bcrypt{Cost: cfg.UserAuth.BcryptCost}, userHasher,
-		nil, nil,
+		registrationVerificationService, notificationRuntime.delivery,
 		identity.EndUserPolicy{
 			AccessTTL: cfg.UserAuth.AccessTTL, RefreshTTL: cfg.UserAuth.RefreshTTL, RefreshAbsoluteTTL: cfg.UserAuth.AbsoluteTTL,
 			RefreshRecoveryWindow: cfg.UserAuth.RefreshRecoveryWindow, RecoveryTTL: cfg.UserAuth.RecoveryTTL,
@@ -314,6 +333,17 @@ func main() {
 		os.Exit(1)
 	}
 	endUserAdapter := endUserHTTPAdapter{users: endUserService, products: productService, clientHasher: hasher, access: accountAccessWorkflow}
+	externalAuthService, err := identity.NewExternalAuthService(
+		identityRepository, identityRepository, endUserService,
+		disabledExternalProviderRegistry{}, disabledExternalIdentityProvider{},
+		productApplicationReturnTargetAdapter{applications: applicationService}, userHasher,
+		identity.ExternalAuthPolicy{FlowTTL: 10 * time.Minute, ProofTTL: 10 * time.Minute, RecentAuthTTL: cfg.UserAuth.RecentAuthTTL}, nil,
+	)
+	if err != nil {
+		logger.Error("external identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	externalUserAdapter := externalUserHTTPAdapter{base: endUserAdapter, external: externalAuthService, verification: registrationVerificationService}
 	tenantAdminWorkflow := tenantadmin.New(tenantService, accessService)
 	productHandler := producthttp.New(productService, productProvisionerAdapter{workflow: provisioningWorkflow}, adminGuard)
 	applicationHandler := applicationhttp.New(applicationService, adminGuard, applicationhttp.Config{Environment: productapplication.Environment(cfg.Environment)})
@@ -324,7 +354,7 @@ func main() {
 	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
-	endUserHandler := identityhttp.NewUserHandler(endUserAdapter, endUserAdapter)
+	endUserHandler := identityhttp.NewUserHandler(endUserAdapter, endUserAdapter, identityhttp.WithExternalUserService(externalUserAdapter))
 	modules := platformserver.NewModuleRegistrar()
 	if err := modules.Register("/api/v1/admin/auth/", adminAuthHandler); err != nil {
 		logger.Error("administrator authentication route registration failed", "error", err)
@@ -354,6 +384,12 @@ func main() {
 	}
 	outbox := identity.NewOutboxDispatcher(identityRepository, identityAuditAdapter{service: auditService}, logger)
 	go outbox.Run(ctx)
+	if notificationRuntime.worker != nil {
+		go notificationRuntime.worker.Run(ctx)
+	}
+	if notificationRuntime.dispatcher != nil {
+		go notificationRuntime.dispatcher.Run(ctx)
+	}
 	go (productUserAccessDispatcher{source: productUserAccessService, audit: auditService, revoker: identityRepository, hasher: userHasher, logger: logger}).Run(ctx)
 	go assemblyWorker.Run(ctx)
 	go func() {

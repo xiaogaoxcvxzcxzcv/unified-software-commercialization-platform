@@ -82,7 +82,7 @@ type userResolverStub struct {
 func (r *userResolverStub) ResolveClientSession(_ context.Context, token string) (ClientSessionContext, error) {
 	r.clientCalls++
 	r.clientToken = token
-	return ClientSessionContext{ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a"}, r.clientErr
+	return ClientSessionContext{SessionID: "client-session-a", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", Environment: "test"}, r.clientErr
 }
 func (r *userResolverStub) ResolveUserSession(_ context.Context, token string) (UserSessionContext, error) {
 	r.userCalls++
@@ -113,7 +113,7 @@ func TestUserHandlerImplementsFrozenRouteSurface(t *testing.T) {
 		name, method, path, body, auth, idem, call string
 		status                                     int
 	}{
-		{"register", http.MethodPost, "/api/v1/auth/register", `{"identifier":"user@example.com","credential":"password-1234","verification_proof":"verification-1234"}`, "client", "idempotency-key-0001", "register", 201},
+		{"register", http.MethodPost, "/api/v1/auth/register", `{"identifier":"user@example.com","credential":"password-1234","verification_continuation_id":"verification-continuation-1234","verification_proof":"verification-1234"}`, "client", "idempotency-key-0001", "register", 201},
 		{"login", http.MethodPost, "/api/v1/auth/login", `{"identifier":"user@example.com","credential":"password"}`, "client", "", "login", 200},
 		{"session", http.MethodGet, "/api/v1/auth/session", "", "user", "", "session", 200},
 		{"access", http.MethodGet, "/api/v1/account/access", "", "user", "", "access", 200},

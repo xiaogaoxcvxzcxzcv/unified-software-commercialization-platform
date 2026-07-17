@@ -22,19 +22,20 @@ import (
 type LookupEnv func(string) (string, bool)
 
 type Config struct {
-	Environment        string
-	HTTPAddress        string
-	LogLevel           slog.Level
-	HealthCheckTimeout time.Duration
-	ReadHeaderTimeout  time.Duration
-	ReadTimeout        time.Duration
-	WriteTimeout       time.Duration
-	IdleTimeout        time.Duration
-	ShutdownTimeout    time.Duration
-	Database           Database
-	AdminAuth          AdminAuth
-	UserAuth           UserAuth
-	Assembly           Assembly
+	Environment          string
+	HTTPAddress          string
+	LogLevel             slog.Level
+	HealthCheckTimeout   time.Duration
+	ReadHeaderTimeout    time.Duration
+	ReadTimeout          time.Duration
+	WriteTimeout         time.Duration
+	IdleTimeout          time.Duration
+	ShutdownTimeout      time.Duration
+	Database             Database
+	AdminAuth            AdminAuth
+	UserAuth             UserAuth
+	SecurityNotification SecurityNotification
+	Assembly             Assembly
 }
 
 type Database struct {
@@ -69,6 +70,16 @@ type UserAuth struct {
 	RecoveryTTL             time.Duration
 	RecoveryMaximumAttempts int
 	RecentAuthTTL           time.Duration
+}
+
+type SecurityNotification struct {
+	Enabled            bool
+	ProviderRef        string
+	ProviderURL        string
+	ProviderSecret     string
+	ProviderIdempotent bool
+	PayloadKey         string
+	DigestKey          string
 }
 
 type Assembly struct {
@@ -151,6 +162,13 @@ func Load(lookup LookupEnv) (Config, error) {
 			RecoveryMaximumAttempts: intValue(lookup, "PLATFORM_USER_RECOVERY_MAXIMUM_ATTEMPTS", 5),
 			RecentAuthTTL:           duration(lookup, "PLATFORM_USER_RECENT_AUTH_TTL", 10*time.Minute),
 		},
+		SecurityNotification: SecurityNotification{
+			ProviderRef:    value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_REF", ""),
+			ProviderURL:    value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_URL", ""),
+			ProviderSecret: value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_SECRET", ""),
+			PayloadKey:     value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PAYLOAD_KEY", ""),
+			DigestKey:      value(lookup, "PLATFORM_SECURITY_NOTIFICATION_DIGEST_KEY", ""),
+		},
 		Assembly: Assembly{
 			SchemaDirectory:                   value(lookup, "PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY", "../contracts/schemas/v1"),
 			CapabilityPackageRoot:             value(lookup, "PLATFORM_ASSEMBLY_CAPABILITY_PACKAGE_ROOT", "../capability-packages"),
@@ -172,6 +190,16 @@ func Load(lookup LookupEnv) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AdminAuth.BearerEnabled = bearerEnabled
+	securityNotificationEnabled, err := strictBoolValue(lookup, "PLATFORM_SECURITY_NOTIFICATION_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	securityNotificationIdempotent, err := strictBoolValue(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_IDEMPOTENT", false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.SecurityNotification.Enabled = securityNotificationEnabled
+	cfg.SecurityNotification.ProviderIdempotent = securityNotificationIdempotent
 
 	level, err := parseLogLevel(value(lookup, "PLATFORM_LOG_LEVEL", "info"))
 	if err != nil {
@@ -271,6 +299,24 @@ func (c Config) validate() error {
 	}
 	if c.UserAuth.RecentAuthTTL <= 0 || c.UserAuth.RecentAuthTTL > 24*time.Hour {
 		return errors.New("PLATFORM_USER_RECENT_AUTH_TTL must be greater than zero and at most 24h")
+	}
+	if c.SecurityNotification.Enabled {
+		if !assemblyReferencePattern.MatchString(c.SecurityNotification.ProviderRef) {
+			return errors.New("PLATFORM_SECURITY_NOTIFICATION_PROVIDER_REF must be a stable provider reference")
+		}
+		providerURL, err := url.Parse(c.SecurityNotification.ProviderURL)
+		if err != nil || providerURL.Scheme != "https" || providerURL.Host == "" || providerURL.User != nil || providerURL.RawQuery != "" || providerURL.Fragment != "" {
+			return errors.New("PLATFORM_SECURITY_NOTIFICATION_PROVIDER_URL must be an exact HTTPS endpoint")
+		}
+		if len(c.SecurityNotification.ProviderSecret) < 32 || len(c.SecurityNotification.PayloadKey) < 32 || len(c.SecurityNotification.DigestKey) < 32 {
+			return errors.New("security notification provider, payload, and digest secrets must each be at least 32 bytes")
+		}
+		if hmac.Equal([]byte(c.SecurityNotification.ProviderSecret), []byte(c.SecurityNotification.PayloadKey)) || hmac.Equal([]byte(c.SecurityNotification.ProviderSecret), []byte(c.SecurityNotification.DigestKey)) || hmac.Equal([]byte(c.SecurityNotification.PayloadKey), []byte(c.SecurityNotification.DigestKey)) {
+			return errors.New("security notification secrets must be independent")
+		}
+		if !c.SecurityNotification.ProviderIdempotent {
+			return errors.New("PLATFORM_SECURITY_NOTIFICATION_PROVIDER_IDEMPOTENT must be true when security notification is enabled")
+		}
 	}
 	for name, path := range map[string]string{
 		"PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY":                     c.Assembly.SchemaDirectory,

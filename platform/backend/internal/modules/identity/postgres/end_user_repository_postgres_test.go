@@ -232,6 +232,9 @@ func TestEndUserRepositoryRecoveryAndExternalIdentityAreSingleOwner(t *testing.T
 	if err := repository.CreateRecoveryChallenge(context.Background(), challenge); err != nil {
 		t.Fatal(err)
 	}
+	if err := repository.ActivateRecoveryChallenge(context.Background(), challenge.ChallengeID); err != nil {
+		t.Fatal(err)
+	}
 	result, err := repository.ConsumeRecoveryChallenge(context.Background(), challenge.ContinuationDigest, challenge.ProofDigest, now.Add(time.Minute), endUserEvent("event.challenge.real.consume", "identity.recovery_completed.v1", userID, now.Add(time.Minute)))
 	if err != nil || result.MatchedUserID == nil || *result.MatchedUserID != userID {
 		t.Fatalf("ConsumeRecoveryChallenge() = %+v, %v", result, err)
@@ -242,6 +245,9 @@ func TestEndUserRepositoryRecoveryAndExternalIdentityAreSingleOwner(t *testing.T
 
 	fake := identity.RecoveryChallenge{ChallengeID: "challenge.fake", ContinuationDigest: protectedDigest("continuation-fake"), IdentifierType: identity.IdentifierEmail, IdentifierDigest: protectedDigest("missing@example.com"), DeliveryTargetMasked: "m***@example.com", ProofDigest: protectedDigest("proof-fake"), MaxAttempts: 3, CreatedAt: now, ExpiresAt: now.Add(10 * time.Minute), OutboxEvent: endUserEvent("event.challenge.fake", "identity.recovery_started.v1", "anonymous", now)}
 	if err := repository.CreateRecoveryChallenge(context.Background(), fake); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ActivateRecoveryChallenge(context.Background(), fake.ChallengeID); err != nil {
 		t.Fatal(err)
 	}
 	fakeResult, err := repository.ConsumeRecoveryChallenge(context.Background(), fake.ContinuationDigest, fake.ProofDigest, now.Add(time.Minute), endUserEvent("event.challenge.fake.consume", "identity.recovery_completed.v1", "anonymous", now.Add(time.Minute)))

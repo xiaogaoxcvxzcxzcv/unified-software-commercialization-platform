@@ -57,7 +57,7 @@ func (a endUserHTTPAdapter) ResolveClientSession(ctx context.Context, token stri
 		}
 		return identityhttp.ClientSessionContext{}, err
 	}
-	return identityhttp.ClientSessionContext{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID}, nil
+	return identityhttp.ClientSessionContext{SessionID: session.SessionID, ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID, Environment: session.Environment}, nil
 }
 
 func (a endUserHTTPAdapter) ResolveUserSession(ctx context.Context, token string) (identityhttp.UserSessionContext, error) {
@@ -73,15 +73,19 @@ func (a endUserHTTPAdapter) ResolveLogoutSession(ctx context.Context, token stri
 }
 
 func (a endUserHTTPAdapter) RegisterUser(ctx context.Context, client identityhttp.ClientSessionContext, command identityhttp.RegisterUserCommand) (identityhttp.IssuedUserSession, error) {
-	issued, err := a.users.Register(ctx, identity.EndUserRegisterCommand{
-		Scope: scopeFromClient(client), Identifier: command.Identifier, Credential: command.Credential,
-		VerificationProof: command.VerificationProof, DisplayName: command.DisplayName,
-		TraceID: command.RequestID, IdempotencyKey: command.IdempotencyKey,
-	})
+	issued, err := a.users.Register(ctx, mapEndUserRegisterCommand(client, command))
 	if err != nil {
 		return identityhttp.IssuedUserSession{}, mapEndUserHTTPError(err)
 	}
 	return mapIssuedUserSession(issued), nil
+}
+
+func mapEndUserRegisterCommand(client identityhttp.ClientSessionContext, command identityhttp.RegisterUserCommand) identity.EndUserRegisterCommand {
+	return identity.EndUserRegisterCommand{
+		Scope: scopeFromClient(client), Identifier: command.Identifier, Credential: command.Credential,
+		VerificationContinuationID: command.VerificationContinuationID, VerificationProof: command.VerificationProof, DisplayName: command.DisplayName,
+		TraceID: command.RequestID, IdempotencyKey: command.IdempotencyKey,
+	}
 }
 
 func (a endUserHTTPAdapter) LoginUser(ctx context.Context, client identityhttp.ClientSessionContext, command identityhttp.LoginUserCommand) (identityhttp.IssuedUserSession, error) {

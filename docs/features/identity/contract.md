@@ -227,6 +227,25 @@ status: active | revoked
 - ExternalIdentity 被撤销、账号合并或高风险凭据变更后，相关会话按安全策略撤销。
 - 错误响应不暴露某个微信身份、邮箱或手机号是否已经注册到具体账号。
 
+## G2A-04 外部身份与安全通知冻结补充
+
+- Identity 拥有 `external_auth_flows`、`external_auth_proofs`、Provider code/state 单次消费和 `verification_challenges`；Notification 拥有安全投递与重试。模块间只调用公开 Port。
+- flow 创建只接受可信 Client Session 的 Product/Application/Tenant 和 `return_target_code`。Composition adapter 调用 Product Application 的 `ResolveAuthReturnTarget`，把 URI 与 policy version 锁入 flow；客户端不能提交 URI、issuer、AppID 或 secret ref。
+- `ExternalProviderRegistry` 返回与可信 Product/Application/environment 精确绑定且 enabled 的 Provider Application。Provider Application ref、provider 和 scope 任一不匹配均返回 disabled，不做模糊回退。
+- state、nonce、authorization code、PKCE verifier、Provider subject/union subject 与 external proof 只保存独立 domain-separated 摘要。PKCE 只允许 S256；verifier 由服务端秘密和 flow ID 确定性派生，不保存明文。
+- OIDC Adapter 必须校验 issuer、client_id/audience、签名、过期时间和 nonce；微信 Adapter 必须把 openid 与 provider_application_id 共同解释。Provider access/refresh token 与 AppSecret 不返回客户端或持久化。
+- 回调/交换在事务锁内一次性消费 flow 和 code digest。同一幂等键同请求恢复首次安全结果；不同请求冲突。state/code 重放不创建 User、ExternalIdentity、proof 或 Session。
+- 已绑定身份可建立 `authentication_method=oidc|wechat` 的 Product/Application/Tenant Session；未绑定身份只发短期单次 external proof。身份属于其他 User 时返回稳定 conflict，不泄露该 User。
+- link 使用当前 UserBearer 的服务端 `auth_time` 判断近期认证，不接受任意 `recent_auth_proof` 字符串。External proof 必须与当前可信 scope/provider 精确匹配并单次消费。
+- unlink 必须确认目标属于当前 User，且解绑后仍有至少一个 active 密码或外部登录凭据；成功后按策略撤销相关 Session 并写 Identity Outbox。
+- unlink 的“至少一种登录方式”检查必须先获取同一 User 的数据库串行锁，再锁定并统计 active 密码与外部身份；并发解绑不得分别通过检查后移除最后两种登录方式。
+- 注册验证 challenge 与密码恢复 proof 由 Identity 持有摘要和单次状态，明文 proof 只经 Notification `SecurityDeliveryPort` 的加密投递；Provider 未配置时请求失败关闭且不留下可用 challenge。
+- G2A-04 的 Provider callback 是服务端 JSON POST 交换边界；浏览器 GET 回跳、interaction 恢复和一次性交互 code 属于 G2A-04.1。
+- 所有 external flow 都必须绑定发起它的可信 Client Session；不得用空 browser/client binding 创建降级 flow。Provider authorization URL 必须是无 userinfo/fragment 的 HTTPS URL。
+- Provider code 交换前必须把 flow 从 `pending` 原子 claim 为带短租约的 `processing`；并发请求不得重复调用 Provider。进程在交换窗口崩溃后只能安全终止该 flow，不能猜测 code 未消费并重放。
+- 注册 proof 以 `(consumer idempotency key digest, complete register request digest)` 记录消费方；用户创建的后续瞬时失败允许同一请求恢复，任何其他请求仍视为重放。
+- OIDC/微信 Session 必须记录具体 `external_identity_id`；解绑只撤销该身份建立的 Session，不得按认证方法误撤销其他 Provider Application 的会话。
+
 ## G2A-03 用户认证 API 冻结补充
 
 - 注册、登录和找回启动只从已验证的 `ClientSessionBearer` 取得 Product/Application/Tenant 范围；请求体中的任何范围 ID 均不可信且不接受。

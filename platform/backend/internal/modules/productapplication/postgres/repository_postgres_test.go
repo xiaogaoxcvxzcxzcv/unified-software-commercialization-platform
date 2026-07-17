@@ -131,19 +131,40 @@ func TestRepositoryBindingResolutionRedirectsAndSuspend(t *testing.T) {
 	if _, err := service.ResolveApplicationContext(ctx, productapplication.ResolveCommand{Product: wrongProduct, Client: productapplication.ClientIdentity{ProductID: "prod-b", ClientID: client.ClientID, Environment: product.Environment, CredentialType: client.CredentialType}, ClientVersion: "1.0.0", ObservedDistributionChannel: "official"}); !errors.Is(err, productapplication.ErrContextRejected) {
 		t.Fatalf("cross-product resolve error = %v", err)
 	}
-	redirects := productapplication.ReplaceRedirectsCommand{Product: product, ApplicationID: application.ApplicationID, ActorID: "admin-1", TraceID: "trace-redirect", Policy: productapplication.RedirectPolicy{WebRedirectURIs: []string{"https://example.com/oauth/callback"}, AllowedOrigins: []string{"https://example.com"}, DeepLinks: []productapplication.DeepLinkRule{{Scheme: "videoapp", PathPattern: "/oauth/callback"}}}}
+	redirects := productapplication.ReplaceRedirectsCommand{Product: product, ApplicationID: application.ApplicationID, ActorID: "admin-1", TraceID: "trace-redirect", Policy: productapplication.RedirectPolicy{WebRedirectURIs: []string{"https://example.com/oauth/callback"}, AllowedOrigins: []string{"https://example.com"}, DeepLinks: []productapplication.DeepLinkRule{{Scheme: "videoapp", PathPattern: "/oauth/callback"}}, AuthReturnTargets: []productapplication.AuthReturnTarget{{Code: "login.complete", URI: "https://example.com/oauth/callback"}}}}
 	first, err := service.ReplaceRedirects(ctx, redirects)
 	if err != nil || first.Version != 1 {
 		t.Fatalf("first redirect version = %+v, error = %v", first, err)
+	}
+	resolvedTarget, err := service.ResolveAuthReturnTarget(ctx, product, application.ApplicationID, "login.complete")
+	if err != nil || resolvedTarget.URI != "https://example.com/oauth/callback" || resolvedTarget.Kind != productapplication.AuthReturnTargetWebRedirect || resolvedTarget.PolicyVersion != 1 {
+		t.Fatalf("ResolveAuthReturnTarget() = %+v, error = %v", resolvedTarget, err)
+	}
+	var storedCode, storedValue string
+	if err := database.Pool.QueryRow(ctx, `SELECT target_code,value FROM product_application.redirect_policy_entries WHERE policy_id=$1 AND entry_type='auth_return_target'`, first.PolicyID).Scan(&storedCode, &storedValue); err != nil || storedCode != "login.complete" || storedValue != resolvedTarget.URI {
+		t.Fatalf("stored auth target code=%q value=%q error=%v", storedCode, storedValue, err)
+	}
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO product_application.redirect_policy_entries(policy_id,entry_type,target_code,value) VALUES($1,'auth_return_target','orphan.target','https://attacker.example/callback')`, first.PolicyID); err != nil {
+		t.Fatalf("seed orphan auth target: %v", err)
+	}
+	if _, err := service.ResolveAuthReturnTarget(ctx, product, application.ApplicationID, "orphan.target"); !errors.Is(err, productapplication.ErrContextRejected) {
+		t.Fatalf("orphan auth target error = %v", err)
 	}
 	same, err := service.ReplaceRedirects(ctx, redirects)
 	if err != nil || same.Version != first.Version || same.PolicyID != first.PolicyID || same.AuditID != first.AuditID {
 		t.Fatalf("same redirect version = %+v, error = %v", same, err)
 	}
 	redirects.Policy.AllowedOrigins = []string{"https://app.example.com"}
+	redirects.Policy.AuthReturnTargets = []productapplication.AuthReturnTarget{{Code: "account.complete", URI: "https://example.com/oauth/callback"}}
 	secondVersion, err := service.ReplaceRedirects(ctx, redirects)
 	if err != nil || secondVersion.Version != 2 {
 		t.Fatalf("second redirect version = %+v, error = %v", secondVersion, err)
+	}
+	if _, err := service.ResolveAuthReturnTarget(ctx, product, application.ApplicationID, "login.complete"); !errors.Is(err, productapplication.ErrNotFound) {
+		t.Fatalf("old policy target resolved after replacement: %v", err)
+	}
+	if target, err := service.ResolveAuthReturnTarget(ctx, product, application.ApplicationID, "account.complete"); err != nil || target.PolicyVersion != 2 {
+		t.Fatalf("current policy target = %+v, error = %v", target, err)
 	}
 	suspend := productapplication.SuspendCommand{Product: product, ApplicationID: application.ApplicationID, Reason: "security maintenance", SessionPolicy: productapplication.SessionPolicyRevokeExisting, ActorID: "admin-1", TraceID: "trace-suspend", IdempotencyKey: "idem-suspend-00001"}
 	suspended, err := service.SuspendApplication(ctx, suspend)
@@ -152,6 +173,9 @@ func TestRepositoryBindingResolutionRedirectsAndSuspend(t *testing.T) {
 	}
 	if _, err := service.ResolveApplicationContext(ctx, productapplication.ResolveCommand{Product: product, Client: client, ClientVersion: "1.0.0", ObservedDistributionChannel: "official"}); !errors.Is(err, productapplication.ErrApplicationSuspended) {
 		t.Fatalf("resolve suspended error = %v", err)
+	}
+	if _, err := service.ResolveAuthReturnTarget(ctx, product, application.ApplicationID, "account.complete"); !errors.Is(err, productapplication.ErrApplicationSuspended) {
+		t.Fatalf("suspended application auth target error = %v", err)
 	}
 }
 
@@ -167,14 +191,25 @@ func TestRepositoryOutboxClaimFailureAndPublish(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].AttemptCount != 1 {
 		t.Fatalf("ClaimOutbox() = %+v, error = %v", events, err)
 	}
-	if err := service.MarkOutboxFailed(context.Background(), events[0].EventID, "temporary audit failure", fixedNow().Add(time.Minute), false); err != nil {
+	stale := events[0]
+	if _, err := database.Pool.Exec(context.Background(), `UPDATE product_application.outbox_events SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE event_id=$1`, stale.EventID); err != nil {
+		t.Fatal(err)
+	}
+	events, err = service.ClaimOutbox(context.Background(), time.Now(), 10)
+	if err != nil || len(events) != 1 || events[0].AttemptCount != 2 || events[0].LeaseToken == stale.LeaseToken {
+		t.Fatalf("lease reclaim = %+v, error = %v", events, err)
+	}
+	if err := service.MarkOutboxPublished(context.Background(), stale.EventID, stale.LeaseToken, time.Now()); !errors.Is(err, productapplication.ErrConflict) {
+		t.Fatalf("stale publish error = %v", err)
+	}
+	if err := service.MarkOutboxFailed(context.Background(), events[0].EventID, events[0].LeaseToken, "temporary audit failure", time.Now().Add(-time.Second), false); err != nil {
 		t.Fatal(err)
 	}
 	events, err = service.ClaimOutbox(context.Background(), fixedNow().Add(2*time.Minute), 10)
-	if err != nil || len(events) != 1 || events[0].AttemptCount != 2 {
+	if err != nil || len(events) != 1 || events[0].AttemptCount != 3 {
 		t.Fatalf("reclaim = %+v, error = %v", events, err)
 	}
-	if err := service.MarkOutboxPublished(context.Background(), events[0].EventID, fixedNow().Add(3*time.Minute)); err != nil {
+	if err := service.MarkOutboxPublished(context.Background(), events[0].EventID, events[0].LeaseToken, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	events, err = service.ClaimOutbox(context.Background(), fixedNow().Add(4*time.Minute), 10)

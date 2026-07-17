@@ -145,14 +145,44 @@ func TestHandlerRedirectsRequireRecentAuthentication(t *testing.T) {
 	assertErrorCode(t, recorder, "admin_auth.reauthentication_required", "")
 }
 
+func TestHandlerRedirectPolicyRequiresNonNullBaseArrays(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "web redirects omitted", body: `{"allowed_origins":[],"deep_links":[]}`},
+		{name: "origins omitted", body: `{"web_redirect_uris":[],"deep_links":[]}`},
+		{name: "deep links omitted", body: `{"web_redirect_uris":[],"allowed_origins":[]}`},
+		{name: "web redirects null", body: `{"web_redirect_uris":null,"allowed_origins":[],"deep_links":[]}`},
+		{name: "origins null", body: `{"web_redirect_uris":[],"allowed_origins":null,"deep_links":[]}`},
+		{name: "deep links null", body: `{"web_redirect_uris":[],"allowed_origins":[],"deep_links":null}`},
+		{name: "optional auth targets null", body: `{"web_redirect_uris":[],"allowed_origins":[],"deep_links":[],"auth_return_targets":null}`},
+		{name: "deep link unknown field", body: `{"web_redirect_uris":[],"allowed_origins":[],"deep_links":[{"scheme":"myapp","path_pattern":"/callback","extra":true}]}`},
+		{name: "array over max", body: `{"web_redirect_uris":[` + strings.Repeat(`"https://example.com/callback",`, 100) + `"https://example.com/callback"],"allowed_origins":[],"deep_links":[]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &serviceStub{}
+			recorder := serve(handler(service, &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}, &authorizerStub{decision: adminrequest.Decision{Allowed: true}}), http.MethodPut, "/api/v1/admin/products/prod-1/applications/app-1/redirects", test.body, nil)
+			if recorder.Code != http.StatusBadRequest || service.redirectCalls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.redirectCalls, recorder.Body.String())
+			}
+			assertErrorCode(t, recorder, "product_application.invalid_request", "")
+		})
+	}
+}
+
 func TestHandlerReplacesRedirectsAndSuspends(t *testing.T) {
 	service := &serviceStub{redirectResult: productapplication.RedirectPolicyVersion{ProductID: "prod-1", ApplicationID: "app-1", Version: 3, AuditID: "audit-redir"}, suspendResult: productapplication.SuspendResult{ApplicationID: "app-1", Status: productapplication.StatusSuspended, SessionPolicy: productapplication.SessionPolicyRevokeExisting, AffectedClientBindings: 2, AuditID: "audit-suspend"}}
 	auth := &authenticatorStub{principal: adminrequest.Principal{AdminUserID: "admin-1", SessionID: "session-1"}}
 	authorizer := &authorizerStub{decision: adminrequest.Decision{Allowed: true}}
 	h := handler(service, auth, authorizer)
-	redirect := serve(h, http.MethodPut, "/api/v1/admin/products/prod-1/applications/app-1/redirects", `{"web_redirect_uris":["https://example.com/callback"],"allowed_origins":["https://example.com"],"deep_links":[{"scheme":"myapp","path_pattern":"/callback"}]}`, nil)
+	redirect := serve(h, http.MethodPut, "/api/v1/admin/products/prod-1/applications/app-1/redirects", `{"web_redirect_uris":["https://example.com/callback"],"allowed_origins":["https://example.com"],"deep_links":[{"scheme":"myapp","path_pattern":"/callback"}],"auth_return_targets":[{"code":"login.complete","uri":"https://example.com/callback"}]}`, nil)
 	if redirect.Code != http.StatusOK || service.redirectCalls != 1 || service.redirectCommand.ApplicationID != "app-1" || service.redirectCommand.TraceID == "" {
 		t.Fatalf("redirect status=%d command=%+v body=%s", redirect.Code, service.redirectCommand, redirect.Body.String())
+	}
+	if len(service.redirectCommand.Policy.AuthReturnTargets) != 1 || service.redirectCommand.Policy.AuthReturnTargets[0].Code != "login.complete" {
+		t.Fatalf("auth return targets = %+v", service.redirectCommand.Policy.AuthReturnTargets)
 	}
 	var redirectBody map[string]any
 	_ = json.Unmarshal(redirect.Body.Bytes(), &redirectBody)

@@ -68,3 +68,10 @@
 - 注册和找回依赖的 proof verifier / delivery provider 未配置时失败关闭。G2A-03 只封口 Port 与 API 行为，G2A-04 才交付生产 Provider Adapter。
 - Account Access Decision 在本关只对 `requires_entitlement=false` 的账号自助操作组合 Identity 与 Product User Access；不得伪造尚未实现的 Entitlement 结果。
 - 所有 token 对明确返回 `access_expires_at` 与 `refresh_expires_at`；旧的单一 `expires_at` 不属于已冻结 v1 契约。
+
+## G2A-04 Provider 组合边界
+
+- 外部 Provider 配置由部署/装配配置注入 Registry，必须绑定可信 Product/Application/environment；Identity 不从请求体选择配置。
+- 注册验证与找回只通过 Notification security Port 投递；Identity 与 Account 不建立第二套通知 outbox。
+- Provider 未配置时入口能力投影为 disabled，调用返回稳定不可用错误；不得返回固定验证码、日志验证码或演示授权 URL。
+- HostedInteraction、管理 Blocks、用户 Blocks 和 SDK 仍分别留在 G2A-04.1/G2A-05/G2A-06/G2A-07，本关 Provider 实现不能把 `package.account` 晋级为 verified/available。

@@ -1,6 +1,7 @@
 package httptransport
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -148,9 +149,33 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request, route parsedRou
 }
 
 type redirectPolicyRequest struct {
-	WebRedirectURIs []string                          `json:"web_redirect_uris"`
-	AllowedOrigins  []string                          `json:"allowed_origins"`
-	DeepLinks       []productapplication.DeepLinkRule `json:"deep_links"`
+	WebRedirectURIs   jsonArrayField[string]                              `json:"web_redirect_uris"`
+	AllowedOrigins    jsonArrayField[string]                              `json:"allowed_origins"`
+	DeepLinks         jsonArrayField[productapplication.DeepLinkRule]     `json:"deep_links"`
+	AuthReturnTargets jsonArrayField[productapplication.AuthReturnTarget] `json:"auth_return_targets"`
+}
+
+type jsonArrayField[T any] struct {
+	Values  []T
+	Present bool
+}
+
+func (f *jsonArrayField[T]) UnmarshalJSON(raw []byte) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return errors.New("array must not be null")
+	}
+	var values []T
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&values); err != nil {
+		return err
+	}
+	if len(values) > 100 {
+		return errors.New("array exceeds maximum size")
+	}
+	f.Values = values
+	f.Present = true
+	return nil
 }
 
 func (h *Handler) replaceRedirects(w http.ResponseWriter, r *http.Request, route parsedRoute) {
@@ -162,9 +187,13 @@ func (h *Handler) replaceRedirects(w http.ResponseWriter, r *http.Request, route
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if !body.WebRedirectURIs.Present || !body.AllowedOrigins.Present || !body.DeepLinks.Present {
+		httpx.Error(w, r, http.StatusBadRequest, "product_application.invalid_request", "invalid request body")
+		return
+	}
 	version, err := h.service.ReplaceRedirects(r.Context(), productapplication.ReplaceRedirectsCommand{
 		Product: h.productContext(route.productID), ApplicationID: route.applicationID,
-		Policy:  productapplication.RedirectPolicy{WebRedirectURIs: body.WebRedirectURIs, AllowedOrigins: body.AllowedOrigins, DeepLinks: body.DeepLinks},
+		Policy:  productapplication.RedirectPolicy{WebRedirectURIs: body.WebRedirectURIs.Values, AllowedOrigins: body.AllowedOrigins.Values, DeepLinks: body.DeepLinks.Values, AuthReturnTargets: body.AuthReturnTargets.Values},
 		ActorID: principal.AdminUserID, TraceID: requestid.FromContext(r.Context()),
 	})
 	if err != nil {

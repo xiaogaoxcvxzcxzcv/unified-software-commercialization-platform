@@ -41,6 +41,13 @@ ApplicationContext 由服务端在客户端认证后生成，并绑定当前 Pro
 - 安全：生产环境禁止任意域名、任意端口和不受约束的通配回调；不得直接采用请求中临时传入的回调地址
 - 安全：客户端绑定、凭据轮换与撤销同样使用 `product.application.security.manage`，且不得回显历史秘密；新秘密只允许一次性交付。
 
+### 命名认证回跳目标
+
+- Redirect Policy 可向后兼容增加 `auth_return_targets[] { code, uri }`；`code` 在同一 Product/Application 当前版本内唯一，URI 必须同时满足既有精确 Web redirect 或 deep-link 安全规则。
+- 公开只读方法 `ResolveAuthReturnTarget(ProductContext, application_id, code)` 只返回当前 active Application、当前 policy version 中的精确 URI、target kind 和 policy version。
+- Identity 只能通过该应用服务解析 return target；不得读取 Product Application 表，也不得把客户端提交的 URI 反射为回跳地址。
+- Policy 更新后已创建的 Identity flow 继续使用创建时锁定的 URI 与 policy version；新 flow 只使用当前版本。
+
 ## 绑定客户端凭据
 
 - Application 方法：`BindClientToApplication(command)`
@@ -65,6 +72,7 @@ ApplicationContext 由服务端在客户端认证后生成，并绑定当前 Pro
 - 错误：Application 不存在或停用、产品不匹配、环境不匹配、客户端未绑定、版本被阻止、渠道证明无效
 - 重试：只读解析可安全重试；失败需要限流和安全审计
 - 安全：忽略未经证明的 `application_id`、platform、channel、redirect URI 和 release track；`client_id + nonce_digest` 必须唯一，proof 时间窗和重放均由服务端拒绝
+- Redirect policy 事件 Outbox 使用数据库时钟和正式 lease token；publish/retry/dead 必须携带当前 claim token 做 CAS，过期 worker 不得覆盖后继 worker 的结果，published 与 dead 不得同时成立。
 
 ## 停用 Product Application
 

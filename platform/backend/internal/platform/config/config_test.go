@@ -243,3 +243,32 @@ func TestLoadRequiresIndependentUserPepperInProduction(t *testing.T) {
 		t.Fatalf("shared user pepper error = %v", err)
 	}
 }
+
+func TestLoadSecurityNotificationFailsClosedAndAcceptsIndependentSecrets(t *testing.T) {
+	base := map[string]string{
+		"PLATFORM_DATABASE_URL":                  "postgres://user@localhost/platform?sslmode=disable",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":            validTestPepper(),
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS":       validAssemblyOutputTargets(t, "notification-target"),
+		"PLATFORM_SECURITY_NOTIFICATION_ENABLED": "true",
+	}
+	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil {
+		t.Fatal("enabled security notification without provider configuration must fail")
+	}
+	base["PLATFORM_SECURITY_NOTIFICATION_PROVIDER_REF"] = "notification.security.primary"
+	base["PLATFORM_SECURITY_NOTIFICATION_PROVIDER_URL"] = "https://notification.example.test/security-deliveries"
+	base["PLATFORM_SECURITY_NOTIFICATION_PROVIDER_SECRET"] = strings.Repeat("provider-secret-", 3)
+	base["PLATFORM_SECURITY_NOTIFICATION_PAYLOAD_KEY"] = strings.Repeat("payload-secret-", 3)
+	base["PLATFORM_SECURITY_NOTIFICATION_DIGEST_KEY"] = strings.Repeat("digest-secret-", 3)
+	base["PLATFORM_SECURITY_NOTIFICATION_PROVIDER_IDEMPOTENT"] = "true"
+	cfg, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok })
+	if err != nil {
+		t.Fatalf("Load() security notification error = %v", err)
+	}
+	if !cfg.SecurityNotification.Enabled || !cfg.SecurityNotification.ProviderIdempotent || cfg.SecurityNotification.ProviderRef != "notification.security.primary" {
+		t.Fatalf("SecurityNotification = %#v", cfg.SecurityNotification)
+	}
+	base["PLATFORM_SECURITY_NOTIFICATION_DIGEST_KEY"] = base["PLATFORM_SECURITY_NOTIFICATION_PAYLOAD_KEY"]
+	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "independent") {
+		t.Fatalf("shared notification key error = %v", err)
+	}
+}

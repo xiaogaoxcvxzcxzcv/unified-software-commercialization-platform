@@ -826,7 +826,7 @@ func (r *Repository) CreateRecoveryChallenge(ctx context.Context, challenge iden
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.recovery_challenges(challenge_id,continuation_digest,identifier_type,identifier_digest,matched_user_id,delivery_target_masked,proof_digest,max_attempts,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, challenge.ChallengeID, challenge.ContinuationDigest, challenge.IdentifierType, challenge.IdentifierDigest, challenge.MatchedUserID, challenge.DeliveryTargetMasked, challenge.ProofDigest, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.recovery_challenges(challenge_id,continuation_digest,identifier_type,identifier_digest,matched_user_id,delivery_target_masked,proof_digest,delivery_status,max_attempts,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10)`, challenge.ChallengeID, challenge.ContinuationDigest, challenge.IdentifierType, challenge.IdentifierDigest, challenge.MatchedUserID, challenge.DeliveryTargetMasked, challenge.ProofDigest, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt); err != nil {
 		return err
 	}
 	if err := insertOutboxStrict(ctx, tx, challenge.OutboxEvent); err != nil {
@@ -854,10 +854,10 @@ func (r *Repository) CreateRecoveryChallengeIdempotent(ctx context.Context, chal
 			return identity.RecoveryChallenge{}, false, err
 		}
 		var persisted identity.RecoveryChallenge
-		err := tx.QueryRow(ctx, `SELECT challenge_id,continuation_digest,identifier_type,identifier_digest,matched_user_id,delivery_target_masked,proof_digest,max_attempts,created_at,expires_at FROM identity.recovery_challenges WHERE challenge_id=$1`, resourceID).Scan(&persisted.ChallengeID, &persisted.ContinuationDigest, &persisted.IdentifierType, &persisted.IdentifierDigest, &persisted.MatchedUserID, &persisted.DeliveryTargetMasked, &persisted.ProofDigest, &persisted.MaxAttempts, &persisted.CreatedAt, &persisted.ExpiresAt)
+		err := tx.QueryRow(ctx, `SELECT challenge_id,continuation_digest,identifier_type,identifier_digest,matched_user_id,delivery_target_masked,proof_digest,delivery_status,max_attempts,created_at,expires_at FROM identity.recovery_challenges WHERE challenge_id=$1`, resourceID).Scan(&persisted.ChallengeID, &persisted.ContinuationDigest, &persisted.IdentifierType, &persisted.IdentifierDigest, &persisted.MatchedUserID, &persisted.DeliveryTargetMasked, &persisted.ProofDigest, &persisted.DeliveryStatus, &persisted.MaxAttempts, &persisted.CreatedAt, &persisted.ExpiresAt)
 		return persisted, true, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.recovery_challenges(challenge_id,continuation_digest,identifier_type,identifier_digest,matched_user_id,delivery_target_masked,proof_digest,max_attempts,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, challenge.ChallengeID, challenge.ContinuationDigest, challenge.IdentifierType, challenge.IdentifierDigest, challenge.MatchedUserID, challenge.DeliveryTargetMasked, challenge.ProofDigest, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.recovery_challenges(challenge_id,continuation_digest,identifier_type,identifier_digest,matched_user_id,delivery_target_masked,proof_digest,delivery_status,max_attempts,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10)`, challenge.ChallengeID, challenge.ContinuationDigest, challenge.IdentifierType, challenge.IdentifierDigest, challenge.MatchedUserID, challenge.DeliveryTargetMasked, challenge.ProofDigest, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt); err != nil {
 		return identity.RecoveryChallenge{}, false, err
 	}
 	if err := insertOutboxStrict(ctx, tx, challenge.OutboxEvent); err != nil {
@@ -867,6 +867,17 @@ func (r *Repository) CreateRecoveryChallengeIdempotent(ctx context.Context, chal
 		return identity.RecoveryChallenge{}, false, err
 	}
 	return challenge, false, tx.Commit(ctx)
+}
+
+func (r *Repository) ActivateRecoveryChallenge(ctx context.Context, challengeID string) error {
+	result, err := r.pool.Exec(ctx, `UPDATE identity.recovery_challenges SET delivery_status='active' WHERE challenge_id=$1 AND delivery_status IN ('pending','active')`, challengeID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return identity.ErrRecoveryProofInvalid
+	}
+	return nil
 }
 
 func (r *Repository) ConsumeRecoveryChallenge(ctx context.Context, continuationDigest, proofDigest []byte, now time.Time, event identity.OutboxEvent) (identity.RecoveryConsumption, error) {
@@ -880,7 +891,7 @@ func (r *Repository) ConsumeRecoveryChallenge(ctx context.Context, continuationD
 	var attempts, maximum int
 	var expires time.Time
 	var consumed *time.Time
-	err = tx.QueryRow(ctx, `SELECT challenge_id,matched_user_id,proof_digest,attempt_count,max_attempts,expires_at,consumed_at FROM identity.recovery_challenges WHERE continuation_digest=$1 FOR UPDATE`, continuationDigest).Scan(&result.ChallengeID, &result.MatchedUserID, &storedProof, &attempts, &maximum, &expires, &consumed)
+	err = tx.QueryRow(ctx, `SELECT challenge_id,matched_user_id,proof_digest,attempt_count,max_attempts,expires_at,consumed_at FROM identity.recovery_challenges WHERE continuation_digest=$1 AND delivery_status='active' FOR UPDATE`, continuationDigest).Scan(&result.ChallengeID, &result.MatchedUserID, &storedProof, &attempts, &maximum, &expires, &consumed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.RecoveryConsumption{}, identity.ErrRecoveryProofInvalid
 	}
@@ -936,7 +947,7 @@ func (r *Repository) CompleteEndUserRecovery(ctx context.Context, continuationDi
 	var attempts, maximum int
 	var expires time.Time
 	var consumed *time.Time
-	err = tx.QueryRow(ctx, `SELECT challenge_id,matched_user_id,proof_digest,attempt_count,max_attempts,expires_at,consumed_at FROM identity.recovery_challenges WHERE continuation_digest=$1 FOR UPDATE`, continuationDigest).Scan(&challengeID, &userID, &storedProof, &attempts, &maximum, &expires, &consumed)
+	err = tx.QueryRow(ctx, `SELECT challenge_id,matched_user_id,proof_digest,attempt_count,max_attempts,expires_at,consumed_at FROM identity.recovery_challenges WHERE continuation_digest=$1 AND delivery_status='active' FOR UPDATE`, continuationDigest).Scan(&challengeID, &userID, &storedProof, &attempts, &maximum, &expires, &consumed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, identity.ErrRecoveryProofInvalid
 	}
@@ -1016,7 +1027,7 @@ func (r *Repository) CompleteEndUserRecoveryIdempotent(ctx context.Context, reco
 	var attempts, maximum int
 	var expires time.Time
 	var consumed *time.Time
-	err = tx.QueryRow(ctx, `SELECT c.challenge_id,c.matched_user_id,c.proof_digest,c.attempt_count,c.max_attempts,c.expires_at,c.consumed_at FROM identity.recovery_challenges c WHERE c.continuation_digest=$1 AND EXISTS (SELECT 1 FROM identity.end_user_idempotency_records i WHERE i.operation='recovery_start' AND i.scope_id=$2 AND i.resource_id=c.challenge_id AND i.state='completed') FOR UPDATE OF c`, continuationDigest, recoveryScopeID).Scan(&challengeID, &userID, &storedProof, &attempts, &maximum, &expires, &consumed)
+	err = tx.QueryRow(ctx, `SELECT c.challenge_id,c.matched_user_id,c.proof_digest,c.attempt_count,c.max_attempts,c.expires_at,c.consumed_at FROM identity.recovery_challenges c WHERE c.continuation_digest=$1 AND c.delivery_status='active' AND EXISTS (SELECT 1 FROM identity.end_user_idempotency_records i WHERE i.operation='recovery_start' AND i.scope_id=$2 AND i.resource_id=c.challenge_id AND i.state='completed') FOR UPDATE OF c`, continuationDigest, recoveryScopeID).Scan(&challengeID, &userID, &storedProof, &attempts, &maximum, &expires, &consumed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := failEndUserIdempotency(ctx, tx, record, "invalid_recovery_proof"); err != nil {
 			return false, false, err
@@ -1113,7 +1124,7 @@ func (r *Repository) LinkExternalIdentity(ctx context.Context, value identity.Ex
 
 func (r *Repository) FindExternalIdentity(ctx context.Context, provider, applicationID string, subjectDigest []byte) (identity.ExternalIdentity, error) {
 	var result identity.ExternalIdentity
-	err := r.pool.QueryRow(ctx, `SELECT external_identity_id,user_id,provider,provider_application_id,subject_digest,subject_masked,union_subject_digest,status,identity_version,linked_at,updated_at FROM identity.external_identities WHERE provider=$1 AND provider_application_id=$2 AND subject_digest=$3 AND status='active'`, provider, applicationID, subjectDigest).Scan(&result.ExternalIdentityID, &result.UserID, &result.Provider, &result.ProviderApplicationID, &result.SubjectDigest, &result.SubjectMasked, &result.UnionSubjectDigest, &result.Status, &result.Version, &result.LinkedAt, &result.UpdatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT e.external_identity_id,e.user_id,e.provider,e.provider_application_id,e.subject_digest,e.subject_masked,e.union_subject_digest,e.status,e.identity_version,e.linked_at,e.updated_at,u.account_status FROM identity.external_identities e JOIN identity.users u ON u.user_id=e.user_id WHERE e.provider=$1 AND e.provider_application_id=$2 AND e.subject_digest=$3 AND e.status='active'`, provider, applicationID, subjectDigest).Scan(&result.ExternalIdentityID, &result.UserID, &result.Provider, &result.ProviderApplicationID, &result.SubjectDigest, &result.SubjectMasked, &result.UnionSubjectDigest, &result.Status, &result.Version, &result.LinkedAt, &result.UpdatedAt, &result.AccountStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.ExternalIdentity{}, identity.ErrNotFound
 	}
@@ -1132,12 +1143,12 @@ type endUserTokenState struct {
 	rotationRecoveryExpiresAt *time.Time
 }
 
-const endUserTokenQuery = `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,s.token_family_id,s.authentication_method,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status,t.token_id,t.token_type,t.generation,t.expires_at,t.consumed_at,t.revoked_at,t.replaced_by_token_id,t.rotation_request_digest,t.rotation_recovery_expires_at FROM identity.end_user_session_tokens t JOIN identity.end_user_sessions s ON s.session_id=t.session_id JOIN identity.users u ON u.user_id=s.user_id`
+const endUserTokenQuery = `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,s.token_family_id,s.authentication_method,s.external_identity_id,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status,t.token_id,t.token_type,t.generation,t.expires_at,t.consumed_at,t.revoked_at,t.replaced_by_token_id,t.rotation_request_digest,t.rotation_recovery_expires_at FROM identity.end_user_session_tokens t JOIN identity.end_user_sessions s ON s.session_id=t.session_id JOIN identity.users u ON u.user_id=s.user_id`
 
 func scanEndUserToken(row rowScanner) (identity.EndUserSession, endUserTokenState, error) {
 	var session identity.EndUserSession
 	var token endUserTokenState
-	err := row.Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.TokenFamilyID, &session.AuthenticationMethod, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus, &token.tokenID, &token.tokenType, &token.generation, &token.expiresAt, &token.consumedAt, &token.revokedAt, &token.replacedByTokenID, &token.rotationRequestDigest, &token.rotationRecoveryExpiresAt)
+	err := row.Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.TokenFamilyID, &session.AuthenticationMethod, &session.ExternalIdentityID, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus, &token.tokenID, &token.tokenType, &token.generation, &token.expiresAt, &token.consumedAt, &token.revokedAt, &token.replacedByTokenID, &token.rotationRequestDigest, &token.rotationRecoveryExpiresAt)
 	return session, token, err
 }
 
@@ -1145,7 +1156,7 @@ func findEndUserSessionByID(ctx context.Context, queryer interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, sessionID string) (identity.EndUserSession, error) {
 	var session identity.EndUserSession
-	err := queryer.QueryRow(ctx, `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,s.token_family_id,s.authentication_method,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status FROM identity.end_user_sessions s JOIN identity.users u ON u.user_id=s.user_id WHERE s.session_id=$1`, sessionID).Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.TokenFamilyID, &session.AuthenticationMethod, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus)
+	err := queryer.QueryRow(ctx, `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,s.token_family_id,s.authentication_method,s.external_identity_id,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status FROM identity.end_user_sessions s JOIN identity.users u ON u.user_id=s.user_id WHERE s.session_id=$1`, sessionID).Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.TokenFamilyID, &session.AuthenticationMethod, &session.ExternalIdentityID, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus)
 	return session, err
 }
 
@@ -1272,7 +1283,7 @@ func insertEndUserRegistration(ctx context.Context, tx pgx.Tx, registration iden
 
 func insertNewEndUserSession(ctx context.Context, tx pgx.Tx, value identity.NewEndUserSession) error {
 	session := value.Session
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.end_user_sessions(session_id,user_id,product_id,application_id,tenant_id,token_family_id,authentication_method,session_version,auth_time,created_at,last_seen_at,access_expires_at,refresh_expires_at,absolute_expires_at,risk_summary_digest) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$9,$10,$11,$12,$13)`, session.SessionID, session.UserID, session.ProductID, session.ApplicationID, session.TenantID, session.TokenFamilyID, session.AuthenticationMethod, session.AuthTime, session.CreatedAt, session.AccessExpiresAt, session.RefreshExpiresAt, session.AbsoluteExpiresAt, endUserNullableBytes(session.RiskSummaryDigest)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.end_user_sessions(session_id,user_id,product_id,application_id,tenant_id,token_family_id,authentication_method,external_identity_id,session_version,auth_time,created_at,last_seen_at,access_expires_at,refresh_expires_at,absolute_expires_at,risk_summary_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$10,$11,$12,$13,$14)`, session.SessionID, session.UserID, session.ProductID, session.ApplicationID, session.TenantID, session.TokenFamilyID, session.AuthenticationMethod, session.ExternalIdentityID, session.AuthTime, session.CreatedAt, session.AccessExpiresAt, session.RefreshExpiresAt, session.AbsoluteExpiresAt, endUserNullableBytes(session.RiskSummaryDigest)); err != nil {
 		return err
 	}
 	if err := insertEndUserToken(ctx, tx, session.SessionID, session.TokenFamilyID, value.AccessToken); err != nil {

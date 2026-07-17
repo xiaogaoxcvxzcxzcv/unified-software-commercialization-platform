@@ -38,6 +38,7 @@ type EndUserRepository interface {
 	ListEndUserSessions(context.Context, string, string, EndUserSessionScope) ([]EndUserSessionSummary, error)
 	CreateRecoveryChallenge(context.Context, RecoveryChallenge) error
 	CreateRecoveryChallengeIdempotent(context.Context, RecoveryChallenge, EndUserIdempotency) (RecoveryChallenge, bool, error)
+	ActivateRecoveryChallenge(context.Context, string) error
 	ConsumeRecoveryChallenge(context.Context, []byte, []byte, time.Time, OutboxEvent) (RecoveryConsumption, error)
 	CompleteEndUserRecovery(context.Context, []byte, []byte, []byte, string, time.Time, OutboxEvent) (bool, error)
 	CompleteEndUserRecoveryIdempotent(context.Context, string, []byte, []byte, []byte, string, time.Time, OutboxEvent, EndUserIdempotency) (bool, bool, error)

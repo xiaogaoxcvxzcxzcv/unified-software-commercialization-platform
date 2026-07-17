@@ -28,10 +28,7 @@ func (s *endUserAdmissionStub) EvaluateScopedAdmission(_ context.Context, produc
 
 func TestEndUserAdmissionAdapterUsesTrustedScopeAndMapsDenials(t *testing.T) {
 	tenantID := "tenant-a"
-	request := identity.EndUserAdmissionRequest{
-		Scope:  identity.EndUserSessionScope{ProductID: "product-a", ApplicationID: "application-a", TenantID: &tenantID},
-		UserID: "user-a",
-	}
+	request := identity.EndUserAdmissionRequest{Scope: identity.EndUserSessionScope{ProductID: "product-a", ApplicationID: "application-a", TenantID: &tenantID}, UserID: "user-a"}
 	tests := []struct {
 		name string
 		code string
@@ -96,5 +93,21 @@ func TestEndUserHTTPErrorMapsProductAccessDenials(t *testing.T) {
 	}
 	if got := mapEndUserHTTPError(productuseraccess.ErrTenantSuspended); !errors.Is(got, identityhttp.ErrTenantUserAccessSuspended) {
 		t.Fatalf("tenant denial=%v", got)
+	}
+}
+
+func TestMapEndUserRegisterCommandPreservesVerificationBinding(t *testing.T) {
+	client := identityhttp.ClientSessionContext{ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a"}
+	command := identityhttp.RegisterUserCommand{
+		Identifier: "person@example.com", Credential: "credential-value",
+		VerificationContinuationID: "verification-continuation-123456", VerificationProof: "verification-proof-123456",
+		DisplayName: "Person", IdempotencyKey: "registration-key-123456", RequestID: "request-a",
+	}
+
+	mapped := mapEndUserRegisterCommand(client, command)
+	if mapped.Scope.ProductID != client.ProductID || mapped.Scope.ApplicationID != client.ApplicationID || mapped.Scope.TenantID == nil || *mapped.Scope.TenantID != client.TenantID ||
+		mapped.VerificationContinuationID != command.VerificationContinuationID || mapped.VerificationProof != command.VerificationProof ||
+		mapped.IdempotencyKey != command.IdempotencyKey || mapped.TraceID != command.RequestID {
+		t.Fatalf("registration command binding lost: %+v", mapped)
 	}
 }

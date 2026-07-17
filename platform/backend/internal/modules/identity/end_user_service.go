@@ -30,7 +30,7 @@ func (e *EndUserRateLimitError) Is(target error) bool {
 }
 
 type RegistrationProofVerifier interface {
-	VerifyRegistration(context.Context, EndUserSessionScope, NormalizedIdentifier, string) error
+	VerifyRegistration(context.Context, EndUserSessionScope, NormalizedIdentifier, string, string, []byte, []byte) error
 }
 
 type EndUserAdmissionRequest struct {
@@ -55,16 +55,8 @@ func WithEndUserAdmissionPort(port EndUserAdmissionPort) EndUserServiceOption {
 	}
 }
 
-type RecoveryDeliveryCommand struct {
-	DeliveryID  string
-	Destination NormalizedIdentifier
-	Proof       string
-	ExpiresAt   time.Time
-}
-
-type RecoveryDeliveryPort interface {
-	EnqueueRecovery(context.Context, RecoveryDeliveryCommand) error
-}
+type RecoveryDeliveryCommand = SecurityDeliveryCommand
+type RecoveryDeliveryPort = SecurityDeliveryPort
 
 type EndUserPolicy struct {
 	AccessTTL             time.Duration
@@ -123,13 +115,14 @@ func NewEndUserService(repository EndUserRepository, normalizer IdentifierNormal
 }
 
 type EndUserRegisterCommand struct {
-	Scope             EndUserSessionScope
-	Identifier        string
-	Credential        string
-	VerificationProof string
-	DisplayName       string
-	TraceID           string
-	IdempotencyKey    string
+	Scope                      EndUserSessionScope
+	Identifier                 string
+	Credential                 string
+	VerificationProof          string
+	VerificationContinuationID string
+	DisplayName                string
+	TraceID                    string
+	IdempotencyKey             string
 }
 
 type EndUserLoginCommand struct {
@@ -164,14 +157,14 @@ func (s *EndUserService) Register(ctx context.Context, command EndUserRegisterCo
 		profileName = "User"
 	}
 	identifierDigest := s.hasher.Digest("identifier\x00" + normalized.Value)
-	idempotency := EndUserIdempotency{Operation: "register", ScopeID: trustedScopeID(command.Scope), ActorDigest: identifierDigest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.requestDigest("register-request", normalized.Value, command.Credential, command.VerificationProof, profileName)}
+	idempotency := EndUserIdempotency{Operation: "register", ScopeID: trustedScopeID(command.Scope), ActorDigest: identifierDigest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.requestDigest("register-request", normalized.Value, command.Credential, command.VerificationContinuationID, command.VerificationProof, profileName)}
 	if persisted, found, err := s.repository.RecoverEndUserRegistration(ctx, idempotency); err != nil {
 		return EndUserIssuedSession{}, err
 	} else if found {
 		return EndUserIssuedSession{Session: persisted.Session.EndUserSession(), Profile: persisted.Profile, AccessToken: s.derivedToken("register-access", normalized.Value, command.IdempotencyKey), RefreshToken: s.derivedToken("register-refresh", normalized.Value, command.IdempotencyKey)}, nil
 	}
 	idempotency.Now = s.now().UTC()
-	if err := s.proofs.VerifyRegistration(ctx, command.Scope, normalized, command.VerificationProof); err != nil {
+	if err := s.proofs.VerifyRegistration(ctx, command.Scope, normalized, command.VerificationContinuationID, command.VerificationProof, idempotency.KeyDigest, idempotency.RequestDigest); err != nil {
 		if !errors.Is(err, ErrEndUserInvalidCredentials) {
 			return EndUserIssuedSession{}, err
 		}
@@ -593,13 +586,16 @@ func (s *EndUserService) StartRecovery(ctx context.Context, command StartEndUser
 	if err != nil {
 		return "", err
 	}
-	challenge := RecoveryChallenge{ChallengeID: challengeID, ContinuationDigest: s.hasher.Digest("recovery-continuation\x00" + continuation), IdentifierType: normalized.Type, IdentifierDigest: digest, MatchedUserID: userID, DeliveryTargetMasked: masked, ProofDigest: s.hasher.Digest("recovery-proof\x00" + proof), MaxAttempts: s.policy.RecoveryMaxAttempts, CreatedAt: now, ExpiresAt: now.Add(s.policy.RecoveryTTL), OutboxEvent: event}
+	challenge := RecoveryChallenge{ChallengeID: challengeID, ContinuationDigest: s.hasher.Digest("recovery-continuation\x00" + continuation), IdentifierType: normalized.Type, IdentifierDigest: digest, MatchedUserID: userID, DeliveryTargetMasked: masked, ProofDigest: s.hasher.Digest("recovery-proof\x00" + proof), DeliveryStatus: "pending", MaxAttempts: s.policy.RecoveryMaxAttempts, CreatedAt: now, ExpiresAt: now.Add(s.policy.RecoveryTTL), OutboxEvent: event}
 	idempotency := EndUserIdempotency{Operation: "recovery_start", ScopeID: trustedScopeID(command.Scope), ActorDigest: digest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.hasher.Digest("recovery-start-request\x00" + normalized.Value), ResourceID: challengeID, Now: now}
 	persistedChallenge, _, err := s.repository.CreateRecoveryChallengeIdempotent(ctx, challenge, idempotency)
 	if err != nil {
 		return "", err
 	}
-	if err := s.recovery.EnqueueRecovery(ctx, RecoveryDeliveryCommand{DeliveryID: persistedChallenge.ChallengeID, Destination: normalized, Proof: proof, ExpiresAt: persistedChallenge.ExpiresAt}); err != nil {
+	if err := s.recovery.EnqueueSecurity(ctx, SecurityDeliveryCommand{DeliveryID: persistedChallenge.ChallengeID, Purpose: "password_recovery", Scope: command.Scope, Destination: normalized, Proof: proof, ExpiresAt: persistedChallenge.ExpiresAt, TraceID: command.TraceID}); err != nil {
+		return "", err
+	}
+	if err := s.repository.ActivateRecoveryChallenge(ctx, persistedChallenge.ChallengeID); err != nil {
 		return "", err
 	}
 	return continuation, nil
@@ -645,6 +641,10 @@ func (s *EndUserService) normalize(raw string) (NormalizedIdentifier, error) {
 }
 
 func (s *EndUserService) requestDigest(operation string, fields ...string) []byte {
+	return identityRequestDigest(s.hasher, operation, fields...)
+}
+
+func identityRequestDigest(hasher securevalue.Hasher, operation string, fields ...string) []byte {
 	var payload strings.Builder
 	payload.WriteString(operation)
 	for _, field := range fields {
@@ -653,7 +653,7 @@ func (s *EndUserService) requestDigest(operation string, fields ...string) []byt
 		payload.WriteByte(':')
 		payload.WriteString(field)
 	}
-	return s.hasher.Digest(payload.String())
+	return hasher.Digest(payload.String())
 }
 
 func (s *EndUserService) newSession(userID string, scope EndUserSessionScope, method string, riskDigest []byte, now time.Time, traceID string) (EndUserIssuedSession, NewEndUserSession, error) {

@@ -29,6 +29,8 @@ const requiredOperations = new Set([
   "POST /api/v1/auth/recovery/start",
   "POST /api/v1/auth/recovery/complete",
   "POST /api/v1/auth/external/{provider}/start",
+  "POST /api/v1/auth/external/{provider}/callback",
+  "POST /api/v1/auth/verification/start",
   "POST /api/v1/auth/external/wechat/exchange",
   "POST /api/v1/account/external-identities/{provider}/link",
   "DELETE /api/v1/account/external-identities/{external_identity_id}",
@@ -167,12 +169,38 @@ const currentSessionProperties = document.components?.schemas?.CurrentUserSessio
 for (const forbidden of ["access_token", "refresh_token", "token_pair"]) {
   if (Object.hasOwn(currentSessionProperties, forbidden)) errors.push(`CurrentUserSession must not contain ${forbidden}`);
 }
-for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPair"]) {
+for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPair", "RecoveryChallenge", "VerificationChallenge", "ExternalLoginFlow", "ExternalExchange"]) {
   const cacheControl = document.components?.responses?.[responseName]?.headers?.["Cache-Control"]?.schema?.const;
   if (cacheControl !== "no-store") errors.push(`${responseName} response must declare Cache-Control: no-store`);
 }
 const recoveryRequired = document.components?.schemas?.RecoveryChallenge?.required ?? [];
 if (!recoveryRequired.includes("continuation_id")) errors.push("RecoveryChallenge must always return an opaque continuation_id");
+const registerRequired = document.components?.schemas?.RegisterUserRequest?.required ?? [];
+if (!registerRequired.includes("verification_continuation_id") || !registerRequired.includes("verification_proof")) {
+  errors.push("RegisterUserRequest must bind both verification_continuation_id and verification_proof");
+}
+const registerOperation = document.paths?.["/api/v1/auth/register"]?.post;
+const registerParameters = registerOperation?.parameters ?? [];
+if (registerOperation?.["x-idempotency-exemption"] || !registerParameters.some((parameter) => parameter.$ref === "#/components/parameters/IdempotencyKey" || parameter.name === "Idempotency-Key")) {
+  errors.push("user registration must require Idempotency-Key and cannot use a one-time exchange exemption");
+}
+const callbackSecurity = document.paths?.["/api/v1/auth/external/{provider}/callback"]?.post?.security ?? [];
+if (!callbackSecurity.some((requirement) => Object.hasOwn(requirement, "ClientSessionBearer"))) {
+  errors.push("external provider callback exchange must be bound to ClientSessionBearer");
+}
+const wechatExchange = document.paths?.["/api/v1/auth/external/wechat/exchange"]?.post;
+const wechatParameters = wechatExchange?.parameters ?? [];
+if (!wechatExchange?.["x-idempotency-exemption"] || wechatParameters.some((parameter) => parameter.$ref === "#/components/parameters/IdempotencyKey" || parameter.name === "Idempotency-Key")) {
+  errors.push("WeChat exchange must use the one-time flow replay exemption rather than an Idempotency-Key");
+}
+const linkExternalProperties = document.components?.schemas?.LinkExternalIdentityRequest?.properties ?? {};
+if (Object.hasOwn(linkExternalProperties, "recent_auth_proof")) {
+  errors.push("external identity link must use server session auth_time, not client recent_auth_proof");
+}
+const externalStartCodeRef = document.components?.schemas?.StartExternalLoginRequest?.properties?.return_target_code?.$ref;
+if (externalStartCodeRef !== "#/components/schemas/StableCode") {
+  errors.push("external return_target_code must use StableCode");
+}
 
 function visit(value, location = "#") {
   if (!value || typeof value !== "object") return;

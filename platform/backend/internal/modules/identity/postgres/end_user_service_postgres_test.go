@@ -17,13 +17,13 @@ import (
 
 type acceptingRegistrationProof struct{}
 
-func (acceptingRegistrationProof) VerifyRegistration(context.Context, identity.EndUserSessionScope, identity.NormalizedIdentifier, string) error {
+func (acceptingRegistrationProof) VerifyRegistration(context.Context, identity.EndUserSessionScope, identity.NormalizedIdentifier, string, string, []byte, []byte) error {
 	return nil
 }
 
 type errorRegistrationProof struct{ err error }
 
-func (p errorRegistrationProof) VerifyRegistration(context.Context, identity.EndUserSessionScope, identity.NormalizedIdentifier, string) error {
+func (p errorRegistrationProof) VerifyRegistration(context.Context, identity.EndUserSessionScope, identity.NormalizedIdentifier, string, string, []byte, []byte) error {
 	return p.err
 }
 
@@ -32,7 +32,7 @@ type capturingRecoveryDelivery struct {
 	commands []identity.RecoveryDeliveryCommand
 }
 
-func (d *capturingRecoveryDelivery) EnqueueRecovery(_ context.Context, command identity.RecoveryDeliveryCommand) error {
+func (d *capturingRecoveryDelivery) EnqueueSecurity(_ context.Context, command identity.SecurityDeliveryCommand) error {
 	d.proof = command.Proof
 	d.commands = append(d.commands, command)
 	return nil

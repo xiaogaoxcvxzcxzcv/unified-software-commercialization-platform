@@ -139,6 +139,7 @@ type EndUserSession struct {
 	TenantID             *string
 	TokenFamilyID        string
 	AuthenticationMethod string
+	ExternalIdentityID   *string
 	Version              int64
 	AuthTime             time.Time
 	CreatedAt            time.Time
@@ -204,6 +205,7 @@ type RecoveryChallenge struct {
 	MatchedUserID        *string
 	DeliveryTargetMasked string
 	ProofDigest          []byte
+	DeliveryStatus       string
 	MaxAttempts          int
 	CreatedAt            time.Time
 	ExpiresAt            time.Time
@@ -262,6 +264,7 @@ type ExternalIdentity struct {
 	Version               int64
 	LinkedAt              time.Time
 	UpdatedAt             time.Time
+	AccountStatus         string
 	OutboxEvent           OutboxEvent
 }
 

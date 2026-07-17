@@ -109,10 +109,16 @@ type DeepLinkRule struct {
 	PathPattern string `json:"path_pattern"`
 }
 
+type AuthReturnTarget struct {
+	Code string `json:"code"`
+	URI  string `json:"uri"`
+}
+
 type RedirectPolicy struct {
-	WebRedirectURIs []string       `json:"web_redirect_uris"`
-	AllowedOrigins  []string       `json:"allowed_origins"`
-	DeepLinks       []DeepLinkRule `json:"deep_links"`
+	WebRedirectURIs   []string           `json:"web_redirect_uris"`
+	AllowedOrigins    []string           `json:"allowed_origins"`
+	DeepLinks         []DeepLinkRule     `json:"deep_links"`
+	AuthReturnTargets []AuthReturnTarget `json:"auth_return_targets"`
 }
 
 type RedirectPolicyVersion struct {
@@ -124,6 +130,22 @@ type RedirectPolicyVersion struct {
 	CreatedBy     string    `json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
 	AuditID       string    `json:"audit_id,omitempty"`
+}
+
+type AuthReturnTargetKind string
+
+const (
+	AuthReturnTargetWebRedirect AuthReturnTargetKind = "web_redirect"
+	AuthReturnTargetDeepLink    AuthReturnTargetKind = "deep_link"
+)
+
+type ResolvedAuthReturnTarget struct {
+	ProductID     string               `json:"product_id"`
+	ApplicationID string               `json:"application_id"`
+	Code          string               `json:"code"`
+	URI           string               `json:"uri"`
+	Kind          AuthReturnTargetKind `json:"kind"`
+	PolicyVersion int64                `json:"policy_version"`
 }
 
 type ApplicationContext struct {

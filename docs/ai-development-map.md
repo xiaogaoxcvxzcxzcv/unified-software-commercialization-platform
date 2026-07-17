@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-- 当前阶段：F0、G1 和 G2A-01 已退出；`package.account` 为 contracted。当前唯一关口为 G2A-02 Identity 用户域与迁移。真实工具/能力包版本尚未发布，普通创建入口继续真实空状态并失败关闭。
+- 当前阶段：F0、G1、G2A-01、G2A-02 和 G2A-03 已退出；`package.account` 为 contracted。当前唯一关口为 G2A-04 外部身份与安全通知基础。真实工具/能力包版本尚未发布，普通创建入口继续真实空状态并失败关闭。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建/恢复 Client、`/create` 五步向导、真实 Product 工作区和 `/assemblies` 连接真实后端，未标记 ready 的业务页面仍不得混同为生产数据源。

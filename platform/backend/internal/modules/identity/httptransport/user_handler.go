@@ -48,9 +48,11 @@ func (e *UserRateLimitError) Unwrap() error { return ErrUserRateLimited }
 const userRequestBodyLimit int64 = 32 << 10
 
 type ClientSessionContext struct {
+	SessionID     string
 	ProductID     string
 	ApplicationID string
 	TenantID      string
+	Environment   string
 }
 
 type UserSessionContext struct {
@@ -89,12 +91,13 @@ type UserService interface {
 }
 
 type RegisterUserCommand struct {
-	Identifier        string
-	Credential        string
-	VerificationProof string
-	DisplayName       string
-	IdempotencyKey    string
-	RequestID         string
+	Identifier                 string
+	Credential                 string
+	VerificationContinuationID string
+	VerificationProof          string
+	DisplayName                string
+	IdempotencyKey             string
+	RequestID                  string
 }
 
 type LoginUserCommand struct {
@@ -224,10 +227,23 @@ type ProductUserAccessDecision struct {
 type UserHandler struct {
 	service  UserService
 	resolver UserSessionResolver
+	external ExternalUserService
 }
 
-func NewUserHandler(service UserService, resolver UserSessionResolver) *UserHandler {
-	return &UserHandler{service: service, resolver: resolver}
+type UserHandlerOption func(*UserHandler)
+
+func WithExternalUserService(service ExternalUserService) UserHandlerOption {
+	return func(handler *UserHandler) { handler.external = service }
+}
+
+func NewUserHandler(service UserService, resolver UserSessionResolver, options ...UserHandlerOption) *UserHandler {
+	handler := &UserHandler{service: service, resolver: resolver}
+	for _, option := range options {
+		if option != nil {
+			option(handler)
+		}
+	}
+	return handler
 }
 
 func (h *UserHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +274,14 @@ func (h *UserHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.startRecovery(w, r)
 	case r.URL.Path == "/api/v1/auth/recovery/complete":
 		h.completeRecovery(w, r)
+	case r.URL.Path == "/api/v1/auth/verification/start":
+		h.startRegistrationVerification(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/auth/external/"):
+		h.externalAuthentication(w, r)
+	case r.URL.Path == "/api/v1/account/external-identities":
+		h.externalIdentities(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v1/account/external-identities/"):
+		h.externalIdentityMutation(w, r)
 	case r.URL.Path == "/api/v1/account/profile":
 		h.profile(w, r)
 	case r.URL.Path == "/api/v1/account/password":
@@ -276,10 +300,11 @@ func (h *UserHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type registerUserRequest struct {
-	Identifier        string `json:"identifier"`
-	Credential        string `json:"credential"`
-	VerificationProof string `json:"verification_proof"`
-	DisplayName       string `json:"display_name"`
+	Identifier                 string `json:"identifier"`
+	Credential                 string `json:"credential"`
+	VerificationContinuationID string `json:"verification_continuation_id"`
+	VerificationProof          string `json:"verification_proof"`
+	DisplayName                string `json:"display_name"`
 }
 
 func (h *UserHandler) register(w http.ResponseWriter, r *http.Request) {
@@ -298,11 +323,11 @@ func (h *UserHandler) register(w http.ResponseWriter, r *http.Request) {
 	if !decodeUserJSON(w, r, &body) {
 		return
 	}
-	if !bounded(body.Identifier, 1, 320) || !bounded(body.Credential, 12, 1024) || !bounded(body.VerificationProof, 16, 1024) || !bounded(body.DisplayName, 0, 128) {
+	if !bounded(body.Identifier, 1, 320) || !bounded(body.Credential, 12, 1024) || !bounded(body.VerificationContinuationID, 16, 1024) || !bounded(body.VerificationProof, 16, 1024) || !bounded(body.DisplayName, 0, 128) {
 		invalidRequest(w, r)
 		return
 	}
-	value, err := h.service.RegisterUser(r.Context(), client, RegisterUserCommand{Identifier: body.Identifier, Credential: body.Credential, VerificationProof: body.VerificationProof, DisplayName: body.DisplayName, IdempotencyKey: key, RequestID: requestid.FromContext(r.Context())})
+	value, err := h.service.RegisterUser(r.Context(), client, RegisterUserCommand{Identifier: body.Identifier, Credential: body.Credential, VerificationContinuationID: body.VerificationContinuationID, VerificationProof: body.VerificationProof, DisplayName: body.DisplayName, IdempotencyKey: key, RequestID: requestid.FromContext(r.Context())})
 	if err != nil {
 		h.writeUserError(w, r, err)
 		return
@@ -744,6 +769,20 @@ func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err
 		status, code, detail, retryable = http.StatusConflict, "IDENTITY_VERSION_CONFLICT", "resource version changed", false
 	case errors.Is(err, ErrRecentAuthenticationNeeded):
 		status, code, detail, retryable = http.StatusForbidden, "IDENTITY_RECENT_AUTH_REQUIRED", "recent authentication required", false
+	case errors.Is(err, ErrExternalFlowInvalid):
+		status, code, detail, retryable = http.StatusBadRequest, "IDENTITY_EXTERNAL_FLOW_INVALID", "external authentication failed", false
+	case errors.Is(err, ErrExternalFlowExpired):
+		status, code, detail, retryable = http.StatusGone, "IDENTITY_EXTERNAL_FLOW_EXPIRED", "external authentication flow expired", false
+	case errors.Is(err, ErrExternalFlowReplayed):
+		status, code, detail, retryable = http.StatusConflict, "IDENTITY_EXTERNAL_FLOW_REPLAYED", "external authentication flow was already used", false
+	case errors.Is(err, ErrExternalIdentityConflict):
+		status, code, detail, retryable = http.StatusConflict, "IDENTITY_EXTERNAL_IDENTITY_CONFLICT", "external identity conflicts with current state", false
+	case errors.Is(err, ErrExternalIdentityNotOwned):
+		status, code, detail, retryable = http.StatusNotFound, "IDENTITY_EXTERNAL_IDENTITY_NOT_FOUND", "external identity not found", false
+	case errors.Is(err, ErrExternalIdentityLastLogin):
+		status, code, detail, retryable = http.StatusConflict, "IDENTITY_EXTERNAL_LAST_LOGIN", "another login method is required", false
+	case errors.Is(err, ErrRegistrationVerificationFail):
+		status, code, detail, retryable = http.StatusForbidden, "IDENTITY_VERIFICATION_INVALID", "registration verification failed", false
 	}
 	options.Retryable = retryable
 	httpx.ErrorWithOptions(w, r, status, code, detail, options)
