@@ -173,6 +173,7 @@ type planDocument struct {
 
 type catalogSnapshotRef struct {
 	Revision string `json:"revision"`
+	Scope    string `json:"scope"`
 	Checksum string `json:"checksum"`
 }
 
@@ -443,7 +444,7 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	planID := "plan_" + strings.TrimPrefix(seedDigest, "sha256:")[:24]
 	document := planDocument{
 		SchemaVersion: "1.0.0", PlanID: planID, BlueprintID: blueprint.BlueprintID, BlueprintVersion: blueprint.Revision,
-		Environment: environment, CatalogSnapshot: catalogSnapshotRef{Revision: snapshot.Revision, Checksum: snapshot.SnapshotSHA256},
+		Environment: environment, CatalogSnapshot: catalogSnapshotRef{Revision: snapshot.Revision, Scope: snapshot.CatalogScope, Checksum: snapshot.SnapshotSHA256},
 		Packages: resolvedPackages, Applications: resolvedApplications, Extensions: []resolvedExtension{},
 		Generator: resolvedGenerator{GeneratorID: generator.ToolID, Version: generator.Version, Checksum: generator.ManifestSHA256},
 		SDKs:      []resolvedSDK{{SDKID: sdk.ToolID, Version: sdk.Version, Checksum: sdk.ManifestSHA256}}, Capabilities: capabilities, Dependencies: dependencies,

@@ -9,6 +9,9 @@ import { LoginPage } from "../pages/LoginPage";
 const AuditPage = lazy(() => import("../pages/AuditPage").then((module) => ({ default: module.AuditPage })));
 const AssemblyRunsPage = lazy(() => import("../pages/AssemblyRunsPage").then((module) => ({ default: module.AssemblyRunsPage })));
 const AssemblyRunPage = lazy(() => import("../pages/AssemblyRunPage").then((module) => ({ default: module.AssemblyRunPage })));
+const AssemblyLifecycleEntryPage = lazy(() => import("../pages/AssemblyLifecycleEntryPage").then((module) => ({ default: module.AssemblyLifecycleEntryPage })));
+const AssemblyLifecyclePlanPage = lazy(() => import("../pages/AssemblyLifecyclePlanPage").then((module) => ({ default: module.AssemblyLifecyclePlanPage })));
+const AssemblyLifecycleOperationPage = lazy(() => import("../pages/AssemblyLifecycleOperationPage").then((module) => ({ default: module.AssemblyLifecycleOperationPage })));
 const CreateSoftwarePage = lazy(() => import("../pages/CreateSoftwarePage").then((module) => ({ default: module.CreateSoftwarePage })));
 const CreateBlueprintRecoveryPage = lazy(() => import("../pages/CreateRecoveryPage").then((module) => ({ default: module.CreateBlueprintRecoveryPage })));
 const CreatePlanRecoveryPage = lazy(() => import("../pages/CreateRecoveryPage").then((module) => ({ default: module.CreatePlanRecoveryPage })));
@@ -53,6 +56,9 @@ function AuthenticatedRoutes() {
     <Route path="/create/plans/:planId" element={<GlobalRoute><CreatePlanRecoveryPage /></GlobalRoute>} />
     <Route path="/assemblies" element={<GlobalRoute><AssemblyRunsPage /></GlobalRoute>} />
     <Route path="/assemblies/:runId" element={<GlobalRoute><AssemblyRunPage /></GlobalRoute>} />
+    <Route path="/assemblies/:runId/lifecycle" element={<GlobalRoute><AssemblyLifecycleEntryPage /></GlobalRoute>} />
+    <Route path="/assembly-lifecycle/plans/:planId" element={<GlobalRoute><AssemblyLifecyclePlanPage /></GlobalRoute>} />
+    <Route path="/assembly-lifecycle/operations/:operationId" element={<GlobalRoute><AssemblyLifecycleOperationPage /></GlobalRoute>} />
     <Route path="/products" element={<GlobalRoute><ProductsPage /></GlobalRoute>} />
     <Route path="/system/health" element={<GlobalRoute><HealthPage /></GlobalRoute>} />
     <Route path="/products/:productId/overview" element={<ProductRoute><OverviewPage /></ProductRoute>} />

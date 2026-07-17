@@ -18,7 +18,7 @@ func TestRegistryCompilesEverySchemaAndValidatesFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantNames := []string{
-		"assembly-manifest", "assembly-plan", "assembly-run", "catalog-snapshot", "common",
+		"assembly-lifecycle-operation", "assembly-lifecycle-plan", "assembly-manifest", "assembly-plan", "assembly-run", "catalog-snapshot", "common",
 		"extension-manifest", "feature-block-catalog", "generated-project-lock", "generator-commit-journal", "generator-diagnostic", "generator-eject-plan",
 		"generator-request", "generator-result", "generator-rollback-point", "package-manifest",
 		"product-blueprint", "tool-manifest", "ui-template-manifest",
@@ -79,6 +79,72 @@ func TestRegistryRejectsUnknownSchema(t *testing.T) {
 	}
 	if err := registry.Validate("missing", []byte(`{}`)); !errors.Is(err, ErrUnknownSchema) {
 		t.Fatalf("unknown schema error = %v", err)
+	}
+}
+
+func TestGeneratedProjectLockRequiresExactlyOneProvenanceSource(t *testing.T) {
+	root := repositoryRoot(t)
+	registry, err := LoadDirectory(filepath.Join(root, "platform", "contracts", "schemas", "v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "platform", "contracts", "schemas", "fixtures", "assembly-generator", "generated-project-lock", "valid.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err = json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	delete(document, "run_id")
+	missing, _ := json.Marshal(document)
+	if err = registry.Validate("generated-project-lock", missing); err == nil {
+		t.Fatal("generated project lock without provenance was accepted")
+	}
+	document["run_id"] = "run.demo"
+	document["lifecycle_operation_id"] = "operation.demo"
+	ambiguous, _ := json.Marshal(document)
+	if err = registry.Validate("generated-project-lock", ambiguous); err == nil {
+		t.Fatal("generated project lock with ambiguous provenance was accepted")
+	}
+}
+
+func TestLifecycleOperationSchemaEnforcesKindAndTerminalStateRelations(t *testing.T) {
+	root := repositoryRoot(t)
+	registry, err := LoadDirectory(filepath.Join(root, "platform", "contracts", "schemas", "v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "platform", "contracts", "schemas", "fixtures", "assembly-generator", "assembly-lifecycle-operation", "valid.completed.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err = json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["target"] = nil
+	invalidTarget, _ := json.Marshal(document)
+	if err = registry.Validate("assembly-lifecycle-operation", invalidTarget); err == nil {
+		t.Fatal("completed lifecycle operation without target was accepted")
+	}
+	if err = json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["kind"] = "rollback"
+	document["rollback_of_operation_id"] = "operation.predecessor"
+	invalidPlan, _ := json.Marshal(document)
+	if err = registry.Validate("assembly-lifecycle-operation", invalidPlan); err == nil {
+		t.Fatal("rollback lifecycle operation with lifecycle plan was accepted")
+	}
+	if err = json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["status"] = "planned"
+	document["target"] = nil
+	invalidCompletion, _ := json.Marshal(document)
+	if err = registry.Validate("assembly-lifecycle-operation", invalidCompletion); err == nil {
+		t.Fatal("planned lifecycle operation with completed_at was accepted")
 	}
 }
 

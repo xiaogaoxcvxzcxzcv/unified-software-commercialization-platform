@@ -37,6 +37,7 @@ risk_level
 - Manifest 边界：能力包只能声明已存在的 permission code；声明操作不返回 grant，也不能修改角色绑定
 - 数据库边界：Repository 只持久化目录定义和显式授权事实，不得在 Adapter 内再硬编码权限集合
 - 兼容：删除或重命名已发布权限码必须走弃用策略和授权数据迁移，不能静默替换
+- Assembly lifecycle：`assembly.lifecycle.plan` 为 platform scope 普通风险，只允许生成/读取服务端校验计划；`assembly.lifecycle.execute` 为 platform scope high-risk，覆盖 execute、cancel、rollback 和 eject，必须经过 `auth_time` 近期认证门禁。二者不能由 Blueprint、Manifest 或前端参数动态创建或提升。
 
 ## 管理绑定
 

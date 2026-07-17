@@ -120,7 +120,7 @@ func run(repositoryRoot, templateID, templateVersion, target, output, productNam
 	plan, err := json.Marshal(map[string]any{
 		"plan_id": "template.preview." + target, "plan_checksum": planChecksum,
 		"blueprint_id": "template.preview", "blueprint_version": 1,
-		"catalog_snapshot": map[string]any{"checksum": resolution.Snapshot.SnapshotSHA256},
+		"catalog_snapshot": map[string]any{"scope": resolution.Snapshot.CatalogScope, "checksum": resolution.Snapshot.SnapshotSHA256},
 		"generator":        tool, "expected_outputs": outputs,
 		"required_secret_refs": []generation.SecretRef{}, "packages": []any{}, "sdks": []any{},
 		"applications": []any{map[string]any{

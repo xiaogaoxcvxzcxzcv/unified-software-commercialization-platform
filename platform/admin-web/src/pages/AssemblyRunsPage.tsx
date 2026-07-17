@@ -8,7 +8,7 @@ import { StatusBadge } from "../components/StatusBadge";
 const statusOptions: Array<{ value: "" | AssemblyRunStatus; label: string }> = [
   { value: "", label: "全部状态" }, { value: "planned", label: "等待执行" }, { value: "provisioning", label: "准备资源" },
   { value: "generating", label: "生成中" }, { value: "validating", label: "验证中" }, { value: "completed", label: "已完成" },
-  { value: "failed", label: "失败" }, { value: "rolling_back", label: "回滚中" }, { value: "rolled_back", label: "已回滚" },
+  { value: "failed", label: "失败" }, { value: "cancelled", label: "已取消" }, { value: "rolling_back", label: "回滚中" }, { value: "rolled_back", label: "已回滚" },
 ];
 const formatTime = (value: string) => new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 

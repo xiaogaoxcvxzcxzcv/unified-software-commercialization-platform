@@ -45,13 +45,10 @@ func (e *Executor) Execute(ctx context.Context, targetRoot string, input Input, 
 	if err != nil || e.contracts.Validate("generator-request", requestRaw) != nil {
 		return ExecutionOutcome{}, ErrInvalidInput
 	}
-	if published, found, err := e.artifacts.LoadPublished(input.Request); err != nil {
+	if recovered, found, err := e.recover(ctx, targetRoot, input, input.Request.TargetSnapshotChecksum); err != nil {
 		return ExecutionOutcome{}, err
 	} else if found {
-		if err := e.validateSuccessBundle(published); err != nil || verifyFinalSnapshot(targetRoot, published.FinalSnapshot) != nil {
-			return ExecutionOutcome{}, ErrArtifactConflict
-		}
-		return ExecutionOutcome{Commit: CommitResult{AtomicCommitCompleted: true, StagingCleanupCompleted: true, TargetUnchanged: true}, Bundle: published, Published: true}, nil
+		return recovered, nil
 	}
 	preCommit := CommitResult{StagingCleanupCompleted: true, TargetUnchanged: true}
 	rendered, err := e.renderer.Render(ctx, input)
@@ -96,6 +93,50 @@ func (e *Executor) Execute(ctx context.Context, targetRoot string, input Input, 
 		return e.rollbackAndFail(targetRoot, input.Request, prepared, bundle, transaction, commit, err)
 	}
 	return ExecutionOutcome{Commit: commit, Bundle: bundle, Published: true}, nil
+}
+
+// Recover completes an already-published or deterministically staged success
+// transaction without rendering or writing product files. The expected source
+// checksum must come from the durable lifecycle operation, not the current
+// workspace, which may already contain the committed successor snapshot.
+func (e *Executor) Recover(ctx context.Context, targetRoot string, input Input, expectedSourceSnapshotChecksum string) (ExecutionOutcome, bool, error) {
+	if e == nil || rootsOverlap(targetRoot, e.artifacts.Root()) || !validDigest(expectedSourceSnapshotChecksum) {
+		return ExecutionOutcome{}, false, ErrInvalidInput
+	}
+	requestRaw, err := json.Marshal(input.Request)
+	if err != nil || e.contracts.Validate("generator-request", requestRaw) != nil {
+		return ExecutionOutcome{}, false, ErrInvalidInput
+	}
+	return e.recover(ctx, targetRoot, input, expectedSourceSnapshotChecksum)
+}
+
+func (e *Executor) recover(ctx context.Context, targetRoot string, input Input, expectedSourceSnapshotChecksum string) (ExecutionOutcome, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return ExecutionOutcome{}, false, err
+	}
+	if published, found, err := e.artifacts.LoadPublished(input.Request); err != nil {
+		return ExecutionOutcome{}, found, err
+	} else if found {
+		if err := e.validateSuccessBundle(published); err != nil || verifyFinalSnapshot(targetRoot, published.FinalSnapshot) != nil {
+			return ExecutionOutcome{}, true, ErrArtifactConflict
+		}
+		return ExecutionOutcome{Commit: CommitResult{AtomicCommitCompleted: true, StagingCleanupCompleted: true, TargetUnchanged: true}, Bundle: published, Published: true}, true, nil
+	}
+	if staged, transaction, found, err := e.artifacts.loadRecoverableStaged(input.Request, expectedSourceSnapshotChecksum); err != nil {
+		return ExecutionOutcome{}, found, err
+	} else if found {
+		if err := e.validateSuccessBundle(staged); err != nil || verifyFinalSnapshot(targetRoot, staged.FinalSnapshot) != nil {
+			return ExecutionOutcome{}, true, ErrArtifactConflict
+		}
+		if err := transaction.MarkCommitted(); err != nil {
+			return ExecutionOutcome{}, true, err
+		}
+		if err := transaction.Publish(); err != nil {
+			return ExecutionOutcome{}, true, err
+		}
+		return ExecutionOutcome{Commit: CommitResult{AtomicCommitCompleted: true, StagingCleanupCompleted: true, TargetUnchanged: true}, Bundle: staged, Published: true}, true, nil
+	}
+	return ExecutionOutcome{}, false, nil
 }
 
 func (e *Executor) rollbackAndFail(targetRoot string, request Request, prepared PreparedChangeSet, bundle ArtifactBundle, transaction *ArtifactTransaction, commit CommitResult, cause error) (ExecutionOutcome, error) {

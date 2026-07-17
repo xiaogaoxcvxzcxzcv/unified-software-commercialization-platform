@@ -40,6 +40,7 @@ import (
 	"platform.local/capability-platform/backend/internal/platform/securevalue"
 	platformserver "platform.local/capability-platform/backend/internal/platform/server"
 	"platform.local/capability-platform/backend/internal/workflows/assemblyexecution"
+	"platform.local/capability-platform/backend/internal/workflows/assemblylifecycle"
 	"platform.local/capability-platform/backend/internal/workflows/clientcontext"
 	clientcontexthttp "platform.local/capability-platform/backend/internal/workflows/clientcontext/httptransport"
 	"platform.local/capability-platform/backend/internal/workflows/clientregistration"
@@ -209,10 +210,43 @@ func main() {
 		os.Exit(1)
 	}
 	assemblyRepository := assemblypostgres.NewWithCursorKey(db.Pool(), []byte(cfg.AdminAuth.TokenPepper))
+	assemblyValidator := assemblycore.NewRegistryValidator(assemblyContracts)
 	assemblyService := assemblycore.NewService(
-		assemblyRepository, assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
+		assemblyRepository, assemblyValidator, planning.New(assemblyCatalog), securevalue.ID, nil,
 		assemblycore.WithOutputTargetVerifier(newCoreOutputTargetVerifier(configuredOutputTargets...)),
 	)
+	assemblyLifecycleContext, err := assemblylifecycle.NewTrustedContextResolver(assemblyRepository, assemblyWorkspaces, assemblyCatalog, experimentalAssemblyCatalog)
+	if err != nil {
+		logger.Error("assembly lifecycle context initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecyclePlanner, err := assemblylifecycle.NewCatalogLifecyclePlanBuilder(assemblyLifecycleContext, nil)
+	if err != nil {
+		logger.Error("assembly lifecycle planner initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecycleService := assemblycore.NewLifecycleService(assemblyRepository, assemblyValidator, assemblyLifecyclePlanner, securevalue.ID, nil)
+	assemblyLifecycleExecutor, err := assemblylifecycle.NewGenerationLifecycleExecutor(assemblyLifecycleContext, assemblyLifecyclePlanner, assemblyContracts, nil)
+	if err != nil {
+		logger.Error("assembly lifecycle executor initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecycleWorkerID, err := securevalue.ID("assembly_lifecycle_worker_")
+	if err != nil {
+		logger.Error("assembly lifecycle worker identity initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecycleRunner, err := assemblylifecycle.NewRunner(
+		assemblyRepository, assemblyRepository, assemblyLifecycleExecutor, securevalue.ID, nil,
+		assemblyLifecycleWorkerID, 30*time.Second,
+		assemblylifecycle.WithIterationErrorHandler(func() {
+			logger.Error("assembly lifecycle worker iteration failed; retrying after backoff")
+		}),
+	)
+	if err != nil {
+		logger.Error("assembly lifecycle worker initialization failed", "error", err)
+		os.Exit(1)
+	}
 	auditRepository := auditpostgres.New(db.Pool())
 	auditService := audit.NewService(auditRepository)
 	identityRepository := identitypostgres.New(db.Pool())
@@ -259,7 +293,7 @@ func main() {
 	tenantHandler := tenanthttp.New(tenantService, adminGuard)
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
-	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...), adminGuard)
+	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
 	modules := platformserver.NewModuleRegistrar()
@@ -284,6 +318,12 @@ func main() {
 	outbox := identity.NewOutboxDispatcher(identityRepository, identityAuditAdapter{service: auditService}, logger)
 	go outbox.Run(ctx)
 	go assemblyWorker.Run(ctx)
+	go func() {
+		if runErr := assemblyLifecycleRunner.Run(ctx); runErr != nil && ctx.Err() == nil {
+			logger.Error("assembly lifecycle worker stopped", "error", runErr)
+			stop()
+		}
+	}()
 	for name, source := range map[string]auditableOutboxSource{
 		"access_control":      accessControlOutboxSource{service: accessService},
 		"assembly":            assemblyOutboxSource{service: assemblyService},

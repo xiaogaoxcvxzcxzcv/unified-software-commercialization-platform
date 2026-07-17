@@ -304,7 +304,7 @@ func artifactTestRequest(t *testing.T, targetRoot string, rendered []RenderedFil
 	}
 	planValue := map[string]any{
 		"plan_id": "plan.artifact-test", "plan_checksum": rawDigest([]byte("artifact-plan")), "blueprint_id": "bp_test-product", "blueprint_version": 1,
-		"catalog_snapshot": map[string]any{"checksum": rawDigest([]byte("catalog"))},
+		"catalog_snapshot": map[string]any{"scope": "ordinary", "checksum": rawDigest([]byte("catalog"))},
 		"generator":        map[string]any{"generator_id": "platform.generator", "version": "1.0.0", "checksum": rawDigest([]byte("generator"))},
 		"expected_outputs": outputs, "required_secret_refs": []any{},
 		"packages":     []any{map[string]any{"package_id": "package.account", "version": "1.0.0", "checksum": rawDigest([]byte("package"))}},

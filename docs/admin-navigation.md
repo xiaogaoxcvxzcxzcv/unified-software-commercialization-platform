@@ -33,6 +33,8 @@
 | 装配记录 | `/assemblies` | 查看装配状态、Manifest、生成锁、测试报告、失败恢复和升级计划 |
 | 系统状态 | `/system/health` | API、数据库、任务和对象存储的健康状态；敏感连接信息不得展示 |
 
+G1-10 lifecycle 使用 `/assemblies/:runId/lifecycle`、`/assembly-lifecycle/plans/:planId` 和 `/assembly-lifecycle/operations/:operationId` 恢复真实服务端状态。升级/eject 先展示不可变计划、差异、冲突、迁移和回滚策略，再允许近期认证通过的高风险执行；执行中页面刷新只 GET 同一 Operation。取消只在 planned 且 durable dispatch 未领取时显示，rollback 只在服务端投影 `rollback_available=true` 时显示。浏览器不接收或提交宿主路径、rollback point、journal 或目录 scope。
+
 `/create` 是普通管理员入口，只请求服务端 ordinary 目录并只显示 `available` 组合。受控 `/create/experimental` 不注册到普通菜单，必须由服务端显式授予 `assembly.experimental.use`；URL query、Header 或 Blueprint 字段不能把普通入口切到 experimental。
 
 ## 单款软件目录

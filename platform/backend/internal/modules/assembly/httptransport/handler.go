@@ -62,6 +62,7 @@ var (
 	ErrPlanNotExecutable       = errors.New("assembly plan is not executable")
 	ErrPlanNotConfirmed        = errors.New("assembly plan is not confirmed")
 	ErrOutputTargetUnavailable = errors.New("assembly output target is unavailable")
+	ErrLifecycleUnavailable    = errors.New("assembly lifecycle service is unavailable")
 )
 
 type Service interface {
@@ -316,26 +317,28 @@ type RunSummary struct {
 }
 
 type Manifest struct {
-	AssemblyID       string
-	ProductID        string
-	RunID            string
-	SchemaVersion    string
-	Document         json.RawMessage
-	DocumentChecksum string
-	Checksum         string
-	CreatedAt        time.Time
+	AssemblyID           string
+	ProductID            string
+	RunID                string
+	LifecycleOperationID string
+	SchemaVersion        string
+	Document             json.RawMessage
+	DocumentChecksum     string
+	Checksum             string
+	CreatedAt            time.Time
 }
 
 type GeneratedProjectLock struct {
-	LockID           string
-	ProductID        string
-	RunID            string
-	AssemblyID       string
-	SchemaVersion    string
-	Document         json.RawMessage
-	DocumentChecksum string
-	Checksum         string
-	CreatedAt        time.Time
+	LockID               string
+	ProductID            string
+	RunID                string
+	LifecycleOperationID string
+	AssemblyID           string
+	SchemaVersion        string
+	Document             json.RawMessage
+	DocumentChecksum     string
+	Checksum             string
+	CreatedAt            time.Time
 }
 
 type Handler struct {
@@ -428,6 +431,60 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.retryRun(w, r, route.resourceID)
+	case routeCancelRun:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.cancelRun(w, r, route.resourceID)
+	case routeUpgradePlan:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.createUpgradePlan(w, r, route.resourceID)
+	case routeLifecycleSource:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.getLifecycleSource(w, r, route.resourceID)
+	case routeEjectPlan:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.createEjectPlan(w, r, route.resourceID)
+	case routeLifecyclePlan:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.getLifecyclePlan(w, r, route.resourceID)
+	case routeExecuteLifecyclePlan:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.executeLifecyclePlan(w, r, route.resourceID)
+	case routeLifecycleOperation:
+		if r.Method != http.MethodGet {
+			httpx.MethodNotAllowed(w, r, http.MethodGet)
+			return
+		}
+		h.getLifecycleOperation(w, r, route.resourceID)
+	case routeCancelLifecycleOperation:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.cancelLifecycleOperation(w, r, route.resourceID)
+	case routeRollbackLifecycleOperation:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.rollbackLifecycleOperation(w, r, route.resourceID)
 	case routeManifest:
 		if r.Method != http.MethodGet {
 			httpx.MethodNotAllowed(w, r, http.MethodGet)
@@ -1015,26 +1072,28 @@ type catalogOptionsResponse struct {
 }
 
 type manifestResponse struct {
-	AssemblyID       string          `json:"assembly_id"`
-	ProductID        string          `json:"product_id"`
-	RunID            string          `json:"run_id"`
-	SchemaVersion    string          `json:"schema_version"`
-	Document         json.RawMessage `json:"document"`
-	DocumentChecksum string          `json:"document_checksum"`
-	Checksum         string          `json:"checksum"`
-	CreatedAt        time.Time       `json:"created_at"`
+	AssemblyID           string          `json:"assembly_id"`
+	ProductID            string          `json:"product_id"`
+	RunID                string          `json:"run_id,omitempty"`
+	LifecycleOperationID string          `json:"lifecycle_operation_id,omitempty"`
+	SchemaVersion        string          `json:"schema_version"`
+	Document             json.RawMessage `json:"document"`
+	DocumentChecksum     string          `json:"document_checksum"`
+	Checksum             string          `json:"checksum"`
+	CreatedAt            time.Time       `json:"created_at"`
 }
 
 type lockResponse struct {
-	LockID           string          `json:"lock_id"`
-	ProductID        string          `json:"product_id"`
-	RunID            string          `json:"run_id"`
-	AssemblyID       string          `json:"assembly_id"`
-	SchemaVersion    string          `json:"schema_version"`
-	Document         json.RawMessage `json:"document"`
-	DocumentChecksum string          `json:"document_checksum"`
-	Checksum         string          `json:"checksum"`
-	CreatedAt        time.Time       `json:"created_at"`
+	LockID               string          `json:"lock_id"`
+	ProductID            string          `json:"product_id"`
+	RunID                string          `json:"run_id,omitempty"`
+	LifecycleOperationID string          `json:"lifecycle_operation_id,omitempty"`
+	AssemblyID           string          `json:"assembly_id"`
+	SchemaVersion        string          `json:"schema_version"`
+	Document             json.RawMessage `json:"document"`
+	DocumentChecksum     string          `json:"document_checksum"`
+	Checksum             string          `json:"checksum"`
+	CreatedAt            time.Time       `json:"created_at"`
 }
 
 func blueprintResponseFrom(value Blueprint) blueprintResponse {
@@ -1312,13 +1371,13 @@ func validRedactedDisplay(value string, maximum int) bool {
 }
 
 func manifestResponseFrom(value Manifest) manifestResponse {
-	return manifestResponse{AssemblyID: value.AssemblyID, ProductID: value.ProductID, RunID: value.RunID,
+	return manifestResponse{AssemblyID: value.AssemblyID, ProductID: value.ProductID, RunID: value.RunID, LifecycleOperationID: value.LifecycleOperationID,
 		SchemaVersion: value.SchemaVersion, Document: value.Document, DocumentChecksum: value.DocumentChecksum,
 		Checksum: value.Checksum, CreatedAt: value.CreatedAt}
 }
 
 func lockResponseFrom(value GeneratedProjectLock) lockResponse {
-	return lockResponse{LockID: value.LockID, ProductID: value.ProductID, RunID: value.RunID,
+	return lockResponse{LockID: value.LockID, ProductID: value.ProductID, RunID: value.RunID, LifecycleOperationID: value.LifecycleOperationID,
 		AssemblyID: value.AssemblyID, SchemaVersion: value.SchemaVersion, Document: value.Document,
 		DocumentChecksum: value.DocumentChecksum, Checksum: value.Checksum, CreatedAt: value.CreatedAt}
 }
@@ -1409,20 +1468,20 @@ func validRun(value Run, planID, runID string) bool {
 
 func validManifest(value Manifest, assemblyID string) bool {
 	return validIdentifier(value.AssemblyID) && value.AssemblyID == assemblyID && validIdentifier(value.ProductID) &&
-		validIdentifier(value.RunID) && strings.TrimSpace(value.SchemaVersion) != "" && validJSONObject(value.Document) &&
+		(validIdentifier(value.RunID) != validIdentifier(value.LifecycleOperationID)) && strings.TrimSpace(value.SchemaVersion) != "" && validJSONObject(value.Document) &&
 		checksumPattern.MatchString(value.DocumentChecksum) && checksumPattern.MatchString(value.Checksum) && !value.CreatedAt.IsZero()
 }
 
 func validLock(value GeneratedProjectLock, lockID string) bool {
 	return validIdentifier(value.LockID) && value.LockID == lockID && validIdentifier(value.ProductID) &&
-		validIdentifier(value.RunID) && validIdentifier(value.AssemblyID) && strings.TrimSpace(value.SchemaVersion) != "" &&
+		(validIdentifier(value.RunID) != validIdentifier(value.LifecycleOperationID)) && validIdentifier(value.AssemblyID) && strings.TrimSpace(value.SchemaVersion) != "" &&
 		validJSONObject(value.Document) && checksumPattern.MatchString(value.DocumentChecksum) &&
 		checksumPattern.MatchString(value.Checksum) && !value.CreatedAt.IsZero()
 }
 
 func validRunStatus(value string) bool {
 	switch value {
-	case "planned", "provisioning", "generating", "validating", "completed", "failed", "rolling_back", "rolled_back":
+	case "planned", "provisioning", "generating", "validating", "completed", "failed", "cancelled", "rolling_back", "rolled_back":
 		return true
 	default:
 		return false
@@ -1545,6 +1604,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		httpx.Error(w, r, http.StatusUnprocessableEntity, "assembly.plan_not_confirmed", "assembly plan confirmation is invalid or missing")
 	case errors.Is(err, ErrOutputTargetUnavailable):
 		httpx.Error(w, r, http.StatusUnprocessableEntity, "assembly.output_target_unavailable", "assembly output target is unavailable")
+	case errors.Is(err, ErrLifecycleUnavailable):
+		writeLifecycleUnavailable(w, r)
 	case errors.Is(err, ErrConflict):
 		httpx.Error(w, r, http.StatusConflict, "assembly.conflict", "assembly resource conflicts with existing state")
 	default:
@@ -1568,6 +1629,15 @@ const (
 	routeOutputTargets
 	routeCatalogOptions
 	routeExperimentalCatalogOptions
+	routeCancelRun
+	routeLifecycleSource
+	routeUpgradePlan
+	routeEjectPlan
+	routeLifecyclePlan
+	routeExecuteLifecyclePlan
+	routeLifecycleOperation
+	routeCancelLifecycleOperation
+	routeRollbackLifecycleOperation
 )
 
 type parsedRoute struct {
@@ -1621,9 +1691,52 @@ func parseRoute(r *http.Request) (parsedRoute, bool) {
 		if len(parts) == 2 && validIdentifier(parts[0]) && parts[1] == "retry" {
 			return parsedRoute{kind: routeRetryRun, resourceID: parts[0]}, true
 		}
+		if len(parts) == 2 && validIdentifier(parts[0]) && parts[1] == "cancel" {
+			return parsedRoute{kind: routeCancelRun, resourceID: parts[0]}, true
+		}
 		if validIdentifier(value) && !strings.Contains(value, "/") {
 			return parsedRoute{kind: routeRun, resourceID: value}, true
 		}
+	}
+	if strings.HasPrefix(r.URL.Path, assembliesPath+"/") {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, assembliesPath+"/"), "/")
+		if len(parts) == 2 && validIdentifier(parts[0]) {
+			if parts[1] == "lifecycle-source" {
+				return parsedRoute{kind: routeLifecycleSource, resourceID: parts[0]}, true
+			}
+			if parts[1] == "upgrade-plans" {
+				return parsedRoute{kind: routeUpgradePlan, resourceID: parts[0]}, true
+			}
+			if parts[1] == "eject-plans" {
+				return parsedRoute{kind: routeEjectPlan, resourceID: parts[0]}, true
+			}
+		}
+		return parsedRoute{}, false
+	}
+	if strings.HasPrefix(r.URL.Path, lifecyclePlansPath+"/") {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, lifecyclePlansPath+"/"), "/")
+		if len(parts) == 1 && validIdentifier(parts[0]) {
+			return parsedRoute{kind: routeLifecyclePlan, resourceID: parts[0]}, true
+		}
+		if len(parts) == 2 && validIdentifier(parts[0]) && parts[1] == "execute" {
+			return parsedRoute{kind: routeExecuteLifecyclePlan, resourceID: parts[0]}, true
+		}
+		return parsedRoute{}, false
+	}
+	if strings.HasPrefix(r.URL.Path, lifecycleOperationsPath+"/") {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, lifecycleOperationsPath+"/"), "/")
+		if len(parts) == 1 && validIdentifier(parts[0]) {
+			return parsedRoute{kind: routeLifecycleOperation, resourceID: parts[0]}, true
+		}
+		if len(parts) == 2 && validIdentifier(parts[0]) {
+			if parts[1] == "cancel" {
+				return parsedRoute{kind: routeCancelLifecycleOperation, resourceID: parts[0]}, true
+			}
+			if parts[1] == "rollback" {
+				return parsedRoute{kind: routeRollbackLifecycleOperation, resourceID: parts[0]}, true
+			}
+		}
+		return parsedRoute{}, false
 	}
 	if strings.HasPrefix(r.URL.Path, manifestsPath+"/") {
 		value := strings.TrimPrefix(r.URL.Path, manifestsPath+"/")

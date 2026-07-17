@@ -502,9 +502,9 @@ platform/client-ui/hosted-web/
 
 ### G1-10 公开升级、回滚与 Eject 生命周期
 
-状态：`planned`。
+状态：`in_progress`（2026-07-16）。ADR-0014、OpenAPI、`000013`、权限、Core/PostgreSQL/HTTP、durable worker、管理后台和组合层已实现；真实 PostgreSQL Full 18 项、110 项管理后台测试、生产构建以及桌面/移动空状态和失败关闭浏览器检查通过。生产受信目录仍为空，受控候选实际 upgrade、漂移/custom 阻断、rollback、eject 和后继 Manifest/lock 浏览器证据尚未完成，因此不得标记 `verified`。阶段证据见 `artifacts/reviews/G1-10/lifecycle-api.md`。
 
-交付：`upgrade-plan`、`execute-upgrade`、`rollback` 和 `eject` 管理 API、OpenAPI、权限、近期认证、审计、幂等记录、迁移/补偿状态与管理后台入口。
+交付：`upgrade-plan`、`eject-plan`、`execute`、Run/Operation `cancel`、`rollback` 管理 API、OpenAPI、权限、近期认证、审计、幂等记录、durable dispatch、迁移/补偿状态与管理后台入口。
 
 验收：只接受锁定 Manifest/lock/目录快照；custom 冲突、generated 漂移、目录漂移和不可回滚迁移均停止；模板/文件子范围可通过受控候选验证，完整包升级仍保留到 G2C 的 ST-031。
 

@@ -151,6 +151,19 @@ func TestAssemblyRunExposesAPIURLsWithoutArtifactPaths(t *testing.T) {
 	}
 }
 
+func TestAssemblyLifecycleMappingsPreserveValidatedMachineDocuments(t *testing.T) {
+	planDocument := []byte(`{"schema_version":"1.0.0","lifecycle_plan_id":"lifecycle.test"}`)
+	operationDocument := []byte(`{"schema_version":"1.0.0","operation_id":"operation.test"}`)
+	plan := assemblyLifecyclePlan(core.LifecyclePlan{Document: planDocument})
+	operation := assemblyLifecycleOperation(core.LifecycleOperation{Document: operationDocument})
+	if string(plan.Document) != string(planDocument) {
+		t.Fatalf("plan document = %s", plan.Document)
+	}
+	if string(operation.Document) != string(operationDocument) {
+		t.Fatalf("operation document = %s", operation.Document)
+	}
+}
+
 func assemblyOutputTarget(reference, environment string, isDefault bool) assemblyhttp.OutputTarget {
 	return assemblyhttp.OutputTarget{OutputTargetRef: reference, Environment: environment, DisplayName: reference, Summary: "Server-managed output target", IsDefault: isDefault}
 }

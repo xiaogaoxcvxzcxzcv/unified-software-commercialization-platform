@@ -62,6 +62,18 @@ func TestWorkerCompletesDispatchWhenExecutionPersistedFailure(t *testing.T) {
 	}
 }
 
+func TestWorkerTreatsCancelledRunAsTerminal(t *testing.T) {
+	repo := &dispatchRepositoryStub{dispatch: core.Dispatch{RunID: "run_cancelled", RootRunID: "run_root", CreatedBy: "admin", AttemptCount: 1}}
+	cancelled := core.Run{RunID: "run_cancelled", Status: core.RunStatusCancelled}
+	worker := NewWorker(repo, executorStub{run: cancelled, err: core.ErrConflict}, readerStub{run: cancelled}, "worker-1", func() time.Time { return time.Unix(100, 0).UTC() })
+	if !worker.runOne(context.Background()) {
+		t.Fatal("runOne did not claim work")
+	}
+	if repo.complete != 1 || repo.requeue != 0 {
+		t.Fatalf("complete=%d requeue=%d", repo.complete, repo.requeue)
+	}
+}
+
 func TestWorkerRequeuesOnlyNonTerminalInfrastructureFailure(t *testing.T) {
 	repo := &dispatchRepositoryStub{dispatch: core.Dispatch{RunID: "run_pending", RootRunID: "run_root", CreatedBy: "admin", AttemptCount: 2}}
 	pending := core.Run{RunID: "run_pending", Status: core.RunStatusPlanned}
