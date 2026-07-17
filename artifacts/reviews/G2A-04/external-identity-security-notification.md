@@ -32,6 +32,7 @@ Status: local implementation and verification complete; hosted push/PR quality g
 - Register OpenAPI accidentally inherited the WeChat exemption; route-specific validation now requires `Idempotency-Key` and forbids the exemption.
 - Notification no-work maintenance originally rolled back recovered dead state; maintenance is committed before returning `not found`.
 - Notification tests originally queried an arbitrary attempt and manufactured impossible database states; assertions now select the current attempt and use real short lease expiry.
+- The first PR quality gate exposed a cached test-start database clock in the short-TTL expiry case. The test now reads `clock_timestamp()` immediately before creating a two-second delivery, then waits for natural expiry; the focused case passed 10 repeated runs and local Full passed again.
 - Concurrent unlink, delivery/outbox immutable state, Product Application stale workers, lock order, delete protection, and database-authoritative attempt time were added after adversarial read-only reviews.
 
 ## Local Verification
@@ -59,4 +60,4 @@ Status: local implementation and verification complete; hosted push/PR quality g
 
 ## Hosted Verification
 
-Pending commit, push, draft PR, and green push/PR `quality-gate` runs. G2A-04 must not be marked `verified` and G2A-04.1 must remain `planned` until these checks are green.
+Draft PR #13 is open. Initial push run `29585535288` passed; initial PR run `29585568077` exposed and invalidated the cached-clock short-TTL test. A remediation commit and fresh green push/PR `quality-gate` runs are still required. G2A-04 must not be marked `verified` and G2A-04.1 must remain `planned` until both fresh checks are green.

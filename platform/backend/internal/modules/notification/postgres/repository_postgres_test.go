@@ -237,7 +237,11 @@ func TestSecurityDeliveryPostgresRejectsExpiredCompletionAndFinalizesCrashedLast
 		t.Fatalf("crashed attempt facts=%d err=%v", attemptRows, err)
 	}
 
-	expiringCommand := notification.SecurityDeliveryCommand{DeliveryID: "delivery-pg-database-expired", Purpose: "account_security", ProductID: "product-pg", ApplicationID: "application-pg", ProviderRef: "provider-pg", DestinationType: "email", Destination: "pg-person@example.com", Proof: "pg-proof-private", ExpiresAt: databaseNow.Add(500 * time.Millisecond), TraceID: "trace-delivery-pg-database-expired"}
+	var expiryDatabaseNow time.Time
+	if err := database.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&expiryDatabaseNow); err != nil {
+		t.Fatal(err)
+	}
+	expiringCommand := notification.SecurityDeliveryCommand{DeliveryID: "delivery-pg-database-expired", Purpose: "account_security", ProductID: "product-pg", ApplicationID: "application-pg", ProviderRef: "provider-pg", DestinationType: "email", Destination: "pg-person@example.com", Proof: "pg-proof-private", ExpiresAt: expiryDatabaseNow.Add(2 * time.Second), TraceID: "trace-delivery-pg-database-expired"}
 	if err := service.EnqueueSecurityDelivery(ctx, expiringCommand); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +249,7 @@ func TestSecurityDeliveryPostgresRejectsExpiredCompletionAndFinalizesCrashedLast
 	if err != nil || expiredClaim.DeliveryID != "delivery-pg-database-expired" {
 		t.Fatalf("expired claim=%+v err=%v", expiredClaim, err)
 	}
-	time.Sleep(550 * time.Millisecond)
+	time.Sleep(2100 * time.Millisecond)
 	if _, err := repository.ClaimSecurityDelivery(ctx, "must-not-claim-expired", time.Minute); !errors.Is(err, notification.ErrNotFound) {
 		t.Fatalf("database-expired claim error=%v", err)
 	}
