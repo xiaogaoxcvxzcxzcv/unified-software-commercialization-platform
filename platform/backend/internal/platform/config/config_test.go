@@ -263,6 +263,11 @@ func TestLoadHostedInteractionRequiresProductionSecretsAndExactOrigin(t *testing
 		t.Fatalf("unsafe hosted origin error = %v", err)
 	}
 	base["PLATFORM_HOSTED_ALLOWED_ORIGIN"] = "https://hosted.example.test"
+	base["PLATFORM_HOSTED_BASE_URL"] = "https://other.example.test"
+	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "same origin") {
+		t.Fatalf("Load() accepted mismatched Hosted origins: %v", err)
+	}
+	base["PLATFORM_HOSTED_BASE_URL"] = "https://hosted.example.test"
 	base["PLATFORM_HOSTED_DIGEST_KEY"] = base["PLATFORM_HOSTED_STATE_KEY"]
 	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "independent") {
 		t.Fatalf("shared hosted key error = %v", err)

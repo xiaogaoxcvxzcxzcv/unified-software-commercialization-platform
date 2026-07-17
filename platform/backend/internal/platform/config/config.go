@@ -341,12 +341,15 @@ func (c Config) validate() error {
 		return errors.New("PLATFORM_USER_RECENT_AUTH_TTL must be greater than zero and at most 24h")
 	}
 	baseURL, err := url.Parse(c.HostedInteraction.BaseURL)
-	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" {
+	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil || baseURL.Path != "" || baseURL.RawQuery != "" || baseURL.Fragment != "" {
 		return errors.New("PLATFORM_HOSTED_BASE_URL must be an exact HTTPS base URL")
 	}
 	origin, err := url.Parse(c.HostedInteraction.AllowedOrigin)
 	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
 		return errors.New("PLATFORM_HOSTED_ALLOWED_ORIGIN must be an exact HTTPS origin")
+	}
+	if baseURL.Scheme != origin.Scheme || baseURL.Host != origin.Host {
+		return errors.New("PLATFORM_HOSTED_BASE_URL and PLATFORM_HOSTED_ALLOWED_ORIGIN must be the same origin")
 	}
 	if len(c.HostedInteraction.StateKey) < 32 || len(c.HostedInteraction.DigestKey) < 32 {
 		return errors.New("hosted state and digest keys must each be at least 32 bytes")
