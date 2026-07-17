@@ -6,9 +6,11 @@
 - 身份：合法 ProductContext、TenantContext 与 UserContext
 - 输入：requested_features、device_id、客户端时间仅供诊断
 - 输出：allowed、plan_code、features、valid_until、offline_grace_until、reason_code
+- 稳定结论：服务端目标操作要求的权益不存在时为 `ENTITLEMENT_REQUIRED`；存在但已按服务端时间到期且无有效宽限时为 `ENTITLEMENT_EXPIRED`；前者不得覆盖后者。客户端时间不参与到期判断。
 - 错误：产品不匹配、会话无效、设备受限、服务暂时不可用
 - 存储：只查询当前 product_id + tenant_id 范围内的有效权益
 - 安全：到期判断使用服务端时间；响应可签名供受控离线缓存
+- 边界：本模块不判断 Identity 或 Product/Tenant 准入；Account Access Decision Workflow 只有在前三层允许后才调用本接口。
 
 ## 授予权益
 

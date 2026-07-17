@@ -8,7 +8,7 @@
 
 | package_id | 名称 | 主要原子能力 | 用户前台 | 统一后台 | 依赖 | 首批目标端 | 状态 |
 |---|---|---|---|---|---|---|---|
-| package.account | 统一账号与个人中心 | identity login/session/external identity | 登录、注册、找回、个人资料和退出 | 用户查询、冻结与会话安全 | product/application | Web、桌面 | planned |
+| package.account | 统一账号与个人中心 | identity、product-user-access、account composition | 登录、注册、找回、个人资料、会话安全和外部身份 | 范围用户查询、全局安全状态、Product/Tenant 准入 | product/application、notification.security；微信/OIDC 可选 | Web、桌面 | contracted |
 | package.entitlement | 会员权益 | entitlement check/grant/revoke/history | 当前会员、权益摘要 | 权益查询、授予、延长、撤销和流水 | package.account | Web、桌面 | planned |
 | package.device-license | 设备与激活码 | device bind/revoke、license issue/redeem | 我的设备、撤销确认、激活码兑换 | 设备、批次、激活码和兑换记录 | package.account、package.entitlement | Web、桌面 | planned |
 | package.commerce | 套餐订单与支付 | catalog、order、payment、commerce | 套餐、购买确认、收银台、支付结果和订单 | 商品、订单、支付、退款和对账 | package.account、package.entitlement | Web、桌面 | planned |

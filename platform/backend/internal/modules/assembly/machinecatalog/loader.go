@@ -154,6 +154,9 @@ func build(packageDocuments, templateDocuments []sourceDocument, contracts *mach
 		if err := validatePackageReferences(manifest); err != nil {
 			return nil, fmt.Errorf("package %s@%s: %w", manifest.PackageID, manifest.Version, err)
 		}
+		if err := validatePackageLifecycle(manifest.LifecycleStatus, view); err != nil {
+			return nil, fmt.Errorf("package %s@%s: %w", manifest.PackageID, manifest.Version, err)
+		}
 		if err := validateAvailability(manifest.Availability, manifest.SupportedTargets, manifest.SupportedDeliveryModes, view); err != nil {
 			return nil, fmt.Errorf("package %s@%s: %w", manifest.PackageID, manifest.Version, err)
 		}
@@ -268,6 +271,17 @@ func validateAvailability(entries []Availability, targets, modes []string, view 
 	return nil
 }
 
+func validatePackageLifecycle(status string, view catalogView) error {
+	want := "available"
+	if view.visibility == "experimental" {
+		want = "verified"
+	}
+	if status != want {
+		return fmt.Errorf("%w: %s catalog requires lifecycle_status %s, got %s", ErrCatalogState, view.visibility, want, status)
+	}
+	return nil
+}
+
 func validateTemplateEntrypoints(manifest TemplateManifest) error {
 	content := make(map[string]ContentFile, len(manifest.ContentFiles))
 	for _, file := range manifest.ContentFiles {
@@ -308,13 +322,19 @@ func validatePackageReferences(manifest PackageManifest) error {
 	if _, exists := contentPaths[manifest.ConfigSchemaPath]; !exists {
 		return fmt.Errorf("config_schema_path %q is not listed in content_files", manifest.ConfigSchemaPath)
 	}
-	providers := make(map[string]struct{}, len(manifest.ProviderRequirements))
+	providers := make(map[string]struct{}, len(manifest.ProviderRequirements)+len(manifest.OptionalProviderRequirements))
 	for _, provider := range manifest.ProviderRequirements {
+		providers[provider] = struct{}{}
+	}
+	for _, provider := range manifest.OptionalProviderRequirements {
+		if _, required := providers[provider]; required {
+			return fmt.Errorf("provider %q cannot be both required and optional", provider)
+		}
 		providers[provider] = struct{}{}
 	}
 	for _, secret := range manifest.SecretRefs {
 		if _, exists := providers[secret.Provider]; !exists {
-			return fmt.Errorf("secret_refs provider %q is not declared in provider_requirements", secret.Provider)
+			return fmt.Errorf("secret_refs provider %q is not declared in provider_requirements or optional_provider_requirements", secret.Provider)
 		}
 	}
 	seenOutputs := make(map[string]struct{}, len(manifest.GeneratedOutputs))

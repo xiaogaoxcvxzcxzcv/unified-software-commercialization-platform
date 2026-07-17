@@ -22,9 +22,9 @@
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；本地/CI 共用 Full 18 项门禁；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
 | 产品蓝图与 Assembly | G1-11 verified | G1-04 至 G1-11 已验证；创建/恢复、生命周期 API、可信 Extension Catalog、确定性快照/计划、本地 Full 18/18 和托管 push/PR 检查均通过 | G2C 真实工具、扩展安装/升级/卸载与完整软件装配 |
-| 完整能力包目录 | planned | 首批 package 边界和交付标准、Manifest/目录机器基础已登记并验证；普通与实验能力包目录均为空 | 真实独立 Package Manifest、九个交付面、目标端 E2E；当前没有 available 包 |
+| 完整能力包目录 | package.account contracted | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；普通与实验能力包目录仍为空 | G2A-02 起实现九个交付面；当前没有 verified/available 包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
-| 真实样板软件 | planned | G2 黄金链和验收标准已确定 | 可运行样板仓库、独有工作台、account/entitlement 装配与回归证据 |
+| 装配验收软件 | planned | G2 黄金链和 A/B/C 创建、隔离、晋级、回归标准已确定；它们不承担真实正文开发 | 可运行验收软件仓库、软件本地 AI 交接、最小扩展边界夹具、account/entitlement 装配与回归证据 |
 | 管理后台 | auth/G1-08.1-G1-08.4 verified + G1-10 candidate | 生命周期 Plan/Operation、重新认证回跳、幂等冲突显式处理、工件验证和有界轮询已实现；133 项 Vitest、生产构建和真实浏览器闭环通过 | G1-10 托管 CI；其余业务 API Client、业务页面 E2E、平板视觉 QA |
 | Go 后端 | implemented + G1-10 candidate | Assembly generation、execution 与 lifecycle 已实现完整发布闭包、可恢复提交、升级/eject/rollback 和真实 PostgreSQL 测试 | 账号/权益完整能力包、G1-10 托管 CI 与生产部署验证 |
 | OpenAPI | implemented + G1-08.1/G1-08.3 verified | OpenAPI 3.1 公共契约，覆盖管理员认证、Product/Application/Tenant/CapabilitySet 只读投影、可信 Client Session、Access Control、Audit，以及 Blueprint/Plan/Run/Manifest/Generated Project Lock 和脱敏输出目标管理 API；含无依赖结构校验器，创建 Client 与产品工作区 Client 已按版本化契约实现 | 第三方 schema lint、其余业务生成 Client；公开 upgrade/eject/rollback 管理 API |
@@ -44,6 +44,7 @@
 | product / product-application | verified foundation + admin workspace verified | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过自动化；Product CapabilitySet 只接受受信 Plan；真实管理 Client、独立工作区、Application/CapabilitySet 只读投影和多 Product 浏览器切换已通过 | Product 编辑、客户端身份轮换、完整能力包装配与生产部署 |
 | tenant | verified foundation + admin read verified | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过自动化；真实管理 Client 和 Product 切换后的 Tenant 投影已通过浏览器验收 | agent 停用/恢复管理入口、真实业务模块租户回归与生产部署 |
 | identity | admin auth verified + user auth contracted | Cookie/受控 Bearer 登录、单调 session_version、会话轮换、严格 logout proof、同 family Cookie 原子退出、重放防护、受控客户端生命周期与真实 PostgreSQL/浏览器证据均已通过补救复验 | 最终用户密码、微信/OIDC、绑定与合并仍只有契约 |
+| product-user-access / account composition | contracted | ADR-0016 已冻结 Product/Tenant 准入事实、四级组合裁决、范围用户查询、精细权限、版本冲突和会话撤销事件 | G2A-02/03 迁移、Repository、组合服务和 API 实现 |
 | access-control / audit | verified foundation + admin demo | Permission Catalog 1.1、permission + scope 实时授权、范围绑定幂等与授权版本、拒绝审计、append-only Audit、可信范围/trace_id 查询，以及 Identity/Product/Application/Tenant/Access Control Outbox 到 Audit 的进程组合已有正式代码和本地自动化；后台审计页面仍为演示 Client | 跨模块浏览器 E2E、大范围导出/保留、生产恢复与后台真实 API Client |
 | entitlement | contracted + admin demo | 授予、检查、撤销和来源流水契约已定 |
 | device / license | contracted | 设备租约、上限、撤销、激活码批次和兑换已定 |

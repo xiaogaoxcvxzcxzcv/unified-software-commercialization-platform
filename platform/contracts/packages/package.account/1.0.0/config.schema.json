@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/packages/package.account/1.0.0/config.schema.json",
+  "title": "package.account 1.0.0 configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["password_policy", "recovery", "external_providers"],
+  "properties": {
+    "password_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_length", "revoke_other_sessions_on_change"],
+      "properties": {
+        "minimum_length": { "type": "integer", "minimum": 12, "maximum": 256, "default": 12 },
+        "revoke_other_sessions_on_change": { "type": "boolean", "default": true }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["security_notification_provider_ref", "challenge_ttl_seconds"],
+      "properties": {
+        "security_notification_provider_ref": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "challenge_ttl_seconds": { "type": "integer", "minimum": 60, "maximum": 1800, "default": 600 }
+      }
+    },
+    "external_providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wechat", "oidc"],
+      "properties": {
+        "wechat": { "$ref": "#/$defs/externalProvider" },
+        "oidc": { "$ref": "#/$defs/externalProvider" }
+      }
+    }
+  },
+  "$defs": {
+    "externalProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "provider_application_ref": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "client_secret_ref": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "issuer": { "type": "string", "format": "uri" },
+        "return_target_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": { "required": ["provider_application_ref", "client_secret_ref", "return_target_codes"], "properties": { "return_target_codes": { "minItems": 1 } } },
+          "else": { "not": { "anyOf": [{ "required": ["client_secret_ref"] }, { "required": ["provider_application_ref"] }] } }
+        }
+      ]
+    }
+  }
+}

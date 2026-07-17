@@ -49,28 +49,30 @@ type IntegrationMerge struct {
 }
 
 type PackageManifest struct {
-	SchemaVersion           string                `json:"schema_version"`
-	PackageID               string                `json:"package_id"`
-	Version                 string                `json:"version"`
-	Name                    string                `json:"name"`
-	UserValue               string                `json:"user_value"`
-	Availability            []Availability        `json:"availability"`
-	Dependencies            []Requirement         `json:"dependencies"`
-	Conflicts               []Requirement         `json:"conflicts"`
-	SupportedTargets        []string              `json:"supported_targets"`
-	SupportedDeliveryModes  []string              `json:"supported_delivery_modes"`
-	RequiredPermissions     []string              `json:"required_permissions"`
-	BackendCapabilities     []string              `json:"backend_capabilities"`
-	ConfigSchemaPath        string                `json:"config_schema_path"`
-	SecretRefs              []SecretReference     `json:"secret_refs"`
-	ProviderRequirements    []string              `json:"provider_requirements"`
-	GeneratedOutputs        []GeneratedOutput     `json:"generated_outputs"`
-	AdminBlocks             []string              `json:"admin_blocks"`
-	ClientBlocks            []string              `json:"client_blocks"`
-	UITemplateCompatibility []TemplateRequirement `json:"ui_template_compatibility"`
-	ContentFiles            []ContentFile         `json:"content_files"`
-	ContentTreeSHA256       string                `json:"content_tree_sha256"`
-	ManifestSHA256          string                `json:"manifest_sha256"`
+	SchemaVersion                string                `json:"schema_version"`
+	PackageID                    string                `json:"package_id"`
+	Version                      string                `json:"version"`
+	Name                         string                `json:"name"`
+	UserValue                    string                `json:"user_value"`
+	LifecycleStatus              string                `json:"lifecycle_status"`
+	Availability                 []Availability        `json:"availability"`
+	Dependencies                 []Requirement         `json:"dependencies"`
+	Conflicts                    []Requirement         `json:"conflicts"`
+	SupportedTargets             []string              `json:"supported_targets"`
+	SupportedDeliveryModes       []string              `json:"supported_delivery_modes"`
+	RequiredPermissions          []string              `json:"required_permissions"`
+	BackendCapabilities          []string              `json:"backend_capabilities"`
+	ConfigSchemaPath             string                `json:"config_schema_path"`
+	SecretRefs                   []SecretReference     `json:"secret_refs"`
+	ProviderRequirements         []string              `json:"provider_requirements"`
+	OptionalProviderRequirements []string              `json:"optional_provider_requirements"`
+	GeneratedOutputs             []GeneratedOutput     `json:"generated_outputs"`
+	AdminBlocks                  []string              `json:"admin_blocks"`
+	ClientBlocks                 []string              `json:"client_blocks"`
+	UITemplateCompatibility      []TemplateRequirement `json:"ui_template_compatibility"`
+	ContentFiles                 []ContentFile         `json:"content_files"`
+	ContentTreeSHA256            string                `json:"content_tree_sha256"`
+	ManifestSHA256               string                `json:"manifest_sha256"`
 }
 
 type Entrypoint struct {

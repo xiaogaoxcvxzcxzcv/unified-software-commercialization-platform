@@ -341,6 +341,59 @@ func TestPlannerRejectsMissingRequiredProvider(t *testing.T) {
 	}
 }
 
+func TestPlannerAcceptsDeclaredOptionalProviderAndRejectsProviderInjection(t *testing.T) {
+	registry := loadRegistry(t)
+	catalog := loadTestCatalog(t, registry)
+	base := loadBlueprint(t)
+	var value map[string]any
+	if err := json.Unmarshal(base, &value); err != nil {
+		t.Fatal(err)
+	}
+	providers := value["provider_refs"].([]any)
+	value["provider_refs"] = append(providers, map[string]any{
+		"provider": "identity.external.oidc", "environment": "production",
+		"config_ref": "configs/identity-oidc.json", "secret_refs": []any{},
+	})
+	document, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned, err := New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	if err != nil {
+		t.Fatalf("declared optional provider rejected: %v", err)
+	}
+	var plan struct {
+		Providers         []resolvedProvider `json:"providers"`
+		RequiredProviders []string           `json:"required_providers"`
+	}
+	if err := json.Unmarshal(planned.Document, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Providers) != 2 || len(plan.RequiredProviders) != 1 || plan.RequiredProviders[0] != "notification.security" {
+		t.Fatalf("optional provider plan = %#v / required %#v", plan.Providers, plan.RequiredProviders)
+	}
+
+	value["provider_refs"] = append(value["provider_refs"].([]any), map[string]any{
+		"provider": "injected.provider", "environment": "production", "config_ref": "configs/injected.json", "secret_refs": []any{},
+	})
+	document, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	if !errors.Is(err, ErrBlueprintMismatch) {
+		t.Fatalf("provider injection error = %v", err)
+	}
+}
+
 func TestPlannerRejectsAmbiguousOrCrossProviderSecretConfiguration(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
