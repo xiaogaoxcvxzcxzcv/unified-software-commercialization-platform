@@ -34,3 +34,19 @@ func TestProductAdminRouterForwardsAssemblyTopLevelCatalogRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestProductAdminRouterPrioritizesProductUserAccessRoutes(t *testing.T) {
+	for _, target := range []string{
+		"/api/v1/admin/products/product-a/users/user-a/access",
+		"/api/v1/admin/products/product-a/tenants/tenant-a/users/user-a/access",
+	} {
+		access, product, tenant := &recordingHandler{}, &recordingHandler{}, &recordingHandler{}
+		router := productAdminRouter{productUserAccess: access, product: product, tenant: tenant}
+		request := httptest.NewRequest(http.MethodPut, target, nil)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if !access.called || product.called || tenant.called || response.Code != http.StatusNoContent {
+			t.Fatalf("target=%s access=%v product=%v tenant=%v status=%d", target, access.called, product.called, tenant.called, response.Code)
+		}
+	}
+}
