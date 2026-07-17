@@ -298,7 +298,22 @@ func main() {
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
 	productUserAccessService := productuseraccess.NewService(productuseraccesspostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), nil)
 	accountAccessWorkflow := accountaccess.New(productUserAccessService)
-	_ = accountAccessWorkflow
+	endUserService, err := identity.NewEndUserService(
+		identityRepository, identity.StrictIdentifierNormalizer{}, identity.Bcrypt{Cost: cfg.UserAuth.BcryptCost}, userHasher,
+		nil, nil,
+		identity.EndUserPolicy{
+			AccessTTL: cfg.UserAuth.AccessTTL, RefreshTTL: cfg.UserAuth.RefreshTTL, RefreshAbsoluteTTL: cfg.UserAuth.AbsoluteTTL,
+			RefreshRecoveryWindow: cfg.UserAuth.RefreshRecoveryWindow, RecoveryTTL: cfg.UserAuth.RecoveryTTL,
+			RecoveryMaxAttempts: cfg.UserAuth.RecoveryMaximumAttempts, LoginWindow: cfg.UserAuth.LoginWindow,
+			LoginMaximumAttempts: cfg.UserAuth.LoginMaximumAttempts, LoginBlockDuration: cfg.UserAuth.LoginBlockDuration,
+			RecentAuthTTL: cfg.UserAuth.RecentAuthTTL,
+		}, nil, identity.WithEndUserAdmissionPort(endUserAdmissionAdapter{access: accountAccessWorkflow}),
+	)
+	if err != nil {
+		logger.Error("end-user identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	endUserAdapter := endUserHTTPAdapter{users: endUserService, products: productService, clientHasher: hasher, access: accountAccessWorkflow}
 	tenantAdminWorkflow := tenantadmin.New(tenantService, accessService)
 	productHandler := producthttp.New(productService, productProvisionerAdapter{workflow: provisioningWorkflow}, adminGuard)
 	applicationHandler := applicationhttp.New(applicationService, adminGuard, applicationhttp.Config{Environment: productapplication.Environment(cfg.Environment)})
@@ -309,9 +324,18 @@ func main() {
 	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
+	endUserHandler := identityhttp.NewUserHandler(endUserAdapter, endUserAdapter)
 	modules := platformserver.NewModuleRegistrar()
 	if err := modules.Register("/api/v1/admin/auth/", adminAuthHandler); err != nil {
 		logger.Error("administrator authentication route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/auth/", endUserHandler); err != nil {
+		logger.Error("end-user authentication route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/account/", endUserHandler); err != nil {
+		logger.Error("end-user account route registration failed", "error", err)
 		os.Exit(1)
 	}
 	auditQueryService := audit.NewQueryService(auditRepository, auditAuthorizerAdapter{access: accessService})

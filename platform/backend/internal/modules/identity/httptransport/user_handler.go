@@ -507,7 +507,7 @@ func (h *UserHandler) profile(w http.ResponseWriter, r *http.Request) {
 		if !decodeUserJSON(w, r, &body) {
 			return
 		}
-		if body.ExpectedVersion < 1 || (!body.DisplayName.Set && !body.AvatarURL.Set && !body.Locale.Set && !body.Timezone.Set) || !validOptional(body.DisplayName, 128) || !validOptional(body.Locale, 32) || !validOptional(body.Timezone, 64) || !validAvatar(body.AvatarURL) {
+		if body.ExpectedVersion < 1 || (!body.DisplayName.Set && !body.AvatarURL.Set && !body.Locale.Set && !body.Timezone.Set) || !validDisplayName(body.DisplayName) || !validOptional(body.Locale, 32) || !validOptional(body.Timezone, 64) || !validAvatar(body.AvatarURL) {
 			invalidRequest(w, r)
 			return
 		}
@@ -878,6 +878,9 @@ func identifier(value string) bool {
 }
 func validOptional(value OptionalString, max int) bool {
 	return !value.Set || value.Value == nil || bounded(*value.Value, 0, max)
+}
+func validDisplayName(value OptionalString) bool {
+	return !value.Set || (value.Value != nil && bounded(*value.Value, 1, 128))
 }
 func validAvatar(value OptionalString) bool {
 	if !value.Set || value.Value == nil {

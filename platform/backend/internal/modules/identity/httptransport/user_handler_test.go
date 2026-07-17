@@ -120,7 +120,7 @@ func TestUserHandlerImplementsFrozenRouteSurface(t *testing.T) {
 		{"recovery start", http.MethodPost, "/api/v1/auth/recovery/start", `{"identifier":"user@example.com"}`, "client", "idempotency-key-0002", "recovery-start", 202},
 		{"recovery complete", http.MethodPost, "/api/v1/auth/recovery/complete", `{"continuation_id":"continuation-123456","recovery_proof":"recovery-proof-123","new_credential":"new-password-123"}`, "client", "idempotency-key-0003", "recovery-complete", 204},
 		{"profile get", http.MethodGet, "/api/v1/account/profile", "", "user", "", "profile-get", 200},
-		{"profile patch", http.MethodPatch, "/api/v1/account/profile", `{"expected_version":1,"display_name":null}`, "user", "idempotency-key-0004", "profile-patch", 200},
+		{"profile patch", http.MethodPatch, "/api/v1/account/profile", `{"expected_version":1,"display_name":"Updated User"}`, "user", "idempotency-key-0004", "profile-patch", 200},
 		{"password", http.MethodPut, "/api/v1/account/password", `{"current_credential":"password","new_credential":"new-password-123","revoke_other_sessions":true}`, "user", "idempotency-key-0005", "password", 204},
 		{"sessions", http.MethodGet, "/api/v1/account/sessions", "", "user", "", "sessions", 200},
 		{"session delete", http.MethodDelete, "/api/v1/account/sessions/session-123", "", "user", "", "session-delete", 204},
@@ -145,7 +145,7 @@ func TestUserHandlerImplementsFrozenRouteSurface(t *testing.T) {
 			}
 			if test.call == "profile-patch" {
 				command := service.last.(UpdateUserProfileCommand)
-				if !command.DisplayName.Set || command.DisplayName.Value != nil {
+				if !command.DisplayName.Set || command.DisplayName.Value == nil || *command.DisplayName.Value != "Updated User" {
 					t.Fatalf("optional null=%+v", command.DisplayName)
 				}
 			}
@@ -303,6 +303,7 @@ func TestUserHandlerRejectsUnexpectedRangeAndMalformedBodies(t *testing.T) {
 		{"get body", http.MethodGet, "/api/v1/auth/session", `{"scope":"forged"}`, "user", "", "application/json"},
 		{"nested session path", http.MethodDelete, "/api/v1/account/sessions/a/b", "", "user", "", "application/json"},
 		{"profile no mutation", http.MethodPatch, "/api/v1/account/profile", `{"expected_version":1}`, "user", "idempotency-key-0001", "application/json"},
+		{"profile null display name", http.MethodPatch, "/api/v1/account/profile", `{"expected_version":1,"display_name":null}`, "user", "idempotency-key-0001", "application/json"},
 		{"profile unsafe avatar", http.MethodPatch, "/api/v1/account/profile", `{"expected_version":1,"avatar_url":"javascript:alert(1)"}`, "user", "idempotency-key-0001", "application/json"},
 		{"refresh short retry key", http.MethodPost, "/api/v1/auth/refresh", `{"refresh_token":"refresh-token-123456","client_request_id":"short"}`, "", "", "application/json"},
 		{"oversize", http.MethodPost, "/api/v1/auth/login", `{"identifier":"` + strings.Repeat("a", int(userRequestBodyLimit)) + `","credential":"password"}`, "client", "", "application/json"},
