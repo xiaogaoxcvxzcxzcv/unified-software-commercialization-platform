@@ -21,7 +21,11 @@ import (
 
 var (
 	ErrInvalidBearer                  = errors.New("invalid user bearer")
+	ErrInvalidUserRequest             = errors.New("invalid user request")
 	ErrInvalidUserCredentials         = errors.New("invalid user credentials")
+	ErrUserProviderUnavailable        = errors.New("user identity provider unavailable")
+	ErrProductUserAccessSuspended     = errors.New("product user access suspended")
+	ErrTenantUserAccessSuspended      = errors.New("tenant user access suspended")
 	ErrUserAccountDisabled            = errors.New("user account disabled")
 	ErrUserSessionExpired             = errors.New("user session expired")
 	ErrUserSessionRevoked             = errors.New("user session revoked")
@@ -695,9 +699,19 @@ func (h *UserHandler) requireUser(w http.ResponseWriter, r *http.Request) (UserS
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	status, code, detail, retryable := http.StatusInternalServerError, "identity.internal_error", "identity service unavailable", true
 	options := httpx.ErrorOptions{}
 	switch {
+	case errors.Is(err, ErrInvalidUserRequest):
+		status, code, detail, retryable = http.StatusBadRequest, "invalid_request", "invalid request", false
+	case errors.Is(err, ErrUserProviderUnavailable):
+		status, code, detail, retryable = http.StatusServiceUnavailable, "identity.provider_unavailable", "identity provider unavailable", true
+	case errors.Is(err, ErrProductUserAccessSuspended):
+		status, code, detail, retryable = http.StatusForbidden, "PRODUCT_USER_ACCESS_SUSPENDED", "product access is suspended", false
+	case errors.Is(err, ErrTenantUserAccessSuspended):
+		status, code, detail, retryable = http.StatusForbidden, "TENANT_USER_ACCESS_SUSPENDED", "tenant access is suspended", false
 	case errors.Is(err, ErrUserRateLimited):
 		status, code, detail, retryable = http.StatusTooManyRequests, "identity.rate_limited", "authentication temporarily unavailable", true
 		var rateLimit *UserRateLimitError

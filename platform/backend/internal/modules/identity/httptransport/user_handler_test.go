@@ -410,6 +410,10 @@ func TestUserHandlerStableSecurityErrorMappings(t *testing.T) {
 	}{
 		{name: "rate limit with retry", err: &UserRateLimitError{RetryAfter: 90*time.Second + time.Millisecond}, status: http.StatusTooManyRequests, code: "identity.rate_limited", retryable: true, retryAfter: 91},
 		{name: "rate limit without retry", err: ErrUserRateLimited, status: http.StatusTooManyRequests, code: "identity.rate_limited", retryable: true},
+		{name: "invalid user request", err: ErrInvalidUserRequest, status: http.StatusBadRequest, code: "invalid_request"},
+		{name: "provider unavailable", err: ErrUserProviderUnavailable, status: http.StatusServiceUnavailable, code: "identity.provider_unavailable", retryable: true},
+		{name: "product access suspended", err: ErrProductUserAccessSuspended, status: http.StatusForbidden, code: "PRODUCT_USER_ACCESS_SUSPENDED"},
+		{name: "tenant access suspended", err: ErrTenantUserAccessSuspended, status: http.StatusForbidden, code: "TENANT_USER_ACCESS_SUSPENDED"},
 		{name: "additional verification", err: ErrAdditionalVerificationRequired, status: http.StatusForbidden, code: "identity.additional_verification_required"},
 		{name: "recovery expired", err: ErrRecoveryExpired, status: http.StatusGone, code: "identity.recovery_expired"},
 		{name: "recovery invalid", err: ErrRecoveryInvalid, status: http.StatusBadRequest, code: "identity.recovery_invalid"},
@@ -434,6 +438,9 @@ func TestUserHandlerStableSecurityErrorMappings(t *testing.T) {
 			}
 			if response.Code != test.status || body.Code != test.code || body.Retryable != test.retryable {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Pragma") != "no-cache" {
+				t.Fatalf("error response is cacheable: headers=%v", response.Header())
 			}
 			if test.retryAfter > 0 {
 				if body.RetryAfterSeconds == nil || *body.RetryAfterSeconds != test.retryAfter || response.Header().Get("Retry-After") != fmt.Sprint(test.retryAfter) {
