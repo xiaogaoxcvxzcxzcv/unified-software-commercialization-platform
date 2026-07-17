@@ -49,7 +49,18 @@
 - 能力锁：Planner 返回的 CapabilitySet 必须与 Plan 机器文档中的 `capabilities` 规范化等价；Product 启用能力时再次把数据库投影与 Plan 文档复核，不能只信任可单独修改的投影表。
 - Provider 锁：Plan 保留 `{provider, environment, config_ref, secret_refs}`；同一 Provider/环境的重复配置、secret 外层 Provider/环境错配或缺少包要求均拒绝。
 - 输出锁：Package `generated_outputs`、Template entrypoint 和 Application 输出按目标根解析为带 `path/ownership/source_id` 的 `expected_outputs`，大小写归一后相等或父子重叠均拒绝。
-- 失败关闭：普通生产目录只接受 `available` 包/模板；当前目录为空。Generator/SDK 还必须命中服务端受信工具目录。非空扩展在可信 Extension Catalog 实现前拒绝，不能忽略后继续生成。
+- 失败关闭：普通生产目录只接受 `available` 包/模板/扩展；当前目录为空。Generator/SDK 还必须命中服务端受信工具目录。非空扩展必须命中当前 scope 的可信 Extension Catalog，未知、跨 Product 或摘要不一致时拒绝，不能忽略后继续生成。
+
+### 可信 Extension Catalog
+
+- Extension Catalog 是源码控制的只读机器目录，ordinary 仅加载 `ordinary + available`，experimental 仅加载 `experimental + verified`；客户端和 Blueprint 不能提交 scope/readiness 切换目录。
+- 扩展目录布局固定为 `<extension_root>/<extension_id>/<semver>/manifest.json`。目录身份、Manifest 身份、Schema、Manifest 摘要、内容树摘要和逐文件摘要必须全部一致；符号链接/reparse point、同版本内容替换和未知字段失败关闭。
+- Manifest 使用 `product_code` 做创建前绑定，必须与 Blueprint `product.code` 精确相等。Product 创建后沿用服务端 `BindProduct` 把装配链绑定到生成的 `product_id`。
+- Blueprint 的 `manifest_path` 只与服务端发现的规范目录相对路径比较；解析器只能按 `extension_id + version` 从当前服务端目录定位，不得读取客户端路径，也不得跨 scope 回退。
+- Manifest 必须声明目标端、交付形态、环境、权限、前台 route/navigation/slot、后台入口、公开 API/事件、唯一数据命名空间、拥有表、消费的公开服务、owned paths、安装/卸载计划和数据保留策略。
+- `required_permissions` 及所有入口权限必须存在于 Permission Catalog，入口权限还必须包含在 `required_permissions` 中；引用权限不等于授予权限。
+- `owned_tables` 只能位于 Manifest 的 `data_namespace`；跨模块只允许声明 `consumed_services`，不允许声明或访问其他模块表/Repository。路由、入口、slot、owned path 和数据命名空间在同一计划内必须无冲突。
+- Manifest 不接受产品展示名字段，只接受稳定 `product_code` 与本地化 key。G1-11 校验机器声明；真实源码产品名硬编码扫描、安装/升级/卸载和数据隔离 E2E 在 G2C 完成。
 
 ### 计划确认摘要
 

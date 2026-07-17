@@ -1,10 +1,19 @@
 # 软件独有功能扩展标准
 
+可信 Extension Catalog 的架构裁决见 ADR-0015。扩展是绑定单一软件的独有能力，不是可复用完整能力包，也不能借扩展名义修改共享平台。
+
+## 创建前与创建后绑定
+
+- 蓝图/计划阶段使用稳定 `product_code`，必须与 Product Blueprint 的 `product.code` 精确相等。
+- Product 创建后，由服务端装配链把蓝图、计划、Run、Manifest 和 lock 绑定到服务端生成的 `product_id`；客户端不得提交或猜测该 ID。
+- Blueprint 的 `manifest_path` 只用于和目录发现出的规范相对路径比对，服务端不得按客户端路径读取文件。
+- ordinary 目录只接受 `ordinary + available`，experimental 目录只接受 `experimental + verified`，两者物理根与加载入口分离。
+
 统一底座负责重复能力，具体软件仍要拥有自己的核心业务。本标准确保两者可以共同出现，又不会让单款软件污染共享平台。
 
 ## Extension Manifest
 
-每个扩展声明：稳定扩展 ID、所属 Product、版本、前台路由或槽位、后台目录项、权限、公开 API/事件、配置、迁移、测试和卸载/保留策略。
+每个扩展声明：稳定扩展 ID、`product_code`、版本/scope/readiness、兼容目标、前台路由/导航/槽位、后台目录项、权限、公开 API/事件、数据命名空间、安装/卸载计划、保留策略、内容清单和双摘要。
 
 ## 允许的扩展
 

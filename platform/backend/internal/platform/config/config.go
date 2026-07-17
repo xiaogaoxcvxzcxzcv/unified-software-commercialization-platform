@@ -58,10 +58,12 @@ type Assembly struct {
 	TemplateRoot                      string
 	GeneratorToolRoot                 string
 	SDKToolRoot                       string
+	ExtensionRoot                     string
 	ExperimentalCapabilityPackageRoot string
 	ExperimentalTemplateRoot          string
 	ExperimentalGeneratorToolRoot     string
 	ExperimentalSDKToolRoot           string
+	ExperimentalExtensionRoot         string
 	FeatureBlockCatalogPath           string
 	OutputTargets                     []AssemblyOutputTarget
 }
@@ -109,10 +111,12 @@ func Load(lookup LookupEnv) (Config, error) {
 			TemplateRoot:                      value(lookup, "PLATFORM_ASSEMBLY_TEMPLATE_ROOT", "../templates"),
 			GeneratorToolRoot:                 value(lookup, "PLATFORM_ASSEMBLY_GENERATOR_TOOL_ROOT", "../tools/generators"),
 			SDKToolRoot:                       value(lookup, "PLATFORM_ASSEMBLY_SDK_TOOL_ROOT", "../tools/sdks"),
+			ExtensionRoot:                     value(lookup, "PLATFORM_ASSEMBLY_EXTENSION_ROOT", "../extensions"),
 			ExperimentalCapabilityPackageRoot: value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_CAPABILITY_PACKAGE_ROOT", "../experimental/capability-packages"),
 			ExperimentalTemplateRoot:          value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_TEMPLATE_ROOT", "../experimental/templates"),
 			ExperimentalGeneratorToolRoot:     value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_GENERATOR_TOOL_ROOT", "../experimental/tools/generators"),
 			ExperimentalSDKToolRoot:           value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_SDK_TOOL_ROOT", "../experimental/tools/sdks"),
+			ExperimentalExtensionRoot:         value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_EXTENSION_ROOT", "../experimental/extensions"),
 			FeatureBlockCatalogPath:           value(lookup, "PLATFORM_ASSEMBLY_FEATURE_BLOCK_CATALOG", "../contracts/catalogs/v1/feature-blocks.json"),
 			OutputTargets:                     outputTargets(value(lookup, "PLATFORM_ASSEMBLY_OUTPUT_TARGETS", "")),
 		},
@@ -195,10 +199,12 @@ func (c Config) validate() error {
 		"PLATFORM_ASSEMBLY_TEMPLATE_ROOT":                        c.Assembly.TemplateRoot,
 		"PLATFORM_ASSEMBLY_GENERATOR_TOOL_ROOT":                  c.Assembly.GeneratorToolRoot,
 		"PLATFORM_ASSEMBLY_SDK_TOOL_ROOT":                        c.Assembly.SDKToolRoot,
+		"PLATFORM_ASSEMBLY_EXTENSION_ROOT":                       c.Assembly.ExtensionRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_CAPABILITY_PACKAGE_ROOT": c.Assembly.ExperimentalCapabilityPackageRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_TEMPLATE_ROOT":           c.Assembly.ExperimentalTemplateRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_GENERATOR_TOOL_ROOT":     c.Assembly.ExperimentalGeneratorToolRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_SDK_TOOL_ROOT":           c.Assembly.ExperimentalSDKToolRoot,
+		"PLATFORM_ASSEMBLY_EXPERIMENTAL_EXTENSION_ROOT":          c.Assembly.ExperimentalExtensionRoot,
 		"PLATFORM_ASSEMBLY_FEATURE_BLOCK_CATALOG":                c.Assembly.FeatureBlockCatalogPath,
 	} {
 		if strings.TrimSpace(path) == "" {

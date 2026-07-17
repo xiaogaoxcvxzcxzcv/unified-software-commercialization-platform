@@ -175,18 +175,18 @@ func main() {
 		logger.Error("assembly feature block catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	assemblyCatalog, err := machinecatalog.LoadOrdinaryWithTools(
+	assemblyCatalog, err := machinecatalog.LoadOrdinaryWithToolsAndExtensions(
 		cfg.Assembly.CapabilityPackageRoot, cfg.Assembly.TemplateRoot,
-		cfg.Assembly.GeneratorToolRoot, cfg.Assembly.SDKToolRoot,
+		cfg.Assembly.GeneratorToolRoot, cfg.Assembly.SDKToolRoot, cfg.Assembly.ExtensionRoot,
 		assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks,
 	)
 	if err != nil {
 		logger.Error("assembly production catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	experimentalAssemblyCatalog, err := machinecatalog.LoadExperimentalWithTools(
+	experimentalAssemblyCatalog, err := machinecatalog.LoadExperimentalWithToolsAndExtensions(
 		cfg.Assembly.ExperimentalCapabilityPackageRoot, cfg.Assembly.ExperimentalTemplateRoot,
-		cfg.Assembly.ExperimentalGeneratorToolRoot, cfg.Assembly.ExperimentalSDKToolRoot,
+		cfg.Assembly.ExperimentalGeneratorToolRoot, cfg.Assembly.ExperimentalSDKToolRoot, cfg.Assembly.ExperimentalExtensionRoot,
 		assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks,
 	)
 	if err != nil {

@@ -4,6 +4,7 @@
   "catalog_scope": "ordinary",
   "packages": [],
   "templates": [],
+  "extensions": [],
   "generators": [],
   "sdks": [],
   "permission_catalog": { "version": "1.0.0", "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },

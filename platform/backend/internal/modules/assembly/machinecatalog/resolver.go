@@ -68,11 +68,16 @@ func (c *Catalog) Resolve(request ResolveRequest) (Resolution, error) {
 			continue
 		}
 		packages := selectedPackages(selected)
-		snapshot, err := c.snapshot(packages, []TemplateManifest{template})
+		extensions, err := c.resolveExtensions(request.Extensions, request.ProductCode, request.Target, request.DeliveryMode, request.Environment)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		snapshot, err := c.snapshot(packages, []TemplateManifest{template}, extensions)
 		if err != nil {
 			return Resolution{}, err
 		}
-		return Resolution{Packages: packages, Template: template, Snapshot: snapshot}, nil
+		return Resolution{Packages: packages, Template: template, Extensions: extensions, Snapshot: snapshot}, nil
 	}
 	if !versionMatched {
 		return Resolution{}, fmt.Errorf("%w: template %s requires %s", ErrVersionConflict, request.TemplateID, request.TemplateRange)
@@ -92,7 +97,134 @@ func (c *Catalog) Snapshot() (CatalogSnapshot, error) {
 	for _, versions := range c.templates {
 		templates = append(templates, versions...)
 	}
-	return c.snapshot(packages, templates)
+	extensions := make([]ExtensionManifest, 0)
+	for _, versions := range c.extensions {
+		extensions = append(extensions, versions...)
+	}
+	return c.snapshot(packages, templates, extensions)
+}
+
+func (c *Catalog) ResolveExtensions(requirements []ExtensionRequirement, productCode, target, deliveryMode, environment string) ([]ExtensionManifest, error) {
+	return c.resolveExtensions(requirements, productCode, target, deliveryMode, environment)
+}
+
+func (c *Catalog) resolveExtensions(requirements []ExtensionRequirement, productCode, target, deliveryMode, environment string) ([]ExtensionManifest, error) {
+	if len(requirements) == 0 {
+		return []ExtensionManifest{}, nil
+	}
+	if productCode == "" {
+		return nil, fmt.Errorf("%w: product_code is required", ErrExtensionIncompatible)
+	}
+	selected := make([]ExtensionManifest, 0, len(requirements))
+	seen := make(map[string]struct{}, len(requirements))
+	for _, requirement := range requirements {
+		key := requirement.ExtensionID + "\x00" + requirement.Version
+		if _, duplicate := seen[key]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate selection %s@%s", ErrExtensionConflict, requirement.ExtensionID, requirement.Version)
+		}
+		seen[key] = struct{}{}
+		versions, exists := c.extensions[requirement.ExtensionID]
+		if !exists {
+			return nil, fmt.Errorf("%w: %s@%s", ErrUnknownExtension, requirement.ExtensionID, requirement.Version)
+		}
+		var matched *ExtensionManifest
+		for index := range versions {
+			if versions[index].Version == requirement.Version {
+				matched = &versions[index]
+				break
+			}
+		}
+		if matched == nil {
+			return nil, fmt.Errorf("%w: %s@%s", ErrUnknownExtension, requirement.ExtensionID, requirement.Version)
+		}
+		if requirement.ManifestPath != matched.ManifestPath {
+			return nil, fmt.Errorf("%w: manifest path for %s@%s must be %s", ErrExtensionIncompatible, matched.ExtensionID, matched.Version, matched.ManifestPath)
+		}
+		if matched.ProductCode != productCode {
+			return nil, fmt.Errorf("%w: %s@%s belongs to product %s, not %s", ErrExtensionIncompatible, matched.ExtensionID, matched.Version, matched.ProductCode, productCode)
+		}
+		if !contains(matched.SupportedTargets, target) || !contains(matched.SupportedDeliveryModes, deliveryMode) || !contains(matched.SupportedEnvironments, environment) {
+			return nil, fmt.Errorf("%w: %s@%s does not support %s/%s/%s", ErrExtensionIncompatible, matched.ExtensionID, matched.Version, target, deliveryMode, environment)
+		}
+		selected = append(selected, *matched)
+	}
+	sort.Slice(selected, func(i, j int) bool {
+		if selected[i].ExtensionID == selected[j].ExtensionID {
+			return selected[i].Version < selected[j].Version
+		}
+		return selected[i].ExtensionID < selected[j].ExtensionID
+	})
+	if err := validateExtensionSelection(selected); err != nil {
+		return nil, err
+	}
+	return selected, nil
+}
+
+func validateExtensionSelection(manifests []ExtensionManifest) error {
+	type owner struct{ extensionID, value string }
+	unique := map[string]map[string]owner{
+		"route": {}, "route_id": {}, "navigation_id": {}, "admin_path": {}, "admin_id": {}, "slot": {}, "namespace": {}, "api": {}, "event": {},
+	}
+	ownedPaths := make([]owner, 0)
+	claim := func(kind, key, extensionID, value string) error {
+		key = strings.ToLower(key)
+		if previous, exists := unique[kind][key]; exists {
+			return fmt.Errorf("%w: %s %q is owned by %s and %s", ErrExtensionConflict, kind, value, previous.extensionID, extensionID)
+		}
+		unique[kind][key] = owner{extensionID: extensionID, value: value}
+		return nil
+	}
+	for _, manifest := range manifests {
+		if err := claim("namespace", manifest.DataNamespace, manifest.ExtensionID, manifest.DataNamespace); err != nil {
+			return err
+		}
+		for _, route := range manifest.Routes {
+			if err := claim("route_id", route.RouteID, manifest.ExtensionID, route.RouteID); err != nil {
+				return err
+			}
+			if err := claim("route", route.Target+"\x00"+route.Path, manifest.ExtensionID, route.Path); err != nil {
+				return err
+			}
+		}
+		for _, item := range manifest.NavigationItems {
+			if err := claim("navigation_id", item.ItemID, manifest.ExtensionID, item.ItemID); err != nil {
+				return err
+			}
+		}
+		for _, item := range manifest.AdminItems {
+			if err := claim("admin_id", item.ItemID, manifest.ExtensionID, item.ItemID); err != nil {
+				return err
+			}
+			if err := claim("admin_path", item.Path, manifest.ExtensionID, item.Path); err != nil {
+				return err
+			}
+		}
+		for _, slot := range manifest.Slots {
+			if err := claim("slot", slot.Target+"\x00"+slot.SlotID, manifest.ExtensionID, slot.SlotID); err != nil {
+				return err
+			}
+		}
+		for _, operation := range manifest.PublicAPIOperations {
+			if err := claim("api", operation, manifest.ExtensionID, operation); err != nil {
+				return err
+			}
+		}
+		for _, event := range manifest.PublishedEvents {
+			if err := claim("event", event, manifest.ExtensionID, event); err != nil {
+				return err
+			}
+		}
+		for _, ownedPath := range manifest.OwnedPaths {
+			candidate := owner{extensionID: manifest.ExtensionID, value: strings.ToLower(strings.TrimSuffix(ownedPath, "/"))}
+			for _, previous := range ownedPaths {
+				if candidate.value == previous.value || strings.HasPrefix(candidate.value, previous.value+"/") || strings.HasPrefix(previous.value, candidate.value+"/") {
+					return fmt.Errorf("%w: owned paths %q (%s) and %q (%s) overlap", ErrExtensionConflict, previous.value, previous.extensionID, candidate.value, candidate.extensionID)
+				}
+			}
+			ownedPaths = append(ownedPaths, candidate)
+		}
+	}
+	return nil
 }
 
 func (c *Catalog) solve(constraints map[string][]string, selected map[string]PackageManifest, request ResolveRequest, template TemplateManifest) (map[string]PackageManifest, error) {

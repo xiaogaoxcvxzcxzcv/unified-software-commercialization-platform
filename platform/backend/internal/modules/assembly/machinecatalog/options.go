@@ -10,6 +10,7 @@ type CatalogOptions struct {
 	Environment     string
 	Packages        []PackageOption
 	Templates       []TemplateOption
+	Extensions      []ExtensionOption
 	Generators      []ToolOption
 	SDKs            []ToolOption
 }
@@ -42,6 +43,13 @@ type ToolOption struct {
 	Name    string
 }
 
+type ExtensionOption struct {
+	ExtensionID  string
+	Version      string
+	ProductCode  string
+	ManifestPath string
+}
+
 func (c *Catalog) Options(target, deliveryMode, environment string) (CatalogOptions, error) {
 	if c == nil {
 		return CatalogOptions{}, ErrCatalogState
@@ -58,7 +66,7 @@ func (c *Catalog) Options(target, deliveryMode, environment string) (CatalogOpti
 	result := CatalogOptions{
 		CatalogScope: c.view.visibility, CatalogRevision: snapshot.Revision,
 		Target: target, DeliveryMode: deliveryMode, Environment: environment,
-		Packages: []PackageOption{}, Templates: []TemplateOption{}, Generators: []ToolOption{}, SDKs: []ToolOption{},
+		Packages: []PackageOption{}, Templates: []TemplateOption{}, Extensions: []ExtensionOption{}, Generators: []ToolOption{}, SDKs: []ToolOption{},
 	}
 
 	templates := matchingTemplates(c.templates, target, deliveryMode, environment)
@@ -103,6 +111,19 @@ func (c *Catalog) Options(target, deliveryMode, environment string) (CatalogOpti
 	})
 	result.Generators = c.matchingTools("generator", target, deliveryMode, environment)
 	result.SDKs = c.matchingTools("sdk", target, deliveryMode, environment)
+	for _, versions := range c.extensions {
+		for _, manifest := range versions {
+			if contains(manifest.SupportedTargets, target) && contains(manifest.SupportedDeliveryModes, deliveryMode) && contains(manifest.SupportedEnvironments, environment) {
+				result.Extensions = append(result.Extensions, ExtensionOption{ExtensionID: manifest.ExtensionID, Version: manifest.Version, ProductCode: manifest.ProductCode, ManifestPath: manifest.ManifestPath})
+			}
+		}
+	}
+	sort.Slice(result.Extensions, func(i, j int) bool {
+		if result.Extensions[i].ExtensionID == result.Extensions[j].ExtensionID {
+			return result.Extensions[i].Version < result.Extensions[j].Version
+		}
+		return result.Extensions[i].ExtensionID < result.Extensions[j].ExtensionID
+	})
 	return result, nil
 }
 

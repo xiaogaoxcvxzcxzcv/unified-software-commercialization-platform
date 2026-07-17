@@ -66,11 +66,12 @@ func run(repositoryRoot, templateID, templateVersion, target, output, productNam
 	if err != nil {
 		return err
 	}
-	catalog, err := machinecatalog.LoadExperimentalWithTools(
+	catalog, err := machinecatalog.LoadExperimentalWithToolsAndExtensions(
 		filepath.Join(repositoryRoot, "platform", "experimental", "capability-packages"),
 		filepath.Join(repositoryRoot, "platform", "experimental", "templates"),
 		filepath.Join(repositoryRoot, "platform", "experimental", "tools", "generators"),
 		filepath.Join(repositoryRoot, "platform", "experimental", "tools", "sdks"),
+		filepath.Join(repositoryRoot, "platform", "experimental", "extensions"),
 		contracts, accesscontrol.CurrentPermissionCatalog(), blocks,
 	)
 	if err != nil {
