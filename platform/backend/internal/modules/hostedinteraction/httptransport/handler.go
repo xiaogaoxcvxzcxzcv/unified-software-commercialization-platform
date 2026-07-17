@@ -63,6 +63,7 @@ type BearerPrincipal struct {
 type HostedPrincipal struct {
 	InteractionID    string
 	BrowserSessionID string
+	BrowserToken     string
 	CSRFToken        string
 }
 
@@ -541,7 +542,7 @@ func validBearerPrincipal(p BearerPrincipal) bool {
 	return oneOf(p.Kind, "client", "user") && p.SessionID != "" && p.Scope.ProductID != "" && p.Scope.ApplicationID != "" && oneOf(p.Scope.Environment, "local", "test", "production") && oneOf(p.Scope.Channel, "web", "h5", "desktop", "app") && (p.Kind != "user" || p.UserID != "")
 }
 func validHostedPrincipal(p HostedPrincipal) bool {
-	return interactionIDPattern.MatchString(p.InteractionID) && p.BrowserSessionID != "" && bounded(p.CSRFToken, 32, 256)
+	return interactionIDPattern.MatchString(p.InteractionID) && p.BrowserSessionID != "" && opaque(p.BrowserToken, 32, 4096) && bounded(p.CSRFToken, 32, 256)
 }
 
 func hostedCookie(r *http.Request) (string, bool) {

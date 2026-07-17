@@ -38,7 +38,7 @@ func (authStub) ResolveHostedSession(_ context.Context, interactionID, token str
 	if interactionID != testInteractionID || token != "hosted-cookie-0000000000000000000000000000000000" {
 		return HostedPrincipal{}, ErrSessionRevoked
 	}
-	return HostedPrincipal{InteractionID: interactionID, BrowserSessionID: "browser-session-a", CSRFToken: "csrf-token-0000000000000000000000000000"}, nil
+	return HostedPrincipal{InteractionID: interactionID, BrowserSessionID: "browser-session-a", BrowserToken: token, CSRFToken: "csrf-token-0000000000000000000000000000"}, nil
 }
 
 type serviceStub struct {
