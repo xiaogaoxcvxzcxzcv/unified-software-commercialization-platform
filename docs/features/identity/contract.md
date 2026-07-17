@@ -11,6 +11,12 @@ auth_time: 最近认证时间
 
 `account_status` 是全局账号安全状态：`locked/disabled` 会影响该 User 的所有产品登录，只能由平台级安全策略或明确的平台管理员操作改变。单个 Product/Tenant 的业务停用必须使用独立、受范围约束的产品用户访问事实；在该契约封口前不得用全局 `account_status` 实现“只冻结某款软件中的用户”。
 
+### Hosted 会话范围补充
+
+- 新建最终用户会话必须把可信 Client Session 的 `environment` 与 Product/Application/Tenant 一起持久化；客户端不能提交或覆盖该值。
+- Hosted auth proof 必须持久化相同的 `environment`，proof redemption 必须精确匹配 Product/Application/Tenant/Environment。迁移前环境为空的旧 proof 不得用于 Hosted exchange。
+- `ValidateHostedSession(scope, user_id, session_id)` 是 Identity 的公开应用服务：使用数据库时钟验证会话未撤销、未过期、账号仍为 active，并精确匹配用户、会话和完整范围。迁移前环境为空的旧会话不得用于 Hosted account，用户重新登录后取得带环境的新会话。
+
 ## 最终用户存储与 Repository 边界
 
 - `identity.users` 是 Global User 唯一事实；管理员与最终用户复用该表，不创建第二套用户主表。全局账号只保存 `active|locked|disabled` 安全状态，不保存 Product/Tenant 业务状态。

@@ -80,11 +80,15 @@ AuthenticateHosted(scope, identifier, credential, source, risk, trace_id)
 
 RedeemHostedAuthGrant(grant_id, proof_id, scope, trace_id)
   -> issued user session and token pair
+
+ValidateHostedSession(scope, user_id, session_id)
+  -> valid | session_revoked
 ```
 
 - proof 由 Identity 保存，短期、单次，只能由一个 grant 消费。
 - grant redemption 与 Identity Session/token 摘要在同一 Identity 事务提交。
 - 同一 grant 重试恢复同一 session 和服务端确定性派生 token；不同 grant 或不同 scope 消费同一 proof 必须拒绝。
+- scope 必须包含服务端解析的 environment；Hosted account 完成前必须重新调用 Identity 校验原绑定 User Session，不能只信任 interaction 中的 session ID 快照。
 
 ## 状态、错误与安全头
 
