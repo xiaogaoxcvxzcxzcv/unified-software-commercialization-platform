@@ -31,7 +31,7 @@ func TestEndUserRepositoryRegistrationIsAtomicAndStoresOnlyProtectedValues(t *te
 	if credential.UserID != registration.User.UserID || bcrypt.CompareHashAndPassword(credential.PasswordHash, []byte("correct horse battery staple")) != nil {
 		t.Fatalf("credential = %+v", credential)
 	}
-	if err := repository.ReplaceEndUserPassword(context.Background(), registration.User.UserID, []byte("not-a-bcrypt-hash"), "bcrypt", credential.Version, now.Add(time.Minute), false, endUserEvent("event.password.invalid", "identity.password_changed.v1", registration.User.UserID, now.Add(time.Minute))); err == nil {
+	if err := repository.ReplaceEndUserPassword(context.Background(), registration.User.UserID, "", []byte("not-a-bcrypt-hash"), "bcrypt", credential.Version, now.Add(time.Minute), false, endUserEvent("event.password.invalid", "identity.password_changed.v1", registration.User.UserID, now.Add(time.Minute))); err == nil {
 		t.Fatal("ReplaceEndUserPassword accepted an unparseable bcrypt hash")
 	}
 	unchanged, err := repository.FindEndUserPasswordCredential(context.Background(), identity.IdentifierEmail, registration.Identifier.NormalizedDigest)
@@ -89,7 +89,8 @@ func TestEndUserRepositoryRefreshReplayRevokesFamily(t *testing.T) {
 				AccessToken:     identity.EndUserSessionToken{TokenID: fmt.Sprintf("access.next.%d", index), TokenType: "access", Generation: 2, Digest: protectedDigest(fmt.Sprintf("access-next-%d", index)), CreatedAt: rotationAt, ExpiresAt: rotationAt.Add(15 * time.Minute)},
 				RefreshToken:    identity.EndUserSessionToken{TokenID: fmt.Sprintf("refresh.next.%d", index), TokenType: "refresh", Generation: 2, Digest: protectedDigest(fmt.Sprintf("refresh-next-%d", index)), CreatedAt: rotationAt, ExpiresAt: rotationAt.Add(time.Hour)},
 				AccessExpiresAt: rotationAt.Add(15 * time.Minute), RefreshExpiresAt: rotationAt.Add(time.Hour), Now: rotationAt,
-				OutboxEvent: endUserEvent(fmt.Sprintf("event.refresh.%d", index), "identity.session_refreshed.v1", registration.User.UserID, rotationAt),
+				OutboxEvent:   endUserEvent(fmt.Sprintf("event.refresh.%d", index), "identity.session_refreshed.v1", registration.User.UserID, rotationAt),
+				RequestDigest: protectedDigest(fmt.Sprintf("request.refresh.%d", index)), RecoveryExpiresAt: rotationAt.Add(time.Minute),
 			})
 			results <- err
 		}()
@@ -150,7 +151,8 @@ func TestEndUserRepositoryRejectsMismatchedTrustedScopeBeforeRefreshMutation(t *
 			AccessToken:     identity.EndUserSessionToken{TokenID: fmt.Sprintf("scope.access.%d", index), TokenType: "access", Generation: 2, Digest: protectedDigest(fmt.Sprintf("scope-access-%d", index)), CreatedAt: rotationAt, ExpiresAt: rotationAt.Add(15 * time.Minute)},
 			RefreshToken:    identity.EndUserSessionToken{TokenID: fmt.Sprintf("scope.refresh.%d", index), TokenType: "refresh", Generation: 2, Digest: protectedDigest(fmt.Sprintf("scope-refresh-%d", index)), CreatedAt: rotationAt, ExpiresAt: rotationAt.Add(time.Hour)},
 			AccessExpiresAt: rotationAt.Add(15 * time.Minute), RefreshExpiresAt: rotationAt.Add(time.Hour), Now: rotationAt,
-			OutboxEvent: endUserEvent(fmt.Sprintf("event.scope.%d", index), "identity.session_refreshed.v1", registration.User.UserID, rotationAt),
+			OutboxEvent:   endUserEvent(fmt.Sprintf("event.scope.%d", index), "identity.session_refreshed.v1", registration.User.UserID, rotationAt),
+			RequestDigest: protectedDigest(fmt.Sprintf("request.scope.%d", index)), RecoveryExpiresAt: rotationAt.Add(time.Minute),
 		})
 		if !errors.Is(err, identity.ErrEndUserScopeMismatch) {
 			t.Fatalf("wrong scope %d error = %v", index, err)

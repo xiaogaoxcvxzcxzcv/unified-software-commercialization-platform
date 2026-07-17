@@ -41,3 +41,11 @@
 ## 一致性
 
 Identity 公开消费者按 event_id 幂等处理 `product-user-access.session-revocation-requested.v1`，失败重试并进入可观测死信。事件携带单调 `access_version` 与 `status_changed_at`，只撤销该时间前绑定同范围的会话；重新激活或之后新建会话不被旧事件撤销。授权路径必须实时调用 Account Access Decision Workflow，事件延迟不能让已停用用户继续通过授权。
+
+## G2A-03 HTTP 与审计补充
+
+- 首次创建显式访问事实时 `expected_version=0`；已有事实必须提交当前正版本。HTTP/OpenAPI 不得错误地禁止版本 0。
+- HTTP 入口必须把 `adminrequest.Guard` 解析出的 `actor_id`、`trace_id` 和可信 scope 传给公开应用服务；近期认证由 Guard 的服务端会话判定，不接受请求体中的任意 proof 字符串。
+- 每次新状态命令生成稳定 `audit_id`，与状态 Outbox 在同一事务保存；幂等恢复返回首次的同一 `audit_id`。`StatusChangeResult` 必须把该编号返回 HTTP，但不得返回 operator note。
+- 首次幂等记录必须持久化 `audit_id`，Repository 重放从该记录恢复，不得只在进程内重新计算。真实状态变化的状态事件同时作为 Audit intent；同状态新命令不伪造状态变化，而是在同一事务写 `product-user-access.command-audited.v1`。只有 durable intent 已写入时才允许向 HTTP 返回该 `audit_id`。
+- 状态事件只携带脱敏 actor/audit/trace 引用和既有允许字段；不得携带管理员凭据、原始 identifier、token 或 operator note。

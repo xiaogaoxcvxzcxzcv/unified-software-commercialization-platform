@@ -30,6 +30,9 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/productapplication"
 	applicationhttp "platform.local/capability-platform/backend/internal/modules/productapplication/httptransport"
 	applicationpostgres "platform.local/capability-platform/backend/internal/modules/productapplication/postgres"
+	"platform.local/capability-platform/backend/internal/modules/productuseraccess"
+	productuseraccesshttp "platform.local/capability-platform/backend/internal/modules/productuseraccess/httptransport"
+	productuseraccesspostgres "platform.local/capability-platform/backend/internal/modules/productuseraccess/postgres"
 	"platform.local/capability-platform/backend/internal/modules/tenant"
 	tenanthttp "platform.local/capability-platform/backend/internal/modules/tenant/httptransport"
 	tenantpostgres "platform.local/capability-platform/backend/internal/modules/tenant/postgres"
@@ -39,6 +42,7 @@ import (
 	"platform.local/capability-platform/backend/internal/platform/logging"
 	"platform.local/capability-platform/backend/internal/platform/securevalue"
 	platformserver "platform.local/capability-platform/backend/internal/platform/server"
+	"platform.local/capability-platform/backend/internal/workflows/accountaccess"
 	"platform.local/capability-platform/backend/internal/workflows/assemblyexecution"
 	"platform.local/capability-platform/backend/internal/workflows/assemblylifecycle"
 	"platform.local/capability-platform/backend/internal/workflows/clientcontext"
@@ -164,6 +168,11 @@ func main() {
 		logger.Error("administrator authentication initialization failed", "error", err)
 		os.Exit(1)
 	}
+	userHasher, err := securevalue.NewHasher(cfg.UserAuth.TokenPepper)
+	if err != nil {
+		logger.Error("end-user authentication initialization failed", "error", err)
+		os.Exit(1)
+	}
 	accessService := accesscontrol.NewService(accesspostgres.New(db.Pool()), nil)
 	assemblyContracts, err := machinecontract.LoadDirectory(cfg.Assembly.SchemaDirectory)
 	if err != nil {
@@ -287,18 +296,46 @@ func main() {
 	assemblyWorker := assemblyexecution.NewWorker(assemblyRepository, assemblyExecutionWorkflow, assemblyService, assemblyWorkerID, nil)
 	clientRegistrationWorkflow := clientregistration.New(productService, applicationService, hasher, nil)
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
+	productUserAccessService := productuseraccess.NewService(productuseraccesspostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), nil)
+	accountAccessWorkflow := accountaccess.New(productUserAccessService)
+	endUserService, err := identity.NewEndUserService(
+		identityRepository, identity.StrictIdentifierNormalizer{}, identity.Bcrypt{Cost: cfg.UserAuth.BcryptCost}, userHasher,
+		nil, nil,
+		identity.EndUserPolicy{
+			AccessTTL: cfg.UserAuth.AccessTTL, RefreshTTL: cfg.UserAuth.RefreshTTL, RefreshAbsoluteTTL: cfg.UserAuth.AbsoluteTTL,
+			RefreshRecoveryWindow: cfg.UserAuth.RefreshRecoveryWindow, RecoveryTTL: cfg.UserAuth.RecoveryTTL,
+			RecoveryMaxAttempts: cfg.UserAuth.RecoveryMaximumAttempts, LoginWindow: cfg.UserAuth.LoginWindow,
+			LoginMaximumAttempts: cfg.UserAuth.LoginMaximumAttempts, LoginBlockDuration: cfg.UserAuth.LoginBlockDuration,
+			RecentAuthTTL: cfg.UserAuth.RecentAuthTTL,
+		}, nil, identity.WithEndUserAdmissionPort(endUserAdmissionAdapter{access: accountAccessWorkflow}),
+	)
+	if err != nil {
+		logger.Error("end-user identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	endUserAdapter := endUserHTTPAdapter{users: endUserService, products: productService, clientHasher: hasher, access: accountAccessWorkflow}
 	tenantAdminWorkflow := tenantadmin.New(tenantService, accessService)
 	productHandler := producthttp.New(productService, productProvisionerAdapter{workflow: provisioningWorkflow}, adminGuard)
 	applicationHandler := applicationhttp.New(applicationService, adminGuard, applicationhttp.Config{Environment: productapplication.Environment(cfg.Environment)})
 	tenantHandler := tenanthttp.New(tenantService, adminGuard)
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
+	productUserAccessHandler := productuseraccesshttp.New(productUserAccessService, adminGuard)
 	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
+	endUserHandler := identityhttp.NewUserHandler(endUserAdapter, endUserAdapter)
 	modules := platformserver.NewModuleRegistrar()
 	if err := modules.Register("/api/v1/admin/auth/", adminAuthHandler); err != nil {
 		logger.Error("administrator authentication route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/auth/", endUserHandler); err != nil {
+		logger.Error("end-user authentication route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/account/", endUserHandler); err != nil {
+		logger.Error("end-user account route registration failed", "error", err)
 		os.Exit(1)
 	}
 	auditQueryService := audit.NewQueryService(auditRepository, auditAuthorizerAdapter{access: accessService})
@@ -307,7 +344,7 @@ func main() {
 		logger.Error("audit route registration failed", "error", err)
 		os.Exit(1)
 	}
-	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
+	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, productUserAccess: productUserAccessHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
 		logger.Error("product administration route registration failed", "error", err)
 		os.Exit(1)
 	}
@@ -317,6 +354,7 @@ func main() {
 	}
 	outbox := identity.NewOutboxDispatcher(identityRepository, identityAuditAdapter{service: auditService}, logger)
 	go outbox.Run(ctx)
+	go (productUserAccessDispatcher{source: productUserAccessService, audit: auditService, revoker: identityRepository, hasher: userHasher, logger: logger}).Run(ctx)
 	go assemblyWorker.Run(ctx)
 	go func() {
 		if runErr := assemblyLifecycleRunner.Run(ctx); runErr != nil && ctx.Err() == nil {
