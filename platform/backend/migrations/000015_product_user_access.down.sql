@@ -1,0 +1,5 @@
+BEGIN;
+
+DROP SCHEMA IF EXISTS product_user_access CASCADE;
+
+COMMIT;

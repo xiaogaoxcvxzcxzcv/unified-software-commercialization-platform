@@ -11,6 +11,17 @@ auth_time: 最近认证时间
 
 `account_status` 是全局账号安全状态：`locked/disabled` 会影响该 User 的所有产品登录，只能由平台级安全策略或明确的平台管理员操作改变。单个 Product/Tenant 的业务停用必须使用独立、受范围约束的产品用户访问事实；在该契约封口前不得用全局 `account_status` 实现“只冻结某款软件中的用户”。
 
+## 最终用户存储与 Repository 边界
+
+- `identity.users` 是 Global User 唯一事实；管理员与最终用户复用该表，不创建第二套用户主表。全局账号只保存 `active|locked|disabled` 安全状态，不保存 Product/Tenant 业务状态。
+- 邮箱和手机号先在应用层按版本化规则规范化，再以 `(identifier_type, normalized_digest)` 建立全局唯一约束；数据库只保存不可逆摘要与脱敏展示值，不保存规范化原文。规范化规则变更必须新增版本并提供冲突预检，不能静默重算已占用标识。
+- 密码凭据复用 `identity.user_credentials`，密码仅保存成熟自适应哈希的编码结果，并记录算法、凭据状态、单调版本和变更时间；Repository 不接受明文密码持久化参数。
+- 最终用户 Session 必须绑定服务端解析的 `product_id + application_id`，可选绑定 `tenant_id`。Identity 只保存这些稳定 ID，不读取其他模块表；一个 Global User 在不同 Product 的 Session 和业务访问状态相互独立。
+- access/refresh token、token family、恢复 continuation/proof、Provider subject/union subject 只保存摘要；可展示字段只能保存脱敏值。Provider token、AppSecret、恢复 code 和可直接使用的 token 不得进入表、Outbox、日志或错误。
+- refresh token 在事务锁内单次消费；再次使用已消费 token 必须撤销同一 family。恢复 challenge 短期有效、限制尝试次数且只能成功消费一次；无论标识是否存在都可持久化同形状 challenge，由应用层返回不可枚举响应。
+- `EndUserRepository` 只拥有 Global User、identifier、credential、profile、最终用户 Session/token、recovery challenge、external identity 与 Identity Outbox 的事务。Product User Access 通过公开服务和事件协作，不得由该 Repository 查询或写入。
+- `user_profiles` 仅保存允许公开维护的资料字段及版本；不得用任意 JSON 夹带业务权益、Product/Tenant 状态或 Provider 原始资料。
+
 ## 管理员身份与会话
 
 管理员复用全局 User、Credential 和 Session；“管理员”表示该 User 经 Access Control 验证后至少拥有一个当前有效的管理范围，不创建 `admin_users` 或第二套密码。
