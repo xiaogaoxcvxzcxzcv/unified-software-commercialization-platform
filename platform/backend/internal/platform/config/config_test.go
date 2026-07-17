@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadRequiresDatabaseURL(t *testing.T) {
@@ -237,7 +238,7 @@ func TestLoadHostedInteractionDefaultsAreHTTPSAndDomainSeparated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() hosted defaults error = %v", err)
 	}
-	if !strings.HasPrefix(cfg.HostedInteraction.BaseURL, "https://") || !strings.HasPrefix(cfg.HostedInteraction.AllowedOrigin, "https://") || cfg.HostedInteraction.StateKeyRef != "hosted.state.v1" || len(cfg.HostedInteraction.StateKey) < 32 || len(cfg.HostedInteraction.DigestKey) < 32 || cfg.HostedInteraction.StateKey == cfg.HostedInteraction.DigestKey || cfg.HostedInteraction.StateKey == cfg.UserAuth.TokenPepper || cfg.HostedInteraction.DigestKey == cfg.UserAuth.TokenPepper {
+	if !strings.HasPrefix(cfg.HostedInteraction.BaseURL, "https://") || !strings.HasPrefix(cfg.HostedInteraction.AllowedOrigin, "https://") || cfg.HostedInteraction.StateKeyRef != "hosted.state.v1" || cfg.HostedInteraction.AuthLeaseTTL != 30*time.Second || len(cfg.HostedInteraction.StateKey) < 32 || len(cfg.HostedInteraction.DigestKey) < 32 || cfg.HostedInteraction.StateKey == cfg.HostedInteraction.DigestKey || cfg.HostedInteraction.StateKey == cfg.UserAuth.TokenPepper || cfg.HostedInteraction.DigestKey == cfg.UserAuth.TokenPepper {
 		t.Fatalf("unsafe HostedInteraction defaults: %#v", cfg.HostedInteraction)
 	}
 }

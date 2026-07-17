@@ -91,6 +91,7 @@ type HostedInteraction struct {
 	DigestKey      string
 	InteractionTTL time.Duration
 	BrowserTTL     time.Duration
+	AuthLeaseTTL   time.Duration
 	GrantTTL       time.Duration
 	GrantLeaseTTL  time.Duration
 	AuthProofTTL   time.Duration
@@ -196,6 +197,7 @@ func Load(lookup LookupEnv) (Config, error) {
 			DigestKey:      hostedDigestKey,
 			InteractionTTL: duration(lookup, "PLATFORM_HOSTED_INTERACTION_TTL", 10*time.Minute),
 			BrowserTTL:     duration(lookup, "PLATFORM_HOSTED_BROWSER_TTL", 10*time.Minute),
+			AuthLeaseTTL:   duration(lookup, "PLATFORM_HOSTED_AUTH_LEASE_TTL", 30*time.Second),
 			GrantTTL:       duration(lookup, "PLATFORM_HOSTED_GRANT_TTL", 2*time.Minute),
 			GrantLeaseTTL:  duration(lookup, "PLATFORM_HOSTED_GRANT_LEASE_TTL", 30*time.Second),
 			AuthProofTTL:   duration(lookup, "PLATFORM_HOSTED_AUTH_PROOF_TTL", 5*time.Minute),
@@ -355,7 +357,7 @@ func (c Config) validate() error {
 	if hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.HostedInteraction.DigestKey)) || hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.UserAuth.TokenPepper)) || hmac.Equal([]byte(c.HostedInteraction.DigestKey), []byte(c.UserAuth.TokenPepper)) {
 		return errors.New("hosted state, digest, and user token secrets must be independent")
 	}
-	if c.HostedInteraction.InteractionTTL <= 0 || c.HostedInteraction.InteractionTTL > 30*time.Minute || c.HostedInteraction.BrowserTTL <= 0 || c.HostedInteraction.BrowserTTL > c.HostedInteraction.InteractionTTL || c.HostedInteraction.GrantTTL <= 0 || c.HostedInteraction.GrantTTL > 10*time.Minute || c.HostedInteraction.GrantLeaseTTL <= 0 || c.HostedInteraction.GrantLeaseTTL > time.Minute || c.HostedInteraction.AuthProofTTL <= 0 || c.HostedInteraction.AuthProofTTL > c.HostedInteraction.InteractionTTL {
+	if c.HostedInteraction.InteractionTTL <= 0 || c.HostedInteraction.InteractionTTL > 30*time.Minute || c.HostedInteraction.BrowserTTL <= 0 || c.HostedInteraction.BrowserTTL > c.HostedInteraction.InteractionTTL || c.HostedInteraction.AuthLeaseTTL <= 0 || c.HostedInteraction.AuthLeaseTTL > time.Minute || c.HostedInteraction.GrantTTL <= 0 || c.HostedInteraction.GrantTTL > 10*time.Minute || c.HostedInteraction.GrantLeaseTTL <= 0 || c.HostedInteraction.GrantLeaseTTL > time.Minute || c.HostedInteraction.AuthProofTTL <= 0 || c.HostedInteraction.AuthProofTTL > c.HostedInteraction.InteractionTTL {
 		return errors.New("hosted interaction TTL policy is outside the allowed bounds")
 	}
 	if c.SecurityNotification.Enabled {
