@@ -86,6 +86,7 @@ type SecurityNotification struct {
 type HostedInteraction struct {
 	BaseURL        string
 	AllowedOrigin  string
+	StateKeyRef    string
 	StateKey       string
 	DigestKey      string
 	InteractionTTL time.Duration
@@ -190,6 +191,7 @@ func Load(lookup LookupEnv) (Config, error) {
 		HostedInteraction: HostedInteraction{
 			BaseURL:        value(lookup, "PLATFORM_HOSTED_BASE_URL", "https://127.0.0.1:5175"),
 			AllowedOrigin:  value(lookup, "PLATFORM_HOSTED_ALLOWED_ORIGIN", "https://127.0.0.1:5175"),
+			StateKeyRef:    value(lookup, "PLATFORM_HOSTED_STATE_KEY_REF", "hosted.state.v1"),
 			StateKey:       hostedStateKey,
 			DigestKey:      hostedDigestKey,
 			InteractionTTL: duration(lookup, "PLATFORM_HOSTED_INTERACTION_TTL", 10*time.Minute),
@@ -346,6 +348,9 @@ func (c Config) validate() error {
 	}
 	if len(c.HostedInteraction.StateKey) < 32 || len(c.HostedInteraction.DigestKey) < 32 {
 		return errors.New("hosted state and digest keys must each be at least 32 bytes")
+	}
+	if !assemblyReferencePattern.MatchString(c.HostedInteraction.StateKeyRef) {
+		return errors.New("PLATFORM_HOSTED_STATE_KEY_REF must be a stable secret reference")
 	}
 	if hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.HostedInteraction.DigestKey)) || hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.UserAuth.TokenPepper)) || hmac.Equal([]byte(c.HostedInteraction.DigestKey), []byte(c.UserAuth.TokenPepper)) {
 		return errors.New("hosted state, digest, and user token secrets must be independent")
