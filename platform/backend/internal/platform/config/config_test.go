@@ -197,3 +197,32 @@ func TestLoadRejectsInvalidAdminBearerBoolean(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
+
+func TestLoadUserAuthDefaultsUseDomainSeparatedPlatformSecret(t *testing.T) {
+	values := map[string]string{
+		"PLATFORM_DATABASE_URL":            "postgres://user@localhost/platform?sslmode=disable",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":      validTestPepper(),
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": validAssemblyOutputTargets(t, "test-target"),
+	}
+	cfg, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok })
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.UserAuth.TokenPepper != cfg.AdminAuth.TokenPepper || cfg.UserAuth.RefreshRecoveryWindow <= 0 || cfg.UserAuth.AbsoluteTTL < cfg.UserAuth.RefreshTTL {
+		t.Fatalf("unexpected user auth defaults: %#v", cfg.UserAuth)
+	}
+}
+
+func TestLoadRejectsUnsafeUserAuthPolicy(t *testing.T) {
+	values := map[string]string{
+		"PLATFORM_DATABASE_URL":                 "postgres://user@localhost/platform?sslmode=disable",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":           validTestPepper(),
+		"PLATFORM_USER_TOKEN_PEPPER":            "short",
+		"PLATFORM_USER_REFRESH_RECOVERY_WINDOW": "10m",
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS":      validAssemblyOutputTargets(t, "test-target"),
+	}
+	_, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok })
+	if err == nil || !strings.Contains(err.Error(), "PLATFORM_USER_TOKEN_PEPPER") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}

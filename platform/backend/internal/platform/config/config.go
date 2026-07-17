@@ -30,6 +30,7 @@ type Config struct {
 	ShutdownTimeout    time.Duration
 	Database           Database
 	AdminAuth          AdminAuth
+	UserAuth           UserAuth
 	Assembly           Assembly
 }
 
@@ -50,6 +51,21 @@ type AdminAuth struct {
 	LoginMaximumAttempts int
 	BcryptCost           int
 	BearerEnabled        bool
+}
+
+type UserAuth struct {
+	TokenPepper             string
+	AccessTTL               time.Duration
+	RefreshTTL              time.Duration
+	AbsoluteTTL             time.Duration
+	RefreshRecoveryWindow   time.Duration
+	LoginWindow             time.Duration
+	LoginBlockDuration      time.Duration
+	LoginMaximumAttempts    int
+	BcryptCost              int
+	RecoveryTTL             time.Duration
+	RecoveryMaximumAttempts int
+	RecentAuthTTL           time.Duration
 }
 
 type Assembly struct {
@@ -79,6 +95,7 @@ type AssemblyOutputTarget struct {
 }
 
 func Load(lookup LookupEnv) (Config, error) {
+	adminTokenPepper := value(lookup, "PLATFORM_ADMIN_TOKEN_PEPPER", "")
 	cfg := Config{
 		Environment:        value(lookup, "PLATFORM_ENVIRONMENT", "local"),
 		HTTPAddress:        value(lookup, "PLATFORM_HTTP_ADDRESS", ":8080"),
@@ -95,7 +112,7 @@ func Load(lookup LookupEnv) (Config, error) {
 			ConnectTimeout: duration(lookup, "PLATFORM_DATABASE_CONNECT_TIMEOUT", 5*time.Second),
 		},
 		AdminAuth: AdminAuth{
-			TokenPepper:          value(lookup, "PLATFORM_ADMIN_TOKEN_PEPPER", ""),
+			TokenPepper:          adminTokenPepper,
 			AllowedOrigins:       commaSeparated(value(lookup, "PLATFORM_ADMIN_ALLOWED_ORIGINS", "https://127.0.0.1:5174")),
 			AccessTTL:            duration(lookup, "PLATFORM_ADMIN_ACCESS_TTL", 15*time.Minute),
 			RefreshTTL:           duration(lookup, "PLATFORM_ADMIN_REFRESH_TTL", 7*24*time.Hour),
@@ -104,6 +121,20 @@ func Load(lookup LookupEnv) (Config, error) {
 			LoginMaximumAttempts: intValue(lookup, "PLATFORM_ADMIN_LOGIN_MAXIMUM_ATTEMPTS", 5),
 			BcryptCost:           intValue(lookup, "PLATFORM_ADMIN_BCRYPT_COST", 12),
 			BearerEnabled:        false,
+		},
+		UserAuth: UserAuth{
+			TokenPepper:             value(lookup, "PLATFORM_USER_TOKEN_PEPPER", adminTokenPepper),
+			AccessTTL:               duration(lookup, "PLATFORM_USER_ACCESS_TTL", 15*time.Minute),
+			RefreshTTL:              duration(lookup, "PLATFORM_USER_REFRESH_TTL", 30*24*time.Hour),
+			AbsoluteTTL:             duration(lookup, "PLATFORM_USER_ABSOLUTE_TTL", 90*24*time.Hour),
+			RefreshRecoveryWindow:   duration(lookup, "PLATFORM_USER_REFRESH_RECOVERY_WINDOW", 30*time.Second),
+			LoginWindow:             duration(lookup, "PLATFORM_USER_LOGIN_WINDOW", 15*time.Minute),
+			LoginBlockDuration:      duration(lookup, "PLATFORM_USER_LOGIN_BLOCK_DURATION", 15*time.Minute),
+			LoginMaximumAttempts:    intValue(lookup, "PLATFORM_USER_LOGIN_MAXIMUM_ATTEMPTS", 5),
+			BcryptCost:              intValue(lookup, "PLATFORM_USER_BCRYPT_COST", 12),
+			RecoveryTTL:             duration(lookup, "PLATFORM_USER_RECOVERY_TTL", 15*time.Minute),
+			RecoveryMaximumAttempts: intValue(lookup, "PLATFORM_USER_RECOVERY_MAXIMUM_ATTEMPTS", 5),
+			RecentAuthTTL:           duration(lookup, "PLATFORM_USER_RECENT_AUTH_TTL", 10*time.Minute),
 		},
 		Assembly: Assembly{
 			SchemaDirectory:                   value(lookup, "PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY", "../contracts/schemas/v1"),
@@ -192,6 +223,33 @@ func (c Config) validate() error {
 	}
 	if c.AdminAuth.BcryptCost < 10 || c.AdminAuth.BcryptCost > 14 {
 		return errors.New("PLATFORM_ADMIN_BCRYPT_COST must be between 10 and 14")
+	}
+	if len(c.UserAuth.TokenPepper) < 32 {
+		return errors.New("PLATFORM_USER_TOKEN_PEPPER must be at least 32 bytes")
+	}
+	if c.UserAuth.AccessTTL <= 0 || c.UserAuth.AccessTTL > 15*time.Minute {
+		return errors.New("PLATFORM_USER_ACCESS_TTL must be greater than zero and at most 15m")
+	}
+	if c.UserAuth.RefreshTTL < time.Hour || c.UserAuth.RefreshTTL > 90*24*time.Hour || c.UserAuth.AbsoluteTTL < c.UserAuth.RefreshTTL || c.UserAuth.AbsoluteTTL > 365*24*time.Hour {
+		return errors.New("user refresh TTL must be 1h..2160h and absolute TTL must contain it within 8760h")
+	}
+	if c.UserAuth.RefreshRecoveryWindow <= 0 || c.UserAuth.RefreshRecoveryWindow > 5*time.Minute {
+		return errors.New("PLATFORM_USER_REFRESH_RECOVERY_WINDOW must be greater than zero and at most 5m")
+	}
+	if c.UserAuth.LoginWindow <= 0 || c.UserAuth.LoginWindow > 24*time.Hour || c.UserAuth.LoginBlockDuration <= 0 || c.UserAuth.LoginBlockDuration > 24*time.Hour {
+		return errors.New("user login window and block duration must be between zero and 24h")
+	}
+	if c.UserAuth.LoginMaximumAttempts < 3 || c.UserAuth.LoginMaximumAttempts > 20 {
+		return errors.New("PLATFORM_USER_LOGIN_MAXIMUM_ATTEMPTS must be between 3 and 20")
+	}
+	if c.UserAuth.BcryptCost < 10 || c.UserAuth.BcryptCost > 14 {
+		return errors.New("PLATFORM_USER_BCRYPT_COST must be between 10 and 14")
+	}
+	if c.UserAuth.RecoveryTTL <= 0 || c.UserAuth.RecoveryTTL > 24*time.Hour || c.UserAuth.RecoveryMaximumAttempts < 1 || c.UserAuth.RecoveryMaximumAttempts > 20 {
+		return errors.New("user recovery TTL must be 0..24h and maximum attempts must be 1..20")
+	}
+	if c.UserAuth.RecentAuthTTL <= 0 || c.UserAuth.RecentAuthTTL > 24*time.Hour {
+		return errors.New("PLATFORM_USER_RECENT_AUTH_TTL must be greater than zero and at most 24h")
 	}
 	for name, path := range map[string]string{
 		"PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY":                     c.Assembly.SchemaDirectory,
