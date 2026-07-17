@@ -1,7 +1,15 @@
 BEGIN;
 
-DELETE FROM product_user_access.outbox_events
-WHERE event_type = 'product-user-access.command-audited.v1';
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM product_user_access.outbox_events
+        WHERE event_type = 'product-user-access.command-audited.v1'
+    ) THEN
+        RAISE EXCEPTION 'migration 000016 rollback refused because durable product user access audit intents exist';
+    END IF;
+END;
+$$;
 
 ALTER TABLE product_user_access.outbox_events
     DROP CONSTRAINT outbox_events_event_type_check,

@@ -14,6 +14,17 @@ CREATE TABLE identity.end_user_login_failures (
     CHECK (octet_length(source_digest) = 32)
 );
 
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM identity.end_user_idempotency_records
+        WHERE operation IN ('register', 'profile_update') AND state = 'completed'
+    ) THEN
+        RAISE EXCEPTION 'migration 000016 requires an explicit response snapshot backfill for pre-existing completed identity API idempotency records';
+    END IF;
+END;
+$$;
+
 ALTER TABLE identity.end_user_idempotency_records
     ADD COLUMN response_document JSONB,
     ADD CONSTRAINT end_user_idempotency_response_document_object
