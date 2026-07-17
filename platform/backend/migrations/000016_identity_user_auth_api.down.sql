@@ -14,6 +14,10 @@ ALTER TABLE product_user_access.idempotency_records
     DROP CONSTRAINT IF EXISTS product_user_access_idempotency_audit_id_format,
     DROP COLUMN IF EXISTS audit_id;
 
+ALTER TABLE identity.end_user_idempotency_records
+    DROP CONSTRAINT IF EXISTS end_user_idempotency_response_document_object,
+    DROP COLUMN IF EXISTS response_document;
+
 DROP INDEX IF EXISTS identity.end_user_session_tokens_rotation_recovery_idx;
 
 ALTER TABLE identity.end_user_session_tokens

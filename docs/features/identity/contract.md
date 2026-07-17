@@ -234,6 +234,7 @@ status: active | revoked
 - 登录限速键由服务端范围摘要、规范化 identifier 摘要和来源摘要组成。不存在的账号与错误密码使用相同错误包络、相同限速路径和固定成本密码校验。
 - refresh 必须携带 `client_request_id`。首次轮换在同一事务记录其摘要与短恢复窗口；同一旧 refresh 加同一 request ID 在窗口内恢复相同确定性派生的新 token 对，不保存明文或可解密 token；不同 request ID 或窗口外复用撤销整个 family。
 - 注册、找回启动和找回完成使用 `(operation, trusted_scope, actor_digest, idempotency_key_digest)` 边界。相同 key 且 request digest 相同恢复首次终态；request digest 不同返回稳定冲突。
+- 需要返回可变投影的写接口（首版为 profile update）把不含 token、密码、proof、identifier 或摘要的安全响应对象保存到 `response_document`，重放必须恢复首次快照，不能读取当前最新状态冒充首次结果。确定性的版本冲突、无效/重放 proof 等失败也保留 `failed` 终态及稳定 reason；只有瞬时依赖错误整体回滚。
 - 注册验证与找回投递通过公开 Port。G2A-03 在 Port 未配置时失败关闭；真实安全通知 Adapter 属于 G2A-04，不得用日志、固定验证码或演示 Provider 冒充。
 - 密码变更以当前密码和服务端 `auth_time` 完成近期重认证，不接受请求体自称的 `recent_auth_proof`。按请求策略撤销其他会话，当前会话至少轮换或提升版本。
 - token、密码、找回 proof、规范化 identifier 和各类摘要不得进入响应、普通日志或 Outbox；响应一律 `Cache-Control: no-store`。

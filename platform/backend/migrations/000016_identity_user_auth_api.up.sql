@@ -14,6 +14,11 @@ CREATE TABLE identity.end_user_login_failures (
     CHECK (octet_length(source_digest) = 32)
 );
 
+ALTER TABLE identity.end_user_idempotency_records
+    ADD COLUMN response_document JSONB,
+    ADD CONSTRAINT end_user_idempotency_response_document_object
+        CHECK (response_document IS NULL OR jsonb_typeof(response_document) = 'object');
+
 ALTER TABLE identity.end_user_session_tokens
     ADD COLUMN rotation_request_digest BYTEA,
     ADD COLUMN rotation_recovery_expires_at TIMESTAMPTZ,

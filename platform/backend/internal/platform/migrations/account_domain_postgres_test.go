@@ -51,6 +51,7 @@ func TestPostgreSQLAccountDomainMigrationInvariants(t *testing.T) {
 			"identity.end_user_sessions":              {"product_id", "application_id", "tenant_id", "token_family_id", "refresh_expires_at", "revoked_at"},
 			"identity.end_user_session_tokens":        {"session_id", "token_family_id", "token_type", "generation", "token_digest", "consumed_at", "rotation_request_digest", "rotation_recovery_expires_at"},
 			"identity.end_user_login_failures":        {"scope_id", "identifier_digest", "source_digest", "failure_count", "blocked_until"},
+			"identity.end_user_idempotency_records":   {"operation", "scope_id", "actor_digest", "key_digest", "request_digest", "resource_id", "state", "response_document"},
 			"identity.recovery_challenges":            {"continuation_digest", "proof_digest", "expires_at", "consumed_at"},
 			"identity.external_identities":            {"provider", "provider_application_id", "subject_digest", "union_subject_digest"},
 			"product_user_access.product_access":      {"product_id", "user_id", "status", "access_version", "operator_note"},
@@ -71,6 +72,26 @@ func TestPostgreSQLAccountDomainMigrationInvariants(t *testing.T) {
 					t.Errorf("column %s.%s is missing", relation, column)
 				}
 			}
+		}
+	})
+
+	t.Run("identity idempotency response accepts only object snapshots", func(t *testing.T) {
+		if _, err := database.Pool.Exec(ctx, `
+			INSERT INTO identity.end_user_idempotency_records(
+				operation, scope_id, actor_digest, key_digest, request_digest,
+				resource_id, state, response_document, created_at, updated_at
+			) VALUES ('profile_update', 'scope-a', decode(repeat('a1',32),'hex'),
+			          decode(repeat('a2',32),'hex'), decode(repeat('a3',32),'hex'),
+			          'user-account-a', 'completed', '{"version":2}'::jsonb, $1, $1)
+		`, now); err != nil {
+			t.Fatalf("insert safe idempotency response snapshot: %v", err)
+		}
+		if _, err := database.Pool.Exec(ctx, `
+			UPDATE identity.end_user_idempotency_records
+			SET response_document='["not-an-object"]'::jsonb
+			WHERE operation='profile_update' AND scope_id='scope-a'
+		`); err == nil {
+			t.Fatal("non-object idempotency response snapshot was accepted")
 		}
 	})
 
