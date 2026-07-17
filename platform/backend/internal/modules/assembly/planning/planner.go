@@ -401,6 +401,17 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	})
 	sort.Slice(capabilities, func(i, j int) bool { return capabilities[i].CapabilityID < capabilities[j].CapabilityID })
 
+	requiredProviderDeclarations := make(map[string]struct{})
+	optionalProviderDeclarations := make(map[string]struct{})
+	for _, packageID := range packageIDs {
+		manifest := packageByID[packageID]
+		for _, providerID := range manifest.ProviderRequirements {
+			requiredProviderDeclarations[providerID] = struct{}{}
+		}
+		for _, providerID := range manifest.OptionalProviderRequirements {
+			optionalProviderDeclarations[providerID] = struct{}{}
+		}
+	}
 	providedProviders := make(map[string]struct{})
 	providedSecrets := make(map[string]secretRef)
 	providerKeys := make(map[string]struct{})
@@ -411,6 +422,11 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 		}
 		if provider.Provider == "" || provider.ConfigRef == "" {
 			return core.PlannedDocument{}, ErrBlueprintMismatch
+		}
+		_, requiredProvider := requiredProviderDeclarations[provider.Provider]
+		_, optionalProvider := optionalProviderDeclarations[provider.Provider]
+		if !requiredProvider && !optionalProvider {
+			return core.PlannedDocument{}, fmt.Errorf("%w: provider %s is not declared by the selected packages", ErrBlueprintMismatch, provider.Provider)
 		}
 		providerKey := provider.Provider + "\x00" + provider.Environment
 		if _, duplicate := providerKeys[providerKey]; duplicate {
@@ -445,6 +461,11 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 			requiredProviderSet[providerID] = struct{}{}
 		}
 		for _, reference := range manifest.SecretRefs {
+			_, providerRequired := requiredProviderDeclarations[reference.Provider]
+			_, providerConfigured := providedProviders[reference.Provider]
+			if !providerRequired && !providerConfigured {
+				continue
+			}
 			if reference.Environment != environment {
 				continue
 			}

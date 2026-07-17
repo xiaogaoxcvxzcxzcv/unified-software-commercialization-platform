@@ -24,11 +24,14 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 		"audit.read",
 		"entitlement.manage",
 		"identity.manage",
+		"identity.security.manage",
+		"identity.user.read",
 		"platform.read",
 		"product.application.manage",
 		"product.application.security.manage",
 		"product.manage",
 		"product.read",
+		"product.user-access.manage",
 		"tenant.manage",
 	}
 	definitions := catalog.Definitions()
@@ -42,9 +45,29 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 	if err := catalog.ValidateRequiredPermissions(got); err != nil {
 		t.Fatalf("current catalog does not validate: %v", err)
 	}
-	const wantChecksum = "sha256:91a93cf23689e8e0369aa45850ec81ba50209e2b090516fdbe4bcb09396a03e0"
+	const wantChecksum = "sha256:6284f82371bfe67000b7ef7788ddbcb990c7e85bb6033ae38aa36f1728e9e537"
 	if checksum := catalog.Checksum(); checksum != wantChecksum {
 		t.Fatalf("checksum = %q, want %q", checksum, wantChecksum)
+	}
+}
+
+func TestAccountPermissionsSeparateGlobalSecurityFromScopedAdmission(t *testing.T) {
+	catalog := CurrentPermissionCatalog()
+	want := map[string]PermissionRisk{
+		"identity.user.read":         PermissionRiskNormal,
+		"identity.security.manage":   PermissionRiskHigh,
+		"product.user-access.manage": PermissionRiskHigh,
+	}
+	for _, definition := range catalog.Definitions() {
+		if risk, ok := want[definition.Code]; ok {
+			if definition.Risk != risk {
+				t.Errorf("permission %q risk = %q, want %q", definition.Code, definition.Risk, risk)
+			}
+			delete(want, definition.Code)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("account permissions missing from catalog: %v", want)
 	}
 }
 

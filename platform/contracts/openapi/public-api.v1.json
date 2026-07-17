@@ -372,13 +372,47 @@
         "responses": { "201": { "$ref": "#/components/responses/AdminMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": ["Identity"], "operationId": "registerUser", "summary": "Register a global user inside the trusted client context",
+        "security": [{ "ClientSessionBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterUserRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/IssuedUserSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/session": {
+      "get": {
+        "tags": ["Identity"], "operationId": "getCurrentUserSession", "summary": "Resolve the current user and trusted access decision",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/CurrentUserSession" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/recovery/start": {
+      "post": {
+        "tags": ["Identity"], "operationId": "startPasswordRecovery", "summary": "Start a non-enumerating password recovery challenge",
+        "security": [{ "ClientSessionBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StartRecoveryRequest" } } } },
+        "responses": { "202": { "$ref": "#/components/responses/RecoveryChallenge" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/auth/recovery/complete": {
+      "post": {
+        "tags": ["Identity"], "operationId": "completePasswordRecovery", "summary": "Consume a one-time recovery proof and replace the password",
+        "security": [{ "ClientSessionBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompleteRecoveryRequest" } } } },
+        "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": ["Identity"], "operationId": "login", "summary": "Authenticate a user inside the trusted client context",
         "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "Authentication attempts are rate-limited security events and are not business mutations.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/UserSession" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/IssuedUserSession" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/auth/external/{provider}/start": {
@@ -394,10 +428,62 @@
     "/api/v1/auth/external/wechat/exchange": {
       "post": {
         "tags": ["Identity"], "operationId": "exchangeWechatCode", "summary": "Exchange a one-time WeChat code using the bound Application configuration",
-        "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "Provider code and flow_id are single-use replay controls.",
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "security": [{ "ClientSessionBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WechatExchangeRequest" } } } },
         "responses": { "200": { "$ref": "#/components/responses/ExternalExchange" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/profile": {
+      "get": {
+        "tags": ["Identity"], "operationId": "getCurrentUserProfile", "summary": "Read the current user's profile",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserProfile" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "patch": {
+        "tags": ["Identity"], "operationId": "updateCurrentUserProfile", "summary": "Update the current user's profile with optimistic concurrency",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateUserProfileRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserProfile" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/password": {
+      "put": {
+        "tags": ["Identity"], "operationId": "changeCurrentUserPassword", "summary": "Change the password after recent authentication",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChangePasswordRequest" } } } },
+        "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/sessions": {
+      "get": {
+        "tags": ["Identity"], "operationId": "listCurrentUserSessions", "summary": "List redacted sessions for the current user",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserSessionPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/sessions/{session_id}": {
+      "parameters": [{ "name": "session_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }],
+      "delete": {
+        "tags": ["Identity"], "operationId": "revokeCurrentUserSession", "summary": "Revoke one session owned by the current user",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/access": {
+      "get": {
+        "tags": ["Account"], "operationId": "getCurrentAccountAccessSummary", "summary": "Read a non-authoritative explanation of current identity and scoped admission state",
+        "security": [{ "UserBearer": [] }],
+        "description": "This projection is for account UI only. Protected operations independently run the Account Access Decision Workflow with a server-owned operation policy; clients cannot use this response as authorization.",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ProductUserAccessDecision" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/account/external-identities": {
+      "get": {
+        "tags": ["Identity"], "operationId": "listCurrentUserExternalIdentities", "summary": "List redacted external identities linked to the current user",
+        "security": [{ "UserBearer": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ExternalIdentityPage" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/account/external-identities/{provider}/link": {
@@ -421,7 +507,7 @@
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "tags": ["Identity"], "operationId": "refreshSession", "summary": "Rotate a refresh token and issue a new token pair",
+        "tags": ["Identity"], "operationId": "refreshSession", "summary": "Rotate a refresh token and issue a new token pair", "description": "client_request_id is the narrow retry key. Repeating the same request after a lost response returns the same replacement result during the recovery window; presenting the old token under a different request id is replay and revokes the family.",
         "security": [], "x-idempotency-exemption": "Refresh-token rotation has dedicated concurrency and replay semantics.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
@@ -434,6 +520,69 @@
         "security": [{ "UserBearer": [] }], "x-idempotency-exemption": "Revoking an already-revoked current session is a stable no-op.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
         "responses": { "204": { "$ref": "#/components/responses/NoContent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": ["Identity"], "operationId": "listUsers", "summary": "List redacted users within the administrator's authorized scope",
+        "description": "This global collection requires platform scope. Product and tenant administrators must use their scoped workspace collection.",
+        "x-required-permission": "identity.user.read", "x-required-scope": "platform",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/users": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
+      "get": {
+        "tags": ["Account"], "operationId": "listProductUsers", "summary": "List redacted users admitted to the authorized product workspace",
+        "x-required-permission": "identity.user.read", "x-required-scope": "product",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/users": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }],
+      "get": {
+        "tags": ["Account"], "operationId": "listTenantUsers", "summary": "List redacted users admitted to the authorized tenant workspace",
+        "x-required-permission": "identity.user.read", "x-required-scope": "tenant",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/security-status": {
+      "parameters": [{ "name": "user_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }],
+      "put": {
+        "tags": ["Identity"], "operationId": "setGlobalUserSecurityStatus", "summary": "Change global user security status with platform-scoped high-risk permission",
+        "x-required-permission": "identity.security.manage", "x-required-scope": "platform", "x-recent-auth-required": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetGlobalUserSecurityStatusRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserAccessMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/users/{user_id}/access": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "name": "user_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }],
+      "put": {
+        "tags": ["ProductUserAccess"], "operationId": "setProductUserAccessStatus", "summary": "Change product admission without changing global identity or entitlement",
+        "x-required-permission": "product.user-access.manage", "x-required-scope": "product", "x-recent-auth-required": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetProductUserAccessStatusRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserAccessMutation" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/access": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "user_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }],
+      "put": {
+        "tags": ["ProductUserAccess"], "operationId": "setTenantUserAccessStatus", "summary": "Change tenant admission without changing product admission, global identity, or entitlement",
+        "x-required-permission": "product.user-access.manage", "x-required-scope": "tenant", "x-recent-auth-required": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetProductUserAccessStatusRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserAccessMutation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/auth/login": {
@@ -794,13 +943,21 @@
       "AssemblyLifecycleOperation": { "description": "Durable lifecycle execution state and safe recovery evidence", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssemblyLifecycleOperation" } } } },
       "AdminMutation": { "description": "Audited mutation result", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminMutationResult" } } } },
       "VersionedAdminResult": { "description": "Versioned audited result", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VersionedAdminResult" } } } },
-      "UserSession": { "description": "User session", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSession" } } } },
-      "TokenPair": { "description": "Rotated token pair", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPair" } } } },
+      "IssuedUserSession": { "description": "Newly issued user session; credentials are returned only from authentication mutations", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSession" } } } },
+      "CurrentUserSession": { "description": "Current user session projection without access or refresh credentials", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CurrentUserSession" } } } },
+      "RecoveryChallenge": { "description": "Non-enumerating recovery acknowledgement", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecoveryChallenge" } } } },
+      "UserProfile": { "description": "Current user profile", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserProfile" } } } },
+      "UserSessionPage": { "description": "Redacted sessions owned by the current user", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSessionPage" } } } },
+      "ProductUserAccessDecision": { "description": "Trusted global, product, tenant, then entitlement access decision", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductUserAccessDecision" } } } },
+      "UserPage": { "description": "Scoped redacted user page", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserPage" } } } },
+      "UserAccessMutation": { "description": "Audited identity or scoped admission mutation", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserAccessMutation" } } } },
+      "TokenPair": { "description": "Rotated token pair", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPair" } } } },
       "AdminSession": { "description": "Administrator identity, current server authorization snapshot and session expiry. Cookie transport sets both management cookies; bearer transport returns token_pair. Responses must use Cache-Control: no-store.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Set-Cookie": { "description": "Cookie transport may emit separate access and rotating refresh Set-Cookie headers with the attributes fixed by the Identity contract.", "schema": { "type": "string" } }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminSession" } } } },
       "AdminLogout": { "description": "Administrator token family revoked. Cookie transport expires both cookies using their original Path and security attributes.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "X-Audit-Id": { "description": "Session-revocation audit event identifier.", "schema": { "type": "string" } }, "Set-Cookie": { "description": "Separate expired access and refresh cookies.", "schema": { "type": "string" } }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } } },
       "ExternalLoginFlow": { "description": "One-time external flow", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalLoginFlow" } } } },
       "ExternalExchange": { "description": "Platform session or explicit conflict", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalExchangeResult" } } } },
       "ExternalIdentity": { "description": "Redacted linked identity", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalIdentity" } } } },
+      "ExternalIdentityPage": { "description": "Redacted linked identities for the current user", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalIdentityPage" } } } },
       "EntitlementDecision": { "description": "Authoritative entitlement decision", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementDecision" } } } },
       "EntitlementGrant": { "description": "Entitlement grant", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementGrant" } } } },
       "DevicePage": { "description": "Redacted devices", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DevicePage" } } } },
@@ -909,16 +1066,33 @@
       "Tenant": { "type": "object", "required": ["tenant_id", "product_id", "tenant_type", "status", "audit_id"], "properties": { "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_type": { "type": "string", "const": "agent" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
       "TenantSummary": { "type": "object", "required": ["tenant_id", "product_id", "tenant_code", "name", "tenant_type", "status", "context_version", "created_at", "updated_at"], "properties": { "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_code": { "$ref": "#/components/schemas/StableCode" }, "name": { "type": "string" }, "tenant_type": { "type": "string", "enum": ["official", "agent"] }, "status": { "type": "string", "enum": ["active", "suspended"] }, "external_agent_ref": { "type": ["string", "null"], "maxLength": 128 }, "context_version": { "type": "integer", "minimum": 1 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "updated_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "BindTenantAdminRequest": { "type": "object", "required": ["user_id", "role_code"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "role_code": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "RegisterUserRequest": { "type": "object", "required": ["identifier", "credential", "verification_proof"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 12, "writeOnly": true }, "verification_proof": { "type": "string", "minLength": 16, "writeOnly": true }, "display_name": { "type": "string", "maxLength": 128 } }, "additionalProperties": false },
       "LoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "device_risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
       "TokenPair": { "type": "object", "required": ["access_token", "refresh_token", "expires_at"], "properties": { "access_token": { "type": "string" }, "refresh_token": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
       "UserSession": { "allOf": [{ "$ref": "#/components/schemas/TokenPair" }, { "type": "object", "required": ["user"], "properties": { "user": { "type": "object", "required": ["user_id", "account_status"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "account_status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "display_name": { "type": "string" } } } } }] },
+      "CurrentUserSession": { "type": "object", "required": ["session_id", "user", "access_expires_at", "refresh_expires_at"], "properties": { "session_id": { "$ref": "#/components/schemas/Identifier" }, "user": { "$ref": "#/components/schemas/UserSummary" }, "access_expires_at": { "$ref": "#/components/schemas/Timestamp" }, "refresh_expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "StartRecoveryRequest": { "type": "object", "required": ["identifier"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 } }, "additionalProperties": false },
+      "RecoveryChallenge": { "type": "object", "required": ["accepted", "continuation_id"], "properties": { "accepted": { "type": "boolean", "const": true }, "continuation_id": { "$ref": "#/components/schemas/Identifier", "description": "Always returned from the same opaque namespace, including when no account exists." } }, "additionalProperties": false },
+      "CompleteRecoveryRequest": { "type": "object", "required": ["continuation_id", "recovery_proof", "new_credential"], "properties": { "continuation_id": { "$ref": "#/components/schemas/Identifier" }, "recovery_proof": { "type": "string", "minLength": 16, "writeOnly": true }, "new_credential": { "type": "string", "minLength": 12, "writeOnly": true } }, "additionalProperties": false },
+      "UserProfile": { "type": "object", "required": ["user_id", "version"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "version": { "type": "integer", "minimum": 1 }, "display_name": { "type": ["string", "null"], "maxLength": 128 }, "avatar_url": { "type": ["string", "null"], "format": "uri" }, "locale": { "type": ["string", "null"], "maxLength": 32 }, "timezone": { "type": ["string", "null"], "maxLength": 64 } }, "additionalProperties": false },
+      "UpdateUserProfileRequest": { "type": "object", "required": ["expected_version"], "properties": { "expected_version": { "type": "integer", "minimum": 1 }, "display_name": { "type": ["string", "null"], "maxLength": 128 }, "avatar_url": { "type": ["string", "null"], "format": "uri" }, "locale": { "type": ["string", "null"], "maxLength": 32 }, "timezone": { "type": ["string", "null"], "maxLength": 64 } }, "additionalProperties": false },
+      "ChangePasswordRequest": { "type": "object", "required": ["current_credential", "new_credential", "recent_auth_proof", "revoke_other_sessions"], "properties": { "current_credential": { "type": "string", "minLength": 1, "writeOnly": true }, "new_credential": { "type": "string", "minLength": 12, "writeOnly": true }, "recent_auth_proof": { "type": "string", "minLength": 16, "writeOnly": true }, "revoke_other_sessions": { "type": "boolean" } }, "additionalProperties": false },
+      "UserSessionSummary": { "type": "object", "required": ["session_id", "current", "created_at", "last_seen_at", "expires_at"], "properties": { "session_id": { "$ref": "#/components/schemas/Identifier" }, "current": { "type": "boolean" }, "device_label": { "type": ["string", "null"], "maxLength": 120 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "last_seen_at": { "$ref": "#/components/schemas/Timestamp" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "UserSessionPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/UserSessionSummary" } } }, "additionalProperties": false },
+      "ProductUserAccessDecision": { "type": "object", "required": ["allowed", "decision_stage", "reason_code"], "properties": { "allowed": { "type": "boolean" }, "decision_stage": { "type": "string", "enum": ["identity", "product", "tenant", "entitlement", "allowed"] }, "reason_code": { "type": ["string", "null"], "enum": [null, "IDENTITY_ACCOUNT_DISABLED", "PRODUCT_USER_ACCESS_SUSPENDED", "TENANT_USER_ACCESS_SUSPENDED", "ENTITLEMENT_REQUIRED", "ENTITLEMENT_EXPIRED"] } }, "additionalProperties": false },
+      "UserSummary": { "type": "object", "required": ["user_id", "account_status"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "account_status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "display_name": { "type": ["string", "null"] }, "product_id": { "type": ["string", "null"] }, "tenant_id": { "type": ["string", "null"] }, "access_version": { "type": ["integer", "null"], "minimum": 1 }, "product_access_status": { "type": ["string", "null"], "enum": [null, "active", "suspended"] }, "tenant_access_status": { "type": ["string", "null"], "enum": [null, "active", "suspended"] } }, "additionalProperties": false },
+      "UserPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/UserSummary" } }, "next_cursor": { "type": ["string", "null"] } }, "additionalProperties": false },
+      "SetGlobalUserSecurityStatusRequest": { "type": "object", "required": ["expected_version", "status", "reason_code", "recent_auth_proof"], "properties": { "expected_version": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "reason_code": { "$ref": "#/components/schemas/StableCode" }, "operator_note": { "type": "string", "maxLength": 500, "pattern": "^[^\\r\\n\\t]*$" }, "recent_auth_proof": { "type": "string", "minLength": 16, "writeOnly": true } }, "additionalProperties": false },
+      "SetProductUserAccessStatusRequest": { "type": "object", "required": ["expected_version", "status", "reason_code", "recent_auth_proof"], "properties": { "expected_version": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["active", "suspended"] }, "reason_code": { "$ref": "#/components/schemas/StableCode" }, "operator_note": { "type": "string", "maxLength": 500, "pattern": "^[^\\r\\n\\t]*$" }, "recent_auth_proof": { "type": "string", "minLength": 16, "writeOnly": true } }, "additionalProperties": false },
+      "UserAccessMutation": { "type": "object", "required": ["user_id", "scope_type", "status", "version", "audit_id"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "scope_type": { "type": "string", "enum": ["platform", "product", "tenant"] }, "scope_id": { "type": ["string", "null"] }, "status": { "type": "string", "enum": ["active", "locked", "disabled", "suspended"] }, "version": { "type": "integer", "minimum": 1 }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
       "StartExternalLoginRequest": { "type": "object", "required": ["mode", "return_target_code"], "properties": { "mode": { "type": "string", "enum": ["redirect", "qr", "native"] }, "return_target_code": { "$ref": "#/components/schemas/Identifier" }, "risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
       "ExternalLoginFlow": { "type": "object", "required": ["flow_id", "expires_at"], "properties": { "flow_id": { "$ref": "#/components/schemas/Identifier" }, "authorization_url": { "type": "string", "format": "uri" }, "qr_payload": { "type": "string" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
       "WechatExchangeRequest": { "type": "object", "required": ["code", "flow_id"], "properties": { "code": { "type": "string", "minLength": 1, "writeOnly": true }, "flow_id": { "$ref": "#/components/schemas/Identifier" }, "device_risk_summary": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
       "ExternalExchangeResult": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "enum": ["authenticated", "link_required", "conflict", "review_required"] }, "session": { "$ref": "#/components/schemas/UserSession" }, "proof_id": { "$ref": "#/components/schemas/Identifier" } } },
       "LinkExternalIdentityRequest": { "type": "object", "required": ["external_proof_id"], "properties": { "external_proof_id": { "$ref": "#/components/schemas/Identifier" }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
       "ExternalIdentity": { "type": "object", "required": ["external_identity_id", "provider", "status", "linked_at", "audit_id"], "properties": { "external_identity_id": { "$ref": "#/components/schemas/Identifier" }, "provider": { "type": "string" }, "masked_subject": { "type": "string" }, "status": { "type": "string", "enum": ["active", "revoked"] }, "linked_at": { "$ref": "#/components/schemas/Timestamp" }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },
-      "RefreshRequest": { "type": "object", "required": ["refresh_token"], "properties": { "refresh_token": { "type": "string", "minLength": 16, "writeOnly": true } }, "additionalProperties": false },
+      "ExternalIdentityPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalIdentity" } } }, "additionalProperties": false },
+      "RefreshRequest": { "type": "object", "required": ["refresh_token", "client_request_id"], "properties": { "refresh_token": { "type": "string", "minLength": 16, "writeOnly": true }, "client_request_id": { "type": "string", "minLength": 16, "maxLength": 128 } }, "additionalProperties": false },
       "AdminControlledClientProof": { "type": "object", "required": ["client_id", "credential_id", "proof_type", "proof"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "credential_id": { "$ref": "#/components/schemas/Identifier" }, "proof_type": { "type": "string", "const": "shared_secret_v1" }, "proof": { "type": "string", "minLength": 43, "maxLength": 512, "writeOnly": true, "description": "At least 256 bits of random secret material, delivered once and never returned or logged." } }, "additionalProperties": false },
       "AdminLoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "transport": { "type": "string", "enum": ["cookie", "bearer"], "default": "cookie", "description": "Browsers use cookie. Bearer is only a request intent and also requires controlled_client." }, "controlled_client": { "$ref": "#/components/schemas/AdminControlledClientProof" }, "risk_summary": { "type": "object", "additionalProperties": true } }, "allOf": [{ "if": { "required": ["transport"], "properties": { "transport": { "const": "bearer" } } }, "then": { "required": ["controlled_client"] }, "else": { "properties": { "controlled_client": false } } }], "additionalProperties": false },
       "AdminRefreshRequest": { "type": "object", "properties": { "transport": { "type": "string", "enum": ["cookie", "bearer"], "default": "cookie" }, "refresh_token": { "type": "string", "minLength": 32, "writeOnly": true, "description": "Required only for bearer transport; cookie transport rejects body token material." }, "controlled_client": { "$ref": "#/components/schemas/AdminControlledClientProof" } }, "allOf": [{ "if": { "required": ["transport"], "properties": { "transport": { "const": "bearer" } } }, "then": { "required": ["refresh_token", "controlled_client"] }, "else": { "properties": { "refresh_token": false, "controlled_client": false } } }], "additionalProperties": false },
@@ -954,12 +1128,12 @@
       "CreateOfferRequest": { "type": "object", "required": ["offer_code", "draft", "tenant_scope"], "properties": { "offer_code": { "$ref": "#/components/schemas/Identifier" }, "tenant_scope": { "type": "string", "enum": ["official", "selected_tenant"] }, "tenant_id": { "$ref": "#/components/schemas/Identifier" }, "draft": { "type": "object", "required": ["display_name", "billing_kind"], "properties": { "display_name": { "type": "string" }, "description": { "type": "string" }, "billing_kind": { "type": "string", "enum": ["free", "trial", "fixed_term", "lifetime", "usage_credit"] }, "entitlement_policy": { "type": "object", "additionalProperties": true }, "feature_items": { "type": "array", "items": { "type": "object" } }, "device_limit": { "type": "integer", "minimum": 0 } } } }, "additionalProperties": false },
       "PublishOfferRequest": { "type": "object", "required": ["draft_offer_version_id", "prices", "effective_at"], "properties": { "draft_offer_version_id": { "$ref": "#/components/schemas/Identifier" }, "prices": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["currency", "amount_minor", "scope", "valid_from"], "properties": { "currency": { "$ref": "#/components/schemas/Currency" }, "amount_minor": { "type": "integer", "minimum": 0 }, "compare_at_amount_minor": { "type": ["integer", "null"], "minimum": 0 }, "scope": { "type": "string", "enum": ["official", "tenant", "application_restricted"] }, "valid_from": { "$ref": "#/components/schemas/Timestamp" }, "valid_until": { "type": ["string", "null"], "format": "date-time" } } } }, "effective_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "OrderStatus": { "type": "string", "enum": ["pending_payment", "payment_confirmed", "completed", "cancelled", "expired", "refund_pending", "partially_refunded", "refunded", "review_required"] },
-      "CreateOrderRequest": { "type": "object", "required": ["catalog_snapshot_id", "snapshot_hash", "purchase_confirmed"], "properties": { "catalog_snapshot_id": { "$ref": "#/components/schemas/Identifier" }, "snapshot_hash": { "type": "string", "minLength": 32 }, "purchase_confirmed": { "type": "boolean", "const": true }, "interaction_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "CreateOrderRequest": { "type": "object", "required": ["catalog_snapshot_id", "snapshot_hash", "purchase_confirmed"], "properties": { "catalog_snapshot_id": { "$ref": "#/components/schemas/Identifier" }, "snapshot_hash": { "type": "string", "minLength": 32 }, "purchase_confirmed": { "type": "boolean", "const": true } }, "additionalProperties": false },
       "Order": { "type": "object", "required": ["order_id", "order_number", "status", "currency", "subtotal_minor", "discount_minor", "tax_minor", "total_minor", "paid_minor", "refunded_minor", "expires_at", "created_at"], "properties": { "order_id": { "$ref": "#/components/schemas/Identifier" }, "order_number": { "type": "string" }, "status": { "$ref": "#/components/schemas/OrderStatus" }, "currency": { "$ref": "#/components/schemas/Currency" }, "subtotal_minor": { "type": "integer", "minimum": 0 }, "discount_minor": { "type": "integer", "minimum": 0 }, "tax_minor": { "type": "integer", "minimum": 0 }, "total_minor": { "type": "integer", "minimum": 0 }, "paid_minor": { "type": "integer", "minimum": 0 }, "refunded_minor": { "type": "integer", "minimum": 0 }, "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "available_actions": { "type": "array", "items": { "type": "string" } }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "completed_at": { "type": ["string", "null"], "format": "date-time" } } },
       "ReasonRequest": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 } }, "additionalProperties": false },
       "CreatePaymentIntentRequest": { "type": "object", "required": ["order_id"], "properties": { "order_id": { "$ref": "#/components/schemas/Identifier" }, "preferred_channel": { "type": "string", "enum": ["wechat_native", "wechat_jsapi", "wechat_h5", "wechat_app", "wechat_miniprogram"] } }, "additionalProperties": false },
       "PaymentIntent": { "type": "object", "required": ["payment_intent_id", "order_id", "amount_minor", "currency", "status", "available_channels", "expires_at", "created_at"], "properties": { "payment_intent_id": { "$ref": "#/components/schemas/Identifier" }, "order_id": { "$ref": "#/components/schemas/Identifier" }, "amount_minor": { "type": "integer", "minimum": 1 }, "currency": { "$ref": "#/components/schemas/Currency" }, "status": { "type": "string", "enum": ["requires_payment", "processing", "succeeded", "failed", "cancelled", "expired", "review_required"] }, "available_channels": { "type": "array", "items": { "type": "string" } }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "succeeded_at": { "type": ["string", "null"], "format": "date-time" } } },
-      "CreateCashierSessionRequest": { "type": "object", "required": ["channel"], "properties": { "channel": { "type": "string", "enum": ["wechat_native", "wechat_jsapi", "wechat_h5", "wechat_app", "wechat_miniprogram"] }, "hosted_interaction_id": { "$ref": "#/components/schemas/Identifier" }, "sdk_session_ref": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "CreateCashierSessionRequest": { "type": "object", "required": ["channel"], "properties": { "channel": { "type": "string", "enum": ["wechat_native", "wechat_jsapi", "wechat_h5", "wechat_app", "wechat_miniprogram"] }, "sdk_session_ref": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
       "CashierSession": { "type": "object", "required": ["cashier_session_id", "payment_intent_id", "channel", "status", "expires_at"], "properties": { "cashier_session_id": { "$ref": "#/components/schemas/Identifier" }, "payment_intent_id": { "$ref": "#/components/schemas/Identifier" }, "channel": { "type": "string" }, "status": { "type": "string", "enum": ["created", "provider_ready", "presented", "completed", "cancelled", "expired"] }, "display": { "type": "object", "additionalProperties": true }, "launch_parameters": { "type": "object", "description": "Channel-minimized short-lived parameters; never contains reusable provider credentials.", "additionalProperties": true }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } } },
       "CreateRefundRequest": { "type": "object", "required": ["order_id", "amount_minor", "reason", "commerce_process_id"], "properties": { "order_id": { "$ref": "#/components/schemas/Identifier" }, "amount_minor": { "type": "integer", "minimum": 1 }, "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "commerce_process_id": { "$ref": "#/components/schemas/Identifier" }, "recent_auth_proof": { "type": "string", "writeOnly": true } }, "additionalProperties": false },
       "Refund": { "type": "object", "required": ["refund_id", "payment_intent_id", "amount_minor", "currency", "status", "audit_id"], "properties": { "refund_id": { "$ref": "#/components/schemas/Identifier" }, "payment_intent_id": { "$ref": "#/components/schemas/Identifier" }, "amount_minor": { "type": "integer", "minimum": 1 }, "currency": { "$ref": "#/components/schemas/Currency" }, "status": { "type": "string", "enum": ["requested", "submitted", "processing", "succeeded", "failed", "cancelled", "review_required"] }, "audit_id": { "$ref": "#/components/schemas/Identifier" } } },

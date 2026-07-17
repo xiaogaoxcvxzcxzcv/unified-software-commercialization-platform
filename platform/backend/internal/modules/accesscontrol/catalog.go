@@ -10,7 +10,7 @@ import (
 	"sort"
 )
 
-const PermissionCatalogVersion = "1.4.0"
+const PermissionCatalogVersion = "1.5.0"
 
 var (
 	ErrInvalidPermissionCatalog = errors.New("invalid permission catalog")
@@ -55,11 +55,14 @@ var currentPermissionCatalog = mustPermissionCatalog(
 		{Code: "audit.read", Description: "Read security and operation audit events", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "entitlement.manage", Description: "Manage product entitlements", Risk: PermissionRiskHigh, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "identity.manage", Description: "Manage user and administrator identity security", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
+		{Code: "identity.security.manage", Description: "Manage global user security status and revoke global sessions", Risk: PermissionRiskHigh, grantToBootstrapPlatformSuperAdmin: true},
+		{Code: "identity.user.read", Description: "Read redacted end-user identity and session summaries", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "platform.read", Description: "Read platform-level operational information", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "product.application.manage", Description: "Create and manage product applications", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "product.application.security.manage", Description: "Manage application redirects, client bindings, and credentials", Risk: PermissionRiskHigh, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "product.manage", Description: "Create and manage software products and applications", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "product.read", Description: "Read software product information", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
+		{Code: "product.user-access.manage", Description: "Manage end-user admission within an authorized product or tenant scope", Risk: PermissionRiskHigh, grantToBootstrapPlatformSuperAdmin: true},
 		{Code: "tenant.manage", Description: "Manage product tenant scopes", Risk: PermissionRiskNormal, grantToBootstrapPlatformSuperAdmin: true},
 	},
 )

@@ -23,17 +23,34 @@ const requiredOperations = new Set([
   "POST /api/v1/admin/products/{product_id}/applications/{application_id}/suspend",
   "POST /api/v1/admin/products/{product_id}/tenants",
   "POST /api/v1/admin/products/{product_id}/tenants/{tenant_id}/admins",
+  "POST /api/v1/auth/register",
   "POST /api/v1/auth/login",
+  "GET /api/v1/auth/session",
+  "POST /api/v1/auth/recovery/start",
+  "POST /api/v1/auth/recovery/complete",
   "POST /api/v1/auth/external/{provider}/start",
   "POST /api/v1/auth/external/wechat/exchange",
   "POST /api/v1/account/external-identities/{provider}/link",
   "DELETE /api/v1/account/external-identities/{external_identity_id}",
+  "GET /api/v1/account/external-identities",
+  "GET /api/v1/account/profile",
+  "PATCH /api/v1/account/profile",
+  "PUT /api/v1/account/password",
+  "GET /api/v1/account/sessions",
+  "DELETE /api/v1/account/sessions/{session_id}",
+  "GET /api/v1/account/access",
   "POST /api/v1/auth/refresh",
   "POST /api/v1/auth/logout",
   "POST /api/v1/admin/auth/login",
   "GET /api/v1/admin/auth/session",
   "POST /api/v1/admin/auth/refresh",
   "POST /api/v1/admin/auth/logout",
+  "GET /api/v1/admin/users",
+  "GET /api/v1/admin/products/{product_id}/users",
+  "GET /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users",
+  "PUT /api/v1/admin/users/{user_id}/security-status",
+  "PUT /api/v1/admin/products/{product_id}/users/{user_id}/access",
+  "PUT /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/access",
   "POST /api/v1/admin/assembly-runs/{run_id}/cancel",
   "GET /api/v1/admin/assemblies/{assembly_id}/lifecycle-source",
   "POST /api/v1/admin/assemblies/{assembly_id}/upgrade-plans",
@@ -72,6 +89,14 @@ const requiredOperations = new Set([
   "GET /api/v1/admin/audit/events"
 ]);
 const foundOperations = new Set();
+const accountAdminPolicies = new Map([
+  ["GET /api/v1/admin/users", ["identity.user.read", "platform", false]],
+  ["GET /api/v1/admin/products/{product_id}/users", ["identity.user.read", "product", false]],
+  ["GET /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users", ["identity.user.read", "tenant", false]],
+  ["PUT /api/v1/admin/users/{user_id}/security-status", ["identity.security.manage", "platform", true]],
+  ["PUT /api/v1/admin/products/{product_id}/users/{user_id}/access", ["product.user-access.manage", "product", true]],
+  ["PUT /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/access", ["product.user-access.manage", "tenant", true]]
+]);
 
 for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
   if (!path.startsWith("/")) errors.push(`invalid path: ${path}`);
@@ -120,12 +145,34 @@ for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
       const hasAdminCsrfToken = parameters.some((parameter) => parameter.$ref === "#/components/parameters/AdminCsrfToken" || parameter.name === "X-CSRF-Token");
       if (!hasAdminCsrfToken) errors.push(`${location} needs conditional X-CSRF-Token for administrator Cookie transport`);
     }
+    const accountPolicy = accountAdminPolicies.get(location);
+    if (accountPolicy) {
+      const [permission, scope, recentAuth] = accountPolicy;
+      if (operation["x-required-permission"] !== permission) errors.push(`${location} must require permission ${permission}`);
+      if (operation["x-required-scope"] !== scope) errors.push(`${location} must require ${scope} scope`);
+      if (recentAuth && operation["x-recent-auth-required"] !== true) errors.push(`${location} must require recent authentication`);
+    }
   }
 }
 
 for (const requiredOperation of requiredOperations) {
   if (!foundOperations.has(requiredOperation)) errors.push(`required operation is missing: ${requiredOperation}`);
 }
+
+const currentSessionResponse = document.paths?.["/api/v1/auth/session"]?.get?.responses?.["200"]?.$ref;
+if (currentSessionResponse !== "#/components/responses/CurrentUserSession") {
+  errors.push("GET /api/v1/auth/session must return the credential-free CurrentUserSession response");
+}
+const currentSessionProperties = document.components?.schemas?.CurrentUserSession?.properties ?? {};
+for (const forbidden of ["access_token", "refresh_token", "token_pair"]) {
+  if (Object.hasOwn(currentSessionProperties, forbidden)) errors.push(`CurrentUserSession must not contain ${forbidden}`);
+}
+for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPair"]) {
+  const cacheControl = document.components?.responses?.[responseName]?.headers?.["Cache-Control"]?.schema?.const;
+  if (cacheControl !== "no-store") errors.push(`${responseName} response must declare Cache-Control: no-store`);
+}
+const recoveryRequired = document.components?.schemas?.RecoveryChallenge?.required ?? [];
+if (!recoveryRequired.includes("continuation_id")) errors.push("RecoveryChallenge must always return an opaque continuation_id");
 
 function visit(value, location = "#") {
   if (!value || typeof value !== "object") return;

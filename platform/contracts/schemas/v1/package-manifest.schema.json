@@ -5,13 +5,13 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "package_id", "version", "name", "user_value",
+    "schema_version", "package_id", "version", "name", "user_value", "lifecycle_status",
     "availability", "dependencies", "conflicts", "supported_targets",
     "supported_delivery_modes", "required_permissions", "backend_capabilities",
     "migrations", "events", "audit_actions", "admin_blocks", "client_blocks",
     "hosted_routes", "ui_template_compatibility", "public_api_operations",
     "sdk_modules", "sdk_methods", "stable_errors", "config_schema_path",
-    "secret_refs", "provider_requirements", "generated_outputs", "source_locations",
+    "secret_refs", "provider_requirements", "optional_provider_requirements", "generated_outputs", "source_locations",
     "extension_points", "test_paths", "smoke_tests", "documentation_paths",
     "upgrade_policy", "rollback_policy", "data_retention", "content_files",
     "content_tree_sha256", "manifest_sha256"
@@ -22,7 +22,8 @@
     "version": { "$ref": "common.schema.json#/$defs/semver" },
     "name": { "type": "string", "minLength": 1, "maxLength": 128 },
     "user_value": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "availability": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/availability" } },
+    "lifecycle_status": { "type": "string", "enum": ["draft", "contracted", "implemented", "verified", "available", "deprecated"] },
+    "availability": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/availability" } },
     "dependencies": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
     "conflicts": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/packageRequirement" } },
     "supported_targets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/target" } },
@@ -43,6 +44,7 @@
     "config_schema_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
     "secret_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/secretRef" } },
     "provider_requirements": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
+    "optional_provider_requirements": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
     "generated_outputs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/generatedOutput" } },
     "source_locations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
     "extension_points": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
@@ -56,6 +58,44 @@
     "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
     "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "lifecycle_status": { "enum": ["draft", "contracted", "implemented", "deprecated"] } }, "required": ["lifecycle_status"] },
+      "then": { "properties": { "availability": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "lifecycle_status": { "const": "verified" } }, "required": ["lifecycle_status"] },
+      "then": {
+        "properties": {
+          "availability": {
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                { "$ref": "#/$defs/availability" },
+                { "properties": { "visibility": { "const": "experimental" }, "readiness": { "const": "verified" } } }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "lifecycle_status": { "const": "available" } }, "required": ["lifecycle_status"] },
+      "then": {
+        "properties": {
+          "availability": {
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                { "$ref": "#/$defs/availability" },
+                { "properties": { "visibility": { "const": "ordinary" }, "readiness": { "const": "available" } } }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "availability": {
       "type": "object", "additionalProperties": false,
