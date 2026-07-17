@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,7 +164,7 @@ func (s *EndUserService) Register(ctx context.Context, command EndUserRegisterCo
 		profileName = "User"
 	}
 	identifierDigest := s.hasher.Digest("identifier\x00" + normalized.Value)
-	idempotency := EndUserIdempotency{Operation: "register", ScopeID: trustedScopeID(command.Scope), ActorDigest: identifierDigest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.hasher.Digest("register-request\x00" + normalized.Value + "\x00" + command.Credential + "\x00" + command.VerificationProof + "\x00" + profileName)}
+	idempotency := EndUserIdempotency{Operation: "register", ScopeID: trustedScopeID(command.Scope), ActorDigest: identifierDigest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.requestDigest("register-request", normalized.Value, command.Credential, command.VerificationProof, profileName)}
 	if persisted, found, err := s.repository.RecoverEndUserRegistration(ctx, idempotency); err != nil {
 		return EndUserIssuedSession{}, err
 	} else if found {
@@ -513,7 +514,7 @@ func (s *EndUserService) ChangePasswordResolved(ctx context.Context, accessToken
 }
 
 func (s *EndUserService) passwordChangeRequestDigest(currentPassword, newPassword string, revokeOthers bool) []byte {
-	return s.hasher.Digest(fmt.Sprintf("password-change\x00%s\x00%s\x00%t", currentPassword, newPassword, revokeOthers))
+	return s.requestDigest("password-change", currentPassword, newPassword, strconv.FormatBool(revokeOthers))
 }
 
 func (s *EndUserService) ListSessions(ctx context.Context, accessToken string, scope EndUserSessionScope) ([]EndUserSessionSummary, error) {
@@ -627,7 +628,7 @@ func (s *EndUserService) CompleteRecovery(ctx context.Context, command CompleteE
 		return err
 	}
 	continuationDigest := s.hasher.Digest("recovery-continuation\x00" + command.Continuation)
-	idempotency := EndUserIdempotency{Operation: "recovery_complete", ScopeID: trustedScopeID(command.Scope), ActorDigest: continuationDigest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.hasher.Digest("recovery-complete-request\x00" + command.Continuation + "\x00" + command.Proof + "\x00" + command.NewCredential), Now: now}
+	idempotency := EndUserIdempotency{Operation: "recovery_complete", ScopeID: trustedScopeID(command.Scope), ActorDigest: continuationDigest, KeyDigest: s.hasher.Digest("idempotency-key\x00" + command.IdempotencyKey), RequestDigest: s.requestDigest("recovery-complete-request", command.Continuation, command.Proof, command.NewCredential), Now: now}
 	_, _, err = s.repository.CompleteEndUserRecoveryIdempotent(ctx, idempotency.ScopeID, continuationDigest, s.hasher.Digest("recovery-proof\x00"+command.Proof), hash, "bcrypt", now, event, idempotency)
 	if err != nil {
 		return err
@@ -641,6 +642,18 @@ func (s *EndUserService) normalize(raw string) (NormalizedIdentifier, error) {
 		kind = IdentifierPhone
 	}
 	return s.normalizer.Normalize(kind, raw)
+}
+
+func (s *EndUserService) requestDigest(operation string, fields ...string) []byte {
+	var payload strings.Builder
+	payload.WriteString(operation)
+	for _, field := range fields {
+		payload.WriteByte(0)
+		payload.WriteString(strconv.Itoa(len(field)))
+		payload.WriteByte(':')
+		payload.WriteString(field)
+	}
+	return s.hasher.Digest(payload.String())
 }
 
 func (s *EndUserService) newSession(userID string, scope EndUserSessionScope, method string, riskDigest []byte, now time.Time, traceID string) (EndUserIssuedSession, NewEndUserSession, error) {

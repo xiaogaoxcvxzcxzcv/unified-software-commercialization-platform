@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -10,6 +11,29 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"platform.local/capability-platform/backend/internal/platform/securevalue"
 )
+
+func TestEndUserRequestDigestsPreserveFieldBoundaries(t *testing.T) {
+	hasher, err := securevalue.NewHasher(strings.Repeat("request-digest-pepper-", 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &EndUserService{hasher: hasher}
+	tests := []struct {
+		name        string
+		left, right []string
+	}{
+		{name: "credential proof boundary", left: []string{"user@example.com", "credential\x00", "proof", "User"}, right: []string{"user@example.com", "credential", "\x00proof", "User"}},
+		{name: "password boundary", left: []string{"current\x00", "new", "true"}, right: []string{"current", "\x00new", "true"}},
+		{name: "recovery boundary", left: []string{"continuation\x00", "proof", "new"}, right: []string{"continuation", "\x00proof", "new"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if bytes.Equal(service.requestDigest(test.name, test.left...), service.requestDigest(test.name, test.right...)) {
+				t.Fatal("distinct field tuples produced the same request digest")
+			}
+		})
+	}
+}
 
 type antiEnumerationRepository struct {
 	EndUserRepository

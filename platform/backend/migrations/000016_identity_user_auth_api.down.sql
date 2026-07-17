@@ -3,10 +3,22 @@ BEGIN;
 DO $$
 BEGIN
     IF EXISTS (
-        SELECT 1 FROM product_user_access.outbox_events
-        WHERE event_type = 'product-user-access.command-audited.v1'
+        SELECT 1 FROM identity.end_user_idempotency_records WHERE response_document IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1 FROM identity.end_user_session_tokens
+        WHERE rotation_request_digest IS NOT NULL OR rotation_recovery_expires_at IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1 FROM identity.end_user_login_failures
     ) THEN
-        RAISE EXCEPTION 'migration 000016 rollback refused because durable product user access audit intents exist';
+        RAISE EXCEPTION 'migration 000016 rollback refused because durable identity API state exists';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM product_user_access.idempotency_records WHERE audit_id IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1 FROM product_user_access.outbox_events WHERE payload ? 'audit_id'
+    ) THEN
+        RAISE EXCEPTION 'migration 000016 rollback refused because durable product user access audit identities exist';
     END IF;
 END;
 $$;
