@@ -60,3 +60,11 @@
 - Product 停用不影响同一 User 的其他 Product；Tenant 停用不影响同 Product 其他 Tenant。
 - 未配置外部 Provider 不生成不可用入口，强制启用配置失败。
 - `contracted` Manifest 通过机器 Schema，但两个 runtime catalog 均拒绝/不可见。
+
+## G2A-03 API 组合边界
+
+- `POST /api/v1/auth/register`、`login` 和 `recovery/start` 先解析可信 Client Session；用户请求不能提交或替换 Product/Application/Tenant。
+- `GET /api/v1/auth/session` 及资料、密码、会话、退出和访问摘要接口只使用 UserBearer 对应会话中持久化的可信范围。
+- 注册和找回依赖的 proof verifier / delivery provider 未配置时失败关闭。G2A-03 只封口 Port 与 API 行为，G2A-04 才交付生产 Provider Adapter。
+- Account Access Decision 在本关只对 `requires_entitlement=false` 的账号自助操作组合 Identity 与 Product User Access；不得伪造尚未实现的 Entitlement 结果。
+- 所有 token 对明确返回 `access_expires_at` 与 `refresh_expires_at`；旧的单一 `expires_at` 不属于已冻结 v1 契约。

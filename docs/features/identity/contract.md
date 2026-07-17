@@ -226,3 +226,14 @@ status: active | revoked
 - 回调、origin 和深链白名单来自可信 ApplicationContext 配置，不采用客户端临时提交值。
 - ExternalIdentity 被撤销、账号合并或高风险凭据变更后，相关会话按安全策略撤销。
 - 错误响应不暴露某个微信身份、邮箱或手机号是否已经注册到具体账号。
+
+## G2A-03 用户认证 API 冻结补充
+
+- 注册、登录和找回启动只从已验证的 `ClientSessionBearer` 取得 Product/Application/Tenant 范围；请求体中的任何范围 ID 均不可信且不接受。
+- 用户 access/refresh token 是不透明随机凭据，其数据库记录不可变绑定 Product/Application/Tenant。`UserBearer` 中间件只解析该已存范围，不允许调用方提供另一个范围覆盖；跨范围比较仍使用显式 scope 校验的 Repository 方法。
+- 登录限速键由服务端范围摘要、规范化 identifier 摘要和来源摘要组成。不存在的账号与错误密码使用相同错误包络、相同限速路径和固定成本密码校验。
+- refresh 必须携带 `client_request_id`。首次轮换在同一事务记录其摘要与短恢复窗口；同一旧 refresh 加同一 request ID 在窗口内恢复相同确定性派生的新 token 对，不保存明文或可解密 token；不同 request ID 或窗口外复用撤销整个 family。
+- 注册、找回启动和找回完成使用 `(operation, trusted_scope, actor_digest, idempotency_key_digest)` 边界。相同 key 且 request digest 相同恢复首次终态；request digest 不同返回稳定冲突。
+- 注册验证与找回投递通过公开 Port。G2A-03 在 Port 未配置时失败关闭；真实安全通知 Adapter 属于 G2A-04，不得用日志、固定验证码或演示 Provider 冒充。
+- 密码变更以当前密码和服务端 `auth_time` 完成近期重认证，不接受请求体自称的 `recent_auth_proof`。按请求策略撤销其他会话，当前会话至少轮换或提升版本。
+- token、密码、找回 proof、规范化 identifier 和各类摘要不得进入响应、普通日志或 Outbox；响应一律 `Cache-Control: no-store`。

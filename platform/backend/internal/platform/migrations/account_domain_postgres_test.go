@@ -31,6 +31,7 @@ func TestPostgreSQLAccountDomainMigrationInvariants(t *testing.T) {
 			"identity.recovery_challenges",
 			"identity.external_identities",
 			"identity.end_user_idempotency_records",
+			"identity.end_user_login_failures",
 			"product_user_access.product_access",
 			"product_user_access.tenant_access",
 			"product_user_access.idempotency_records",
@@ -48,7 +49,8 @@ func TestPostgreSQLAccountDomainMigrationInvariants(t *testing.T) {
 		for relation, columns := range map[string][]string{
 			"identity.user_identifiers":          {"identifier_type", "normalized_digest", "masked_value", "verification_status"},
 			"identity.end_user_sessions":         {"product_id", "application_id", "tenant_id", "token_family_id", "refresh_expires_at", "revoked_at"},
-			"identity.end_user_session_tokens":   {"session_id", "token_family_id", "token_type", "generation", "token_digest", "consumed_at"},
+			"identity.end_user_session_tokens":   {"session_id", "token_family_id", "token_type", "generation", "token_digest", "consumed_at", "rotation_request_digest", "rotation_recovery_expires_at"},
+			"identity.end_user_login_failures":   {"scope_id", "identifier_digest", "source_digest", "failure_count", "blocked_until"},
 			"identity.recovery_challenges":       {"continuation_digest", "proof_digest", "expires_at", "consumed_at"},
 			"identity.external_identities":       {"provider", "provider_application_id", "subject_digest", "union_subject_digest"},
 			"product_user_access.product_access": {"product_id", "user_id", "status", "access_version", "operator_note"},
@@ -68,6 +70,26 @@ func TestPostgreSQLAccountDomainMigrationInvariants(t *testing.T) {
 					t.Errorf("column %s.%s is missing", relation, column)
 				}
 			}
+		}
+	})
+
+	t.Run("login throttle facts are scope bound", func(t *testing.T) {
+		for _, scopeID := range []string{"product-a|app-a|tenant-a", "product-b|app-b|tenant-b"} {
+			if _, err := database.Pool.Exec(ctx, `
+				INSERT INTO identity.end_user_login_failures(
+					scope_id, identifier_digest, source_digest, failure_count,
+					window_started_at, last_failed_at, blocked_until
+				) VALUES ($1, decode(repeat('d1', 32), 'hex'), decode(repeat('d2', 32), 'hex'), 1, $2, $2, NULL)
+			`, scopeID, now); err != nil {
+				t.Fatalf("insert login throttle fact for %s: %v", scopeID, err)
+			}
+		}
+		var count int
+		if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_login_failures`).Scan(&count); err != nil {
+			t.Fatalf("count login throttle facts: %v", err)
+		}
+		if count != 2 {
+			t.Fatalf("login throttle fact count = %d, want 2 independently scoped facts", count)
 		}
 	})
 
@@ -180,6 +202,35 @@ func TestPostgreSQLAccountDomainMigrationInvariants(t *testing.T) {
 			          decode(repeat('bc', 32), 'hex'), $1::timestamptz, $1::timestamptz + interval '1 day')
 		`, now); err == nil {
 			t.Fatal("token family from another product session was accepted")
+		}
+	})
+
+	t.Run("refresh recovery metadata is paired and refresh-only", func(t *testing.T) {
+		if _, err := database.Pool.Exec(ctx, `
+			UPDATE identity.end_user_session_tokens
+			SET consumed_at=$2::timestamptz, rotation_request_digest=decode(repeat('e1', 32), 'hex'),
+			    rotation_recovery_expires_at=$2::timestamptz + interval '30 seconds'
+			WHERE token_id=$1
+		`, "refresh-a", now); err != nil {
+			t.Fatalf("store valid refresh recovery metadata: %v", err)
+		}
+		if _, err := database.Pool.Exec(ctx, `
+			UPDATE identity.end_user_session_tokens
+			SET rotation_request_digest=decode(repeat('e2', 32), 'hex'),
+			    rotation_recovery_expires_at=NULL
+			WHERE token_id=$1
+		`, "refresh-a"); err == nil {
+			t.Fatal("unpaired refresh recovery request digest was accepted")
+		}
+		if _, err := database.Pool.Exec(ctx, `
+			INSERT INTO identity.end_user_session_tokens(
+				token_id, session_id, token_family_id, token_type, generation, token_digest,
+				created_at, expires_at, rotation_request_digest, rotation_recovery_expires_at
+			) VALUES ('access-with-recovery', 'session-product-a', 'family-a', 'access', 1,
+			          decode(repeat('e3', 32), 'hex'), $1, $1 + interval '5 minutes',
+			          decode(repeat('e4', 32), 'hex'), $1 + interval '30 seconds')
+		`, now); err == nil {
+			t.Fatal("access token accepted refresh recovery metadata")
 		}
 	})
 
