@@ -459,7 +459,15 @@ func (h *Handler) requireBearer(w http.ResponseWriter, r *http.Request) (BearerP
 		return BearerPrincipal{}, false
 	}
 	p, err := h.auth.ResolveBearer(r.Context(), token)
-	if err != nil || !validBearerPrincipal(p) {
+	if err != nil {
+		if errors.Is(err, ErrAuthenticationRequired) || errors.Is(err, ErrSessionRevoked) {
+			h.writeError(w, r, ErrAuthenticationRequired)
+		} else {
+			h.writeError(w, r, ErrTemporarilyUnavailable)
+		}
+		return BearerPrincipal{}, false
+	}
+	if !validBearerPrincipal(p) {
 		h.writeError(w, r, ErrAuthenticationRequired)
 		return BearerPrincipal{}, false
 	}
@@ -478,7 +486,15 @@ func (h *Handler) requireAccess(w http.ResponseWriter, r *http.Request, interact
 		return AccessPrincipal{Bearer: &p}, ok
 	}
 	p, err := h.auth.ResolveHostedSession(r.Context(), interactionID, cookie)
-	if err != nil || !validHostedPrincipal(p) {
+	if err != nil {
+		if errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrAuthenticationRequired) {
+			h.writeError(w, r, ErrSessionRevoked)
+		} else {
+			h.writeError(w, r, ErrTemporarilyUnavailable)
+		}
+		return AccessPrincipal{}, false
+	}
+	if !validHostedPrincipal(p) {
 		h.writeError(w, r, ErrSessionRevoked)
 		return AccessPrincipal{}, false
 	}
@@ -496,7 +512,15 @@ func (h *Handler) requireHostedWrite(w http.ResponseWriter, r *http.Request, id 
 		return HostedPrincipal{}, false
 	}
 	p, err := h.auth.ResolveHostedSession(r.Context(), id, cookie)
-	if err != nil || !validHostedPrincipal(p) {
+	if err != nil {
+		if errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrAuthenticationRequired) {
+			h.writeError(w, r, ErrSessionRevoked)
+		} else {
+			h.writeError(w, r, ErrTemporarilyUnavailable)
+		}
+		return HostedPrincipal{}, false
+	}
+	if !validHostedPrincipal(p) {
 		h.writeError(w, r, ErrSessionRevoked)
 		return HostedPrincipal{}, false
 	}

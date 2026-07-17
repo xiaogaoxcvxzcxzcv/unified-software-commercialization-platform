@@ -24,12 +24,17 @@ func (authStub) ResolveBearer(_ context.Context, token string) (BearerPrincipal,
 		return BearerPrincipal{Kind: "user", Scope: scope, SessionID: "user-session", UserID: "user-a", AuthTime: time.Now()}, nil
 	case "client-no-session-000000000000000000000":
 		return BearerPrincipal{Kind: "client", Scope: scope}, nil
+	case "client-database-error-000000000000000000":
+		return BearerPrincipal{}, errors.New("database unavailable")
 	default:
 		return BearerPrincipal{}, ErrAuthenticationRequired
 	}
 }
 
 func (authStub) ResolveHostedSession(_ context.Context, interactionID, token string) (HostedPrincipal, error) {
+	if token == "hosted-database-error-000000000000000000000000000" {
+		return HostedPrincipal{}, errors.New("database unavailable")
+	}
 	if interactionID != testInteractionID || token != "hosted-cookie-0000000000000000000000000000000000" {
 		return HostedPrincipal{}, ErrSessionRevoked
 	}
@@ -325,6 +330,21 @@ func TestGetAccountCancelAndExchangeAuthenticationBoundaries(t *testing.T) {
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	assertProblem(t, w, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAuthenticationDependencyErrorsRemainRetryable(t *testing.T) {
+	h := newTestHandler(t, &serviceStub{})
+	r := request(http.MethodGet, "/api/v1/hosted/interactions/"+testInteractionID, "")
+	r.Header.Set("Authorization", "Bearer client-database-error-000000000000000000")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	assertProblem(t, w, http.StatusServiceUnavailable, "hosted.temporarily_unavailable")
+
+	r = request(http.MethodGet, "/api/v1/hosted/interactions/"+testInteractionID, "")
+	r.AddCookie(&http.Cookie{Name: HostedSessionCookieName, Value: "hosted-database-error-000000000000000000000000000"})
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	assertProblem(t, w, http.StatusServiceUnavailable, "hosted.temporarily_unavailable")
 }
 
 func TestUnsafeServiceOutputsFailClosed(t *testing.T) {
