@@ -23,6 +23,16 @@ func TestRepositoryRotationGrantLeaseAndExpiry(t *testing.T) {
 	if err != nil || recovered || created.Status != hostedinteraction.StatusCreated {
 		t.Fatalf("create = (%+v,%v,%v)", created, recovered, err)
 	}
+	newClient := interaction.Actor
+	newClient.ClientSessionID = "client_session_2"
+	if recoveredByNewClient, recoveryErr := repository.GetForScope(ctx, interaction.InteractionID, interaction.Scope, newClient); recoveryErr != nil || recoveredByNewClient.InteractionID != interaction.InteractionID {
+		t.Fatalf("same-scope new client recovery = (%+v,%v)", recoveredByNewClient, recoveryErr)
+	}
+	wrongScope := interaction.Scope
+	wrongScope.ApplicationID = "application_other"
+	if _, err = repository.GetForScope(ctx, interaction.InteractionID, wrongScope, newClient); !errors.Is(err, hostedinteraction.ErrInvalidArgument) {
+		t.Fatalf("cross-scope new client read error = %v", err)
+	}
 	recoveredValue, recovered, err := repository.Create(ctx, createRecord(interaction, "evt_created_duplicate"))
 	if err != nil || !recovered || recoveredValue.InteractionID != interaction.InteractionID {
 		t.Fatalf("idempotent create = (%+v,%v,%v)", recoveredValue, recovered, err)
@@ -41,17 +51,31 @@ func TestRepositoryRotationGrantLeaseAndExpiry(t *testing.T) {
 	if _, err = repository.ValidateBrowserSession(ctx, interaction.InteractionID, oldDigest); !errors.Is(err, hostedinteraction.ErrSessionRevoked) {
 		t.Fatalf("old browser token error = %v", err)
 	}
-	if _, err = repository.ValidateBrowserSession(ctx, interaction.InteractionID, newDigest); err != nil {
+	access, err := repository.ValidateBrowserSession(ctx, interaction.InteractionID, newDigest)
+	if err != nil || access.BrowserSessionID != "hbs_223456789012345678901234" || access.Interaction.InteractionID != interaction.InteractionID {
 		t.Fatalf("new browser token: %v", err)
 	}
 
 	grantCodeDigest := bytes32(31)
-	if _, _, _, err = repository.Complete(ctx, hostedinteraction.CompleteRecord{InteractionID: interaction.InteractionID, BrowserTokenDigest: oldDigest, ExpectedStatus: []hostedinteraction.Status{hostedinteraction.StatusOpened}, GrantID: "hgrant_023456789012345678901234", GrantType: "authorization_code", CodeDigest: grantCodeDigest, IdentityProofID: "hproof_023456789012345678901234", ResultDocument: []byte(`{}`), GrantTTL: time.Minute, Event: event("evt_old_cookie_complete", interaction.InteractionID, "hosted.interaction_completed.v1")}); !errors.Is(err, hostedinteraction.ErrSessionRevoked) {
+	authLeaseDigest := bytes32(23)
+	if _, _, err = repository.BeginAuthentication(ctx, interaction.InteractionID, newDigest, authLeaseDigest, time.Minute); err != nil {
+		t.Fatalf("begin authentication: %v", err)
+	}
+	if _, _, _, err = repository.Complete(ctx, hostedinteraction.CompleteRecord{InteractionID: interaction.InteractionID, BrowserTokenDigest: oldDigest, AuthenticationLeaseDigest: authLeaseDigest, ExpectedStatus: []hostedinteraction.Status{hostedinteraction.StatusAuthenticating}, GrantID: "hgrant_023456789012345678901234", GrantType: "authorization_code", CodeDigest: grantCodeDigest, IdentityProofID: "hproof_023456789012345678901234", ResultDocument: []byte(`{}`), GrantTTL: time.Minute, Event: event("evt_old_cookie_complete", interaction.InteractionID, "hosted.interaction_completed.v1")}); !errors.Is(err, hostedinteraction.ErrSessionRevoked) {
 		t.Fatalf("old cookie complete error = %v", err)
 	}
-	completed, grant, recovered, err := repository.Complete(ctx, hostedinteraction.CompleteRecord{InteractionID: interaction.InteractionID, BrowserTokenDigest: newDigest, ExpectedStatus: []hostedinteraction.Status{hostedinteraction.StatusOpened}, GrantID: "hgrant_123456789012345678901234", GrantType: "authorization_code", CodeDigest: grantCodeDigest, IdentityProofID: "hproof_123456789012345678901234", ResultDocument: []byte(`{}`), GrantTTL: time.Minute, Event: event("evt_complete_auth", interaction.InteractionID, "hosted.interaction_completed.v1")})
+	completed, grant, recovered, err := repository.Complete(ctx, hostedinteraction.CompleteRecord{InteractionID: interaction.InteractionID, BrowserTokenDigest: newDigest, AuthenticationLeaseDigest: authLeaseDigest, ExpectedStatus: []hostedinteraction.Status{hostedinteraction.StatusAuthenticating}, GrantID: "hgrant_123456789012345678901234", GrantType: "authorization_code", CodeDigest: grantCodeDigest, IdentityProofID: "hproof_123456789012345678901234", ResultDocument: []byte(`{}`), GrantTTL: time.Minute, Event: event("evt_complete_auth", interaction.InteractionID, "hosted.interaction_completed.v1")})
 	if err != nil || recovered || completed.Status != hostedinteraction.StatusCompleted || grant.GrantID == "" || grant.ExpiresAt.IsZero() || !grant.ExpiresAt.Before(completed.ExpiresAt) {
 		t.Fatalf("complete = (%+v,%+v,%v,%v)", completed, grant, recovered, err)
+	}
+	reopenDigest := bytes32(24)
+	reopened, _, err := repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: interaction.InteractionID, SessionID: "hbs_423456789012345678901234", TokenDigest: reopenDigest, TTL: time.Minute, Event: event("evt_reopen_completed", interaction.InteractionID, "hosted.interaction_opened.v1")})
+	if err != nil || reopened.Status != hostedinteraction.StatusCompleted {
+		t.Fatalf("reopen completed = (%+v,%v)", reopened, err)
+	}
+	recoveredGrant, err := repository.GetCompletionGrant(ctx, interaction.InteractionID, reopenDigest)
+	if err != nil || recoveredGrant.GrantID != grant.GrantID || !recoveredGrant.ExpiresAt.Equal(grant.ExpiresAt) {
+		t.Fatalf("recover completed grant = (%+v,%v)", recoveredGrant, err)
 	}
 	leaseOne := bytes32(41)
 	claimOne, err := repository.ClaimGrant(ctx, interaction.InteractionID, interaction.Scope, grantCodeDigest, interaction.PKCEChallengeDigest, time.Minute, "lease-one", leaseOne)
@@ -99,7 +123,7 @@ func TestRepositoryRotationGrantLeaseAndExpiry(t *testing.T) {
 	accountComplete.GrantID = "hgrant_423456789012345678901234"
 	accountComplete.CodeDigest = bytes32(56)
 	accountComplete.Event = event("evt_complete_account_retry", account.InteractionID, "hosted.interaction_completed.v1")
-	_, recoveredGrant, wasRecovered, err := repository.Complete(ctx, accountComplete)
+	_, recoveredGrant, wasRecovered, err = repository.Complete(ctx, accountComplete)
 	if err != nil || !wasRecovered || recoveredGrant.GrantID != firstGrant.GrantID || !recoveredGrant.ExpiresAt.Equal(firstGrant.ExpiresAt) {
 		t.Fatalf("recover account = (%+v,%v,%v)", recoveredGrant, wasRecovered, err)
 	}
@@ -160,7 +184,7 @@ func authInteraction(id string, ttl time.Duration) hostedinteraction.Interaction
 
 func accountInteraction(id string, ttl time.Duration) hostedinteraction.Interaction {
 	now := time.Now().UTC()
-	return hostedinteraction.Interaction{InteractionID: id, Route: hostedinteraction.RouteAccount, Scope: hostedinteraction.Scope{ProductID: "prod_test", ApplicationID: "app_test", Environment: "test", Channel: hostedinteraction.ChannelWeb}, Actor: hostedinteraction.Actor{Kind: "user", ClientSessionID: "client_session_1", UserID: "user_test", UserSessionID: "session_test"}, ReturnTargetCode: "account.callback", ReturnTargetURI: "https://client.test/account", ReturnTargetPolicyVersion: 1, StateProtectorKeyRef: "test-key", StateCiphertext: bytesOf(10, 40), StateDigest: bytes32(4), Status: hostedinteraction.StatusCreated, Version: 1, TraceID: "trace-account", CreatedAt: now, ExpiresAt: now.Add(ttl)}
+	return hostedinteraction.Interaction{InteractionID: id, Route: hostedinteraction.RouteAccount, Scope: hostedinteraction.Scope{ProductID: "prod_test", ApplicationID: "app_test", Environment: "test", Channel: hostedinteraction.ChannelWeb}, Actor: hostedinteraction.Actor{Kind: "user", UserID: "user_test", UserSessionID: "session_test"}, ReturnTargetCode: "account.callback", ReturnTargetURI: "https://client.test/account", ReturnTargetPolicyVersion: 1, StateProtectorKeyRef: "test-key", StateCiphertext: bytesOf(10, 40), StateDigest: bytes32(4), Status: hostedinteraction.StatusCreated, Version: 1, TraceID: "trace-account", CreatedAt: now, ExpiresAt: now.Add(ttl)}
 }
 
 func createRecord(value hostedinteraction.Interaction, eventID string) hostedinteraction.CreateRecord {

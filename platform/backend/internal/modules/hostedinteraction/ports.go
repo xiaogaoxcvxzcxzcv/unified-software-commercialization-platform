@@ -37,7 +37,7 @@ type ReturnTargetPort interface {
 }
 
 type HostedIdentityPort interface {
-	AuthenticateHosted(context.Context, Scope, string, string, string, map[string]string, string) (HostedAuthProof, error)
+	AuthenticateHosted(context.Context, Scope, string, string, string, map[string]any, string) (HostedAuthProof, error)
 	RedeemHostedAuthGrant(context.Context, string, string, Scope, string) (IssuedUserSession, error)
 }
 
@@ -64,21 +64,22 @@ type OpenBrowserRecord struct {
 }
 
 type CompleteRecord struct {
-	InteractionID       string
-	BrowserTokenDigest  []byte
-	ExpectedStatus      []Status
-	GrantID             string
-	GrantType           string
-	CodeDigest          []byte
-	IdentityProofID     string
-	ResultDocument      []byte
-	GrantTTL            time.Duration
-	Operation           string
-	ActorDigest         []byte
-	KeyDigest           []byte
-	RequestDigest       []byte
-	IdempotencyResponse []byte
-	Event               OutboxEvent
+	InteractionID             string
+	BrowserTokenDigest        []byte
+	AuthenticationLeaseDigest []byte
+	ExpectedStatus            []Status
+	GrantID                   string
+	GrantType                 string
+	CodeDigest                []byte
+	IdentityProofID           string
+	ResultDocument            []byte
+	GrantTTL                  time.Duration
+	Operation                 string
+	ActorDigest               []byte
+	KeyDigest                 []byte
+	RequestDigest             []byte
+	IdempotencyResponse       []byte
+	Event                     OutboxEvent
 }
 
 type Repository interface {
@@ -86,9 +87,9 @@ type Repository interface {
 	Get(context.Context, string) (Interaction, error)
 	GetForScope(context.Context, string, Scope, Actor) (Interaction, error)
 	OpenBrowserSession(context.Context, OpenBrowserRecord) (Interaction, time.Time, error)
-	ValidateBrowserSession(context.Context, string, []byte) (Interaction, error)
-	BeginAuthentication(context.Context, string, []byte) (Interaction, error)
-	ResetAuthentication(context.Context, string, []byte) error
+	ValidateBrowserSession(context.Context, string, []byte) (BrowserAccess, error)
+	BeginAuthentication(context.Context, string, []byte, []byte, time.Duration) (Interaction, time.Time, error)
+	ResetAuthentication(context.Context, string, []byte, []byte) error
 	GetCompletionGrant(context.Context, string, []byte) (CompletionGrant, error)
 	Complete(context.Context, CompleteRecord) (Interaction, CompletionGrant, bool, error)
 	Cancel(context.Context, string, []byte, OutboxEvent) (Interaction, error)

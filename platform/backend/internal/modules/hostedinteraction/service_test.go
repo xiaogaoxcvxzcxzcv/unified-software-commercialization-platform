@@ -44,7 +44,9 @@ func TestCompletionCodeRecoveryAndBrowserCSRFDerivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	repository := &stubRepository{value: accountValue()}
-	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{}, stubState{}, hasher, "https://hosted.test")
+	var validatedScope Scope
+	var validatedActor Actor
+	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{scope: &validatedScope, actor: &validatedActor}, stubState{}, hasher, "https://hosted.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,15 +58,27 @@ func TestCompletionCodeRecoveryAndBrowserCSRFDerivation(t *testing.T) {
 	if _, err = service.ValidateBrowserWrite(context.Background(), repository.value.InteractionID, browser.Token, browser.CSRFToken); err != nil {
 		t.Fatalf("valid csrf: %v", err)
 	}
+	_, browserSessionID, _, err := service.ResolveBrowserAccess(context.Background(), repository.value.InteractionID, browser.Token)
+	if err != nil || browserSessionID != "browser-session-db" {
+		t.Fatalf("browser access session id = (%q,%v)", browserSessionID, err)
+	}
 	if _, err = service.ValidateBrowserWrite(context.Background(), repository.value.InteractionID, browser.Token, browser.CSRFToken+"x"); !errors.Is(err, ErrCSRF) {
 		t.Fatalf("invalid csrf error = %v", err)
 	}
 
-	command := CompleteAccountCommand{InteractionID: repository.value.InteractionID, BrowserToken: browser.Token, IdempotencyKey: "same-key", TraceID: "trace", Actor: repository.value.Actor, Scope: repository.value.Scope, Result: "closed"}
+	command := CompleteAccountCommand{InteractionID: repository.value.InteractionID, BrowserToken: browser.Token, IdempotencyKey: "same-key", TraceID: "trace", Result: "closed"}
 	first, err := service.CompleteAccount(context.Background(), command)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !validatedScope.Matches(repository.value.Scope) || validatedActor.UserID != repository.value.Actor.UserID || validatedActor.UserSessionID != repository.value.Actor.UserSessionID || validatedActor.ClientSessionID != "" {
+		t.Fatalf("session validation did not use persisted context: scope=%+v actor=%+v", validatedScope, validatedActor)
+	}
+	reopened, reopenedProjection, err := service.OpenBrowserSession(context.Background(), repository.value.InteractionID)
+	if err != nil || reopenedProjection.Status != StatusCompleted {
+		t.Fatalf("reopen completed = (%+v,%+v,%v)", reopened, reopenedProjection, err)
+	}
+	command.BrowserToken = reopened.Token
 	second, err := service.CompleteAccount(context.Background(), command)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +123,8 @@ func TestAuthenticateTrustsDatabaseProofIntervalInsteadOfApplicationClock(t *tes
 	value.Actor = Actor{Kind: "client", ClientSessionID: "client"}
 	repository := &stubRepository{value: value}
 	databaseAuthTime := time.Now().Add(-2 * time.Hour)
-	identity := stubIdentity{proof: HostedAuthProof{ProofID: "hproof_123456789012345678901234", AuthTime: databaseAuthTime, ExpiresAt: databaseAuthTime.Add(5 * time.Minute)}}
+	var receivedRisk map[string]any
+	identity := stubIdentity{proof: HostedAuthProof{ProofID: "hproof_123456789012345678901234", AuthTime: databaseAuthTime, ExpiresAt: databaseAuthTime.Add(5 * time.Minute)}, receivedRisk: &receivedRisk}
 	service, err := NewService(repository, stubReturnTarget{}, identity, stubSessions{}, stubState{}, hasher, "https://hosted.test")
 	if err != nil {
 		t.Fatal(err)
@@ -118,9 +133,12 @@ func TestAuthenticateTrustsDatabaseProofIntervalInsteadOfApplicationClock(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion, err := service.Authenticate(context.Background(), AuthenticateCommand{InteractionID: value.InteractionID, BrowserToken: browser.Token, Identifier: "person@example.test", Credential: "correct-password", Source: "browser", TraceID: "trace-auth"})
+	completion, err := service.Authenticate(context.Background(), AuthenticateCommand{InteractionID: value.InteractionID, BrowserToken: browser.Token, Identifier: "person@example.test", Credential: "correct-password", Source: "browser", TraceID: "trace-auth", Risk: map[string]any{"score": 2.5, "trusted": true, "optional": nil, "source": "test"}})
 	if err != nil || completion.Code == "" {
 		t.Fatalf("Authenticate() = (%+v, %v)", completion, err)
+	}
+	if receivedRisk["score"] != 2.5 || receivedRisk["trusted"] != true || receivedRisk["optional"] != nil || receivedRisk["source"] != "test" {
+		t.Fatalf("risk summary types lost: %#v", receivedRisk)
 	}
 }
 
@@ -164,6 +182,39 @@ func TestCreateSecurityShapeIsEnforcedBelowHTTP(t *testing.T) {
 	}
 }
 
+func TestPortTransientErrorsPassThrough(t *testing.T) {
+	hasher, _ := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	transient := errors.New("database temporarily unavailable")
+	repository := &stubRepository{value: accountValue()}
+	service, err := NewService(repository, stubReturnTarget{err: transient}, stubIdentity{}, stubSessions{}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authCreate := CreateCommand{Scope: testScope(), Actor: Actor{Kind: "client", ClientSessionID: "client"}, Route: RouteAuth, ReturnTargetCode: "auth.callback", State: "1234567890123456789012", Nonce: "1234567890123456789012", CodeChallenge: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", CodeChallengeMethod: "S256", IdempotencyKey: "key", TraceID: "trace"}
+	if _, err = service.Create(context.Background(), authCreate); !errors.Is(err, transient) {
+		t.Fatalf("return target transient=%v", err)
+	}
+
+	sessionService, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{err: transient}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountCreate := CreateCommand{Scope: testScope(), Actor: repository.value.Actor, Route: RouteAccount, ReturnTargetCode: "account.callback", State: "1234567890123456789012", IdempotencyKey: "key", TraceID: "trace"}
+	if _, err = sessionService.Create(context.Background(), accountCreate); !errors.Is(err, transient) {
+		t.Fatalf("create session transient=%v", err)
+	}
+	if _, err = sessionService.GetForScope(context.Background(), repository.value.InteractionID, repository.value.Scope, repository.value.Actor); !errors.Is(err, transient) {
+		t.Fatalf("get session transient=%v", err)
+	}
+	browser, _, err := sessionService.OpenBrowserSession(context.Background(), repository.value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sessionService.CompleteAccount(context.Background(), CompleteAccountCommand{InteractionID: repository.value.InteractionID, BrowserToken: browser.Token, IdempotencyKey: "key", Result: "closed"}); !errors.Is(err, transient) {
+		t.Fatalf("complete session transient=%v", err)
+	}
+}
+
 type staticSecret struct{ value []byte }
 
 func (s staticSecret) ResolveSecret(context.Context, string) ([]byte, error) {
@@ -190,27 +241,46 @@ func (stubState) Reveal(_ context.Context, _ StateContext, value ProtectedState)
 	return "state-value", nil
 }
 
-type stubReturnTarget struct{}
+type stubReturnTarget struct {
+	target ReturnTarget
+	err    error
+}
 
-func (stubReturnTarget) ResolveHostedReturnTarget(context.Context, Scope, string) (ReturnTarget, error) {
-	return ReturnTarget{}, nil
+func (s stubReturnTarget) ResolveHostedReturnTarget(context.Context, Scope, string) (ReturnTarget, error) {
+	return s.target, s.err
 }
 
 type stubIdentity struct {
-	issued IssuedUserSession
-	proof  HostedAuthProof
+	issued       IssuedUserSession
+	proof        HostedAuthProof
+	receivedRisk *map[string]any
 }
 
-func (s stubIdentity) AuthenticateHosted(context.Context, Scope, string, string, string, map[string]string, string) (HostedAuthProof, error) {
+func (s stubIdentity) AuthenticateHosted(_ context.Context, _ Scope, _, _, _ string, risk map[string]any, _ string) (HostedAuthProof, error) {
+	if s.receivedRisk != nil {
+		*s.receivedRisk = risk
+	}
 	return s.proof, nil
 }
 func (s stubIdentity) RedeemHostedAuthGrant(context.Context, string, string, Scope, string) (IssuedUserSession, error) {
 	return s.issued, nil
 }
 
-type stubSessions struct{}
+type stubSessions struct {
+	scope *Scope
+	actor *Actor
+	err   error
+}
 
-func (stubSessions) ValidateHostedAccountSession(context.Context, Scope, Actor) error { return nil }
+func (s stubSessions) ValidateHostedAccountSession(_ context.Context, scope Scope, actor Actor) error {
+	if s.scope != nil {
+		*s.scope = scope
+	}
+	if s.actor != nil {
+		*s.actor = actor
+	}
+	return s.err
+}
 
 type stubRepository struct {
 	value         Interaction
@@ -229,19 +299,27 @@ func (r *stubRepository) GetForScope(context.Context, string, Scope, Actor) (Int
 }
 func (r *stubRepository) OpenBrowserSession(_ context.Context, record OpenBrowserRecord) (Interaction, time.Time, error) {
 	r.tokenDigest = record.TokenDigest
-	r.value.Status = StatusOpened
+	if r.value.Status != StatusCompleted {
+		r.value.Status = StatusOpened
+	}
 	return r.value, time.Now().Add(time.Minute), nil
 }
-func (r *stubRepository) ValidateBrowserSession(_ context.Context, _ string, digest []byte) (Interaction, error) {
+func (r *stubRepository) ValidateBrowserSession(_ context.Context, _ string, digest []byte) (BrowserAccess, error) {
 	if !EqualSecret(r.tokenDigest, digest) {
-		return Interaction{}, ErrSessionRevoked
+		return BrowserAccess{}, ErrSessionRevoked
 	}
-	return r.value, nil
+	return BrowserAccess{Interaction: r.value, BrowserSessionID: "browser-session-db"}, nil
 }
-func (r *stubRepository) BeginAuthentication(context.Context, string, []byte) (Interaction, error) {
-	return r.value, nil
+func (r *stubRepository) BeginAuthentication(_ context.Context, _ string, _, lease []byte, ttl time.Duration) (Interaction, time.Time, error) {
+	expires := time.Now().Add(ttl)
+	r.value.Status = StatusAuthenticating
+	r.value.AuthenticationLeaseDigest = append([]byte(nil), lease...)
+	r.value.AuthenticationLeaseExpiresAt = &expires
+	return r.value, expires, nil
 }
-func (r *stubRepository) ResetAuthentication(context.Context, string, []byte) error { return nil }
+func (r *stubRepository) ResetAuthentication(context.Context, string, []byte, []byte) error {
+	return nil
+}
 func (r *stubRepository) GetCompletionGrant(context.Context, string, []byte) (CompletionGrant, error) {
 	return r.grant, nil
 }
@@ -274,7 +352,7 @@ func testScope() Scope {
 }
 func accountValue() Interaction {
 	now := time.Now()
-	return Interaction{InteractionID: "hint_123456789012345678901234", Route: RouteAccount, Scope: testScope(), Actor: Actor{Kind: "user", ClientSessionID: "client", UserID: "user", UserSessionID: "session"}, ReturnTargetURI: "https://client.test/account", ReturnTargetCode: "account.callback", ReturnTargetPolicyVersion: 1, StateProtectorKeyRef: "test-key", StateCiphertext: []byte("sealed"), Status: StatusCreated, Version: 1, TraceID: "trace", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	return Interaction{InteractionID: "hint_123456789012345678901234", Route: RouteAccount, Scope: testScope(), Actor: Actor{Kind: "user", UserID: "user", UserSessionID: "session"}, ReturnTargetURI: "https://client.test/account", ReturnTargetCode: "account.callback", ReturnTargetPolicyVersion: 1, StateProtectorKeyRef: "test-key", StateCiphertext: []byte("sealed"), Status: StatusCreated, Version: 1, TraceID: "trace", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
 }
 func bytesOf(value byte, count int) []byte {
 	result := make([]byte, count)

@@ -81,31 +81,34 @@ type ReturnTarget struct {
 }
 
 type Interaction struct {
-	InteractionID             string
-	Route                     Route
-	Scope                     Scope
-	Actor                     Actor
-	ReturnTargetCode          string
-	ReturnTargetURI           string
-	ReturnTargetPolicyVersion int64
-	StateProtectorKeyRef      string
-	StateCiphertext           []byte
-	StateDigest               []byte
-	NonceDigest               []byte
-	PKCEChallengeDigest       []byte
-	PKCEMethod                string
-	Locale                    string
-	ThemeVariant              string
-	Status                    Status
-	Version                   int64
-	ResultKind                string
-	FailureCode               string
-	TraceID                   string
-	CreatedAt                 time.Time
-	ExpiresAt                 time.Time
-	OpenedAt                  *time.Time
-	CompletedAt               *time.Time
-	TerminalAt                *time.Time
+	InteractionID                string
+	Route                        Route
+	Scope                        Scope
+	Actor                        Actor
+	ReturnTargetCode             string
+	ReturnTargetURI              string
+	ReturnTargetPolicyVersion    int64
+	StateProtectorKeyRef         string
+	StateCiphertext              []byte
+	StateDigest                  []byte
+	NonceDigest                  []byte
+	PKCEChallengeDigest          []byte
+	PKCEMethod                   string
+	Locale                       string
+	ThemeVariant                 string
+	Status                       Status
+	Version                      int64
+	ResultKind                   string
+	FailureCode                  string
+	TraceID                      string
+	CreatedAt                    time.Time
+	ExpiresAt                    time.Time
+	OpenedAt                     *time.Time
+	CompletedAt                  *time.Time
+	TerminalAt                   *time.Time
+	AuthenticationLeaseDigest    []byte
+	AuthenticationStartedAt      *time.Time
+	AuthenticationLeaseExpiresAt *time.Time
 }
 
 type Projection struct {
@@ -137,6 +140,11 @@ type BrowserSession struct {
 	Token            string
 	CSRFToken        string
 	ExpiresAt        time.Time
+}
+
+type BrowserAccess struct {
+	Interaction      Interaction
+	BrowserSessionID string
 }
 
 type Completion struct {

@@ -32,6 +32,7 @@ type Service struct {
 	browserTTL     time.Duration
 	grantTTL       time.Duration
 	leaseTTL       time.Duration
+	authLeaseTTL   time.Duration
 }
 
 type ServicePolicy struct {
@@ -39,10 +40,11 @@ type ServicePolicy struct {
 	BrowserTTL     time.Duration
 	GrantTTL       time.Duration
 	LeaseTTL       time.Duration
+	AuthLeaseTTL   time.Duration
 }
 
 func DefaultServicePolicy() ServicePolicy {
-	return ServicePolicy{InteractionTTL: 10 * time.Minute, BrowserTTL: 10 * time.Minute, GrantTTL: 2 * time.Minute, LeaseTTL: 30 * time.Second}
+	return ServicePolicy{InteractionTTL: 10 * time.Minute, BrowserTTL: 10 * time.Minute, GrantTTL: 2 * time.Minute, LeaseTTL: 30 * time.Second, AuthLeaseTTL: 30 * time.Second}
 }
 
 func NewService(repository Repository, returnTargets ReturnTargetPort, identity HostedIdentityPort, sessions SessionValidationPort, protector StateProtector, digester Digester, baseURL string) (*Service, error) {
@@ -57,7 +59,7 @@ func NewServiceWithPolicy(repository Repository, returnTargets ReturnTargetPort,
 	}
 	return &Service{repository: repository, returnTargets: returnTargets, identity: identity, sessions: sessions,
 		protector: protector, ids: securevalue.DefaultGenerator(), digester: digester, baseURL: baseURL,
-		interactionTTL: policy.InteractionTTL, browserTTL: policy.BrowserTTL, grantTTL: policy.GrantTTL, leaseTTL: policy.LeaseTTL}, nil
+		interactionTTL: policy.InteractionTTL, browserTTL: policy.BrowserTTL, grantTTL: policy.GrantTTL, leaseTTL: policy.LeaseTTL, authLeaseTTL: policy.AuthLeaseTTL}, nil
 }
 
 type CreateCommand struct {
@@ -88,12 +90,18 @@ func (s *Service) Create(ctx context.Context, command CreateCommand) (Launch, er
 		return Launch{}, ErrInvalidArgument
 	}
 	if command.Route == RouteAccount {
-		if s.sessions == nil || s.sessions.ValidateHostedAccountSession(ctx, command.Scope, command.Actor) != nil {
+		if s.sessions == nil {
 			return Launch{}, ErrAuthenticationNeeded
+		}
+		if err := s.sessions.ValidateHostedAccountSession(ctx, command.Scope, command.Actor); err != nil {
+			return Launch{}, err
 		}
 	}
 	target, err := s.returnTargets.ResolveHostedReturnTarget(ctx, command.Scope, command.ReturnTargetCode)
-	if err != nil || target.ProductID != command.Scope.ProductID || target.ApplicationID != command.Scope.ApplicationID || target.Code != command.ReturnTargetCode || target.PolicyVersion < 1 || !validReturnURI(target, command.Scope.Channel) {
+	if err != nil {
+		return Launch{}, err
+	}
+	if target.ProductID != command.Scope.ProductID || target.ApplicationID != command.Scope.ApplicationID || target.Code != command.ReturnTargetCode || target.PolicyVersion < 1 || !validReturnURI(target, command.Scope.Channel) {
 		return Launch{}, ErrInvalidReturnTarget
 	}
 	interactionID, err := s.ids.ID("hint_")
@@ -138,8 +146,13 @@ func (s *Service) GetForScope(ctx context.Context, interactionID string, scope S
 	if !validScope(scope) || !validActorForRoute(actor, routeForActor(actor)) {
 		return Projection{}, ErrInvalidArgument
 	}
-	if actor.Kind == "user" && (s.sessions == nil || s.sessions.ValidateHostedAccountSession(ctx, scope, actor) != nil) {
-		return Projection{}, ErrAuthenticationNeeded
+	if actor.Kind == "user" {
+		if s.sessions == nil {
+			return Projection{}, ErrAuthenticationNeeded
+		}
+		if err := s.sessions.ValidateHostedAccountSession(ctx, scope, actor); err != nil {
+			return Projection{}, err
+		}
 	}
 	value, err := s.repository.GetForScope(ctx, interactionID, scope, actor)
 	if err != nil {
@@ -162,7 +175,11 @@ func (s *Service) OpenBrowserSession(ctx context.Context, interactionID string) 
 	if err != nil {
 		return BrowserSession{}, Projection{}, err
 	}
-	event, err := s.event(current, "hosted.interaction_opened.v1", StatusOpened)
+	eventStatus := StatusOpened
+	if current.Status == StatusCompleted {
+		eventStatus = StatusCompleted
+	}
+	event, err := s.event(current, "hosted.interaction_opened.v1", eventStatus)
 	if err != nil {
 		return BrowserSession{}, Projection{}, err
 	}
@@ -174,17 +191,17 @@ func (s *Service) OpenBrowserSession(ctx context.Context, interactionID string) 
 }
 
 func (s *Service) GetForBrowser(ctx context.Context, interactionID, browserToken string) (Projection, error) {
-	projection, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
+	projection, _, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
 	return projection, err
 }
 
-func (s *Service) ResolveBrowserAccess(ctx context.Context, interactionID, browserToken string) (Projection, string, error) {
-	value, err := s.repository.ValidateBrowserSession(ctx, interactionID, s.digest("browser-token", browserToken))
+func (s *Service) ResolveBrowserAccess(ctx context.Context, interactionID, browserToken string) (Projection, string, string, error) {
+	access, err := s.repository.ValidateBrowserSession(ctx, interactionID, s.digest("browser-token", browserToken))
 	if err != nil {
-		return Projection{}, "", err
+		return Projection{}, "", "", err
 	}
 	csrf := base64.RawURLEncoding.EncodeToString(s.digest("browser-csrf", browserToken))
-	return Project(value), csrf, nil
+	return Project(access.Interaction), access.BrowserSessionID, csrf, nil
 }
 
 func (s *Service) ValidateBrowserWrite(ctx context.Context, interactionID, browserToken, csrfToken string) (Projection, error) {
@@ -192,13 +209,13 @@ func (s *Service) ValidateBrowserWrite(ctx context.Context, interactionID, brows
 	if !hmac.Equal([]byte(wanted), []byte(csrfToken)) {
 		return Projection{}, ErrCSRF
 	}
-	projection, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
+	projection, _, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
 	return projection, err
 }
 
 type AuthenticateCommand struct {
 	InteractionID, BrowserToken, Identifier, Credential, Source, TraceID string
-	Risk                                                                 map[string]string
+	Risk                                                                 map[string]any
 }
 
 func (s *Service) Authenticate(ctx context.Context, command AuthenticateCommand) (Completion, error) {
@@ -206,10 +223,11 @@ func (s *Service) Authenticate(ctx context.Context, command AuthenticateCommand)
 		return Completion{}, ErrAuthenticationNeeded
 	}
 	browserDigest := s.digest("browser-token", command.BrowserToken)
-	current, err := s.repository.ValidateBrowserSession(ctx, command.InteractionID, browserDigest)
+	access, err := s.repository.ValidateBrowserSession(ctx, command.InteractionID, browserDigest)
 	if err != nil {
 		return Completion{}, err
 	}
+	current := access.Interaction
 	if current.Status == StatusCompleted {
 		grant, grantErr := s.repository.GetCompletionGrant(ctx, current.InteractionID, browserDigest)
 		if grantErr != nil || grant.GrantType != "authorization_code" {
@@ -217,47 +235,51 @@ func (s *Service) Authenticate(ctx context.Context, command AuthenticateCommand)
 		}
 		return s.completion(ctx, current, grant)
 	}
-	value, err := s.repository.BeginAuthentication(ctx, command.InteractionID, browserDigest)
+	authLeaseToken, err := s.ids.Token("")
+	if err != nil {
+		return Completion{}, err
+	}
+	authLeaseDigest := s.digest("auth-processing-lease", authLeaseToken)
+	value, _, err := s.repository.BeginAuthentication(ctx, command.InteractionID, browserDigest, authLeaseDigest, s.authLeaseTTL)
 	if err != nil {
 		return Completion{}, err
 	}
 	proof, err := s.identity.AuthenticateHosted(ctx, value.Scope, command.Identifier, command.Credential, command.Source, command.Risk, command.TraceID)
 	if err != nil {
-		_ = s.repository.ResetAuthentication(ctx, command.InteractionID, browserDigest)
+		_ = s.repository.ResetAuthentication(ctx, command.InteractionID, browserDigest, authLeaseDigest)
 		return Completion{}, err
 	}
 	if proof.ProofID == "" || proof.AuthTime.IsZero() || !proof.ExpiresAt.After(proof.AuthTime) {
-		_ = s.repository.ResetAuthentication(ctx, command.InteractionID, browserDigest)
+		_ = s.repository.ResetAuthentication(ctx, command.InteractionID, browserDigest, authLeaseDigest)
 		return Completion{}, ErrAuthenticationNeeded
 	}
-	return s.complete(ctx, value, browserDigest, "", "", proof.ProofID, "authorization_code", nil)
+	return s.complete(ctx, value, browserDigest, authLeaseDigest, "", "", proof.ProofID, "authorization_code", nil)
 }
 
 type CompleteAccountCommand struct {
 	InteractionID, BrowserToken, IdempotencyKey, TraceID string
-	Actor                                                Actor
-	Scope                                                Scope
 	Result                                               string
 }
 
 func (s *Service) CompleteAccount(ctx context.Context, command CompleteAccountCommand) (Completion, error) {
-	if s.sessions == nil || !validScope(command.Scope) || s.sessions.ValidateHostedAccountSession(ctx, command.Scope, command.Actor) != nil {
-		return Completion{}, ErrAuthenticationNeeded
-	}
 	if command.Result != "closed" && command.Result != "self_service_completed" {
 		return Completion{}, ErrInvalidArgument
 	}
-	value, err := s.repository.ValidateBrowserSession(ctx, command.InteractionID, s.digest("browser-token", command.BrowserToken))
+	access, err := s.repository.ValidateBrowserSession(ctx, command.InteractionID, s.digest("browser-token", command.BrowserToken))
 	if err != nil {
 		return Completion{}, err
 	}
-	if value.Route != RouteAccount || !value.Scope.Matches(command.Scope) || value.Actor.UserID != command.Actor.UserID || value.Actor.UserSessionID != command.Actor.UserSessionID {
+	value := access.Interaction
+	if value.Route != RouteAccount || s.sessions == nil {
 		return Completion{}, ErrAuthenticationNeeded
 	}
-	return s.complete(ctx, value, s.digest("browser-token", command.BrowserToken), command.IdempotencyKey, actorKey(command.Actor, command.Scope, value.Route), "", "account_completed", map[string]any{"result": command.Result})
+	if err := s.sessions.ValidateHostedAccountSession(ctx, value.Scope, value.Actor); err != nil {
+		return Completion{}, err
+	}
+	return s.complete(ctx, value, s.digest("browser-token", command.BrowserToken), nil, command.IdempotencyKey, actorKey(value.Actor, value.Scope, value.Route), "", "account_completed", map[string]any{"result": command.Result})
 }
 
-func (s *Service) complete(ctx context.Context, value Interaction, browserDigest []byte, idempotencyKey, actorKeyValue, proofID, grantType string, result map[string]any) (Completion, error) {
+func (s *Service) complete(ctx context.Context, value Interaction, browserDigest, authLeaseDigest []byte, idempotencyKey, actorKeyValue, proofID, grantType string, result map[string]any) (Completion, error) {
 	grantID, err := s.ids.ID("hgrant_")
 	if err != nil {
 		return Completion{}, err
@@ -283,7 +305,11 @@ func (s *Service) complete(ctx context.Context, value Interaction, browserDigest
 	if err != nil {
 		return Completion{}, err
 	}
-	completed, grant, _, err := s.repository.Complete(ctx, CompleteRecord{InteractionID: value.InteractionID, BrowserTokenDigest: browserDigest, ExpectedStatus: []Status{StatusOpened, StatusAuthenticating}, GrantID: grantID, GrantType: grantType, CodeDigest: s.digest("completion-code", code), IdentityProofID: proofID, ResultDocument: resultDocument, GrantTTL: s.grantTTL, Operation: operation, ActorDigest: actorDigest, KeyDigest: keyDigest, RequestDigest: requestDigest, Event: event})
+	expectedStatus := []Status{StatusOpened}
+	if grantType == "authorization_code" {
+		expectedStatus = []Status{StatusAuthenticating}
+	}
+	completed, grant, _, err := s.repository.Complete(ctx, CompleteRecord{InteractionID: value.InteractionID, BrowserTokenDigest: browserDigest, AuthenticationLeaseDigest: authLeaseDigest, ExpectedStatus: expectedStatus, GrantID: grantID, GrantType: grantType, CodeDigest: s.digest("completion-code", code), IdentityProofID: proofID, ResultDocument: resultDocument, GrantTTL: s.grantTTL, Operation: operation, ActorDigest: actorDigest, KeyDigest: keyDigest, RequestDigest: requestDigest, Event: event})
 	if err != nil {
 		return Completion{}, err
 	}
@@ -409,7 +435,7 @@ func validActorForRoute(a Actor, route Route) bool {
 	if route == RouteAuth {
 		return a.Kind == "client" && a.ClientSessionID != "" && a.UserID == "" && a.UserSessionID == ""
 	}
-	return a.Kind == "user" && a.ClientSessionID != "" && a.UserID != "" && a.UserSessionID != ""
+	return a.Kind == "user" && a.ClientSessionID == "" && a.UserID != "" && a.UserSessionID != ""
 }
 func actorKey(a Actor, scope Scope, route Route) string {
 	return strings.Join([]string{a.Kind, a.ClientSessionID, a.UserID, a.UserSessionID, scope.ProductID, scope.ApplicationID, optional(scope.TenantID), scope.Environment, string(scope.Channel), string(route)}, "\x00")
@@ -454,7 +480,8 @@ func validServicePolicy(policy ServicePolicy) bool {
 	return policy.InteractionTTL >= time.Minute && policy.InteractionTTL <= time.Hour &&
 		policy.BrowserTTL >= time.Minute && policy.BrowserTTL <= policy.InteractionTTL &&
 		policy.GrantTTL >= 30*time.Second && policy.GrantTTL <= policy.InteractionTTL &&
-		policy.LeaseTTL >= time.Second && policy.LeaseTTL < policy.GrantTTL
+		policy.LeaseTTL >= time.Second && policy.LeaseTTL < policy.GrantTTL &&
+		policy.AuthLeaseTTL >= time.Second && policy.AuthLeaseTTL <= time.Minute && policy.AuthLeaseTTL <= policy.InteractionTTL
 }
 func digestJSON(value any) []byte {
 	raw, _ := json.Marshal(value)

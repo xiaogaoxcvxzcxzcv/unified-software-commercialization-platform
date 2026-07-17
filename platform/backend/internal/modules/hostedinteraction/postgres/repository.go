@@ -19,7 +19,7 @@ type Repository struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
-const interactionColumns = `interaction_id,route_id,product_id,application_id,tenant_id,environment,channel,initiator_kind,initiator_client_session_id,initiator_user_id,initiator_user_session_id,return_target_code,return_target_uri,return_target_policy_version,state_protector_key_ref,state_ciphertext,state_digest,nonce_digest,pkce_challenge_digest,pkce_method,locale,theme_variant,status,version,result_kind,failure_code,trace_id,created_at,expires_at,opened_at,completed_at,terminal_at`
+const interactionColumns = `interaction_id,route_id,product_id,application_id,tenant_id,environment,channel,initiator_kind,initiator_client_session_id,initiator_user_id,initiator_user_session_id,return_target_code,return_target_uri,return_target_policy_version,state_protector_key_ref,state_ciphertext,state_digest,nonce_digest,pkce_challenge_digest,pkce_method,locale,theme_variant,status,version,result_kind,failure_code,trace_id,created_at,expires_at,opened_at,completed_at,terminal_at,authentication_lease_digest,authentication_started_at,authentication_lease_expires_at`
 
 func (r *Repository) Create(ctx context.Context, record hostedinteraction.CreateRecord) (hostedinteraction.Interaction, bool, error) {
 	if r == nil || r.pool == nil {
@@ -103,7 +103,11 @@ func (r *Repository) Get(ctx context.Context, interactionID string) (hostedinter
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
-	if !terminal(value.Status) && !value.ExpiresAt.After(now) {
+	due, err := interactionDue(ctx, tx, value, now)
+	if err != nil {
+		return hostedinteraction.Interaction{}, err
+	}
+	if !terminal(value.Status) && due {
 		value, err = expireLocked(ctx, tx, value, now)
 		if err != nil {
 			return hostedinteraction.Interaction{}, err
@@ -120,7 +124,8 @@ func (r *Repository) GetForScope(ctx context.Context, interactionID string, scop
 	if err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
-	if !value.Scope.Matches(scope) || value.Actor.Kind != actor.Kind || (value.Route == hostedinteraction.RouteAccount && (value.Actor.UserID != actor.UserID || value.Actor.UserSessionID != actor.UserSessionID)) {
+	if !value.Scope.Matches(scope) || value.Actor.Kind != actor.Kind ||
+		(value.Route == hostedinteraction.RouteAccount && (value.Actor.UserID != actor.UserID || value.Actor.UserSessionID != actor.UserSessionID)) {
 		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidArgument
 	}
 	return value, nil
@@ -140,10 +145,33 @@ func (r *Repository) OpenBrowserSession(ctx context.Context, record hostedintera
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
-	if !value.ExpiresAt.After(now) {
+	due, err := interactionDue(ctx, tx, value, now)
+	if err != nil {
+		return hostedinteraction.Interaction{}, time.Time{}, err
+	}
+	if due {
+		if _, err = expireLocked(ctx, tx, value, now); err != nil {
+			return hostedinteraction.Interaction{}, time.Time{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return hostedinteraction.Interaction{}, time.Time{}, err
+		}
 		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrInteractionExpired
 	}
-	if terminal(value.Status) || value.Status == hostedinteraction.StatusCompleted {
+	if value.Status == hostedinteraction.StatusAuthenticating {
+		if value.AuthenticationLeaseExpiresAt != nil && value.AuthenticationLeaseExpiresAt.After(now) {
+			return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrTemporarilyUnavailable
+		}
+		result, resetErr := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='opened',version=version+1,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status='authenticating' AND authentication_lease_expires_at<=$2`, record.InteractionID, now)
+		if resetErr != nil || result.RowsAffected() != 1 {
+			if resetErr == nil {
+				resetErr = hostedinteraction.ErrTemporarilyUnavailable
+			}
+			return hostedinteraction.Interaction{}, time.Time{}, resetErr
+		}
+		value.Status = hostedinteraction.StatusOpened
+	}
+	if terminal(value.Status) {
 		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrInvalidArgument
 	}
 	if _, err = tx.Exec(ctx, `UPDATE hosted_interaction.browser_sessions SET status='revoked',revoked_at=$2,revoke_reason='rotated' WHERE interaction_id=$1 AND status='active'`, record.InteractionID, now); err != nil {
@@ -157,14 +185,20 @@ func (r *Repository) OpenBrowserSession(ctx context.Context, record hostedintera
 	if err != nil {
 		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
-	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='opened',version=version+1,opened_at=COALESCE(opened_at,$2) WHERE interaction_id=$1 AND status IN ('created','opened')`, record.InteractionID, now)
-	if err != nil || result.RowsAffected() != 1 {
-		if err == nil {
-			err = hostedinteraction.ErrInvalidArgument
+	if value.Status != hostedinteraction.StatusCompleted {
+		result, updateErr := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='opened',version=version+1,opened_at=COALESCE(opened_at,$2) WHERE interaction_id=$1 AND status IN ('created','opened')`, record.InteractionID, now)
+		if updateErr != nil || result.RowsAffected() != 1 {
+			if updateErr == nil {
+				updateErr = hostedinteraction.ErrInvalidArgument
+			}
+			return hostedinteraction.Interaction{}, time.Time{}, updateErr
 		}
-		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
 	value, err = getInteraction(ctx, tx, record.InteractionID, false)
+	if err != nil {
+		return hostedinteraction.Interaction{}, time.Time{}, err
+	}
+	record.Event, err = eventWithStatus(record.Event, value.Status)
 	if err != nil {
 		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
@@ -178,86 +212,91 @@ func (r *Repository) OpenBrowserSession(ctx context.Context, record hostedintera
 	return value, expiresAt, nil
 }
 
-func (r *Repository) ValidateBrowserSession(ctx context.Context, interactionID string, tokenDigest []byte) (hostedinteraction.Interaction, error) {
+func (r *Repository) ValidateBrowserSession(ctx context.Context, interactionID string, tokenDigest []byte) (hostedinteraction.BrowserAccess, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.BrowserAccess{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var now time.Time
-	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
-		return hostedinteraction.Interaction{}, err
-	}
-	var stored []byte
-	err = tx.QueryRow(ctx, `SELECT token_digest FROM hosted_interaction.browser_sessions WHERE interaction_id=$1 AND status='active' AND expires_at>$2 FOR UPDATE`, interactionID, now).Scan(&stored)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return hostedinteraction.Interaction{}, hostedinteraction.ErrSessionRevoked
-	}
+	value, browserSessionID, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
 	if err != nil {
-		return hostedinteraction.Interaction{}, err
-	}
-	if !hmac.Equal(stored, tokenDigest) {
-		return hostedinteraction.Interaction{}, hostedinteraction.ErrSessionRevoked
-	}
-	value, err := getInteraction(ctx, tx, interactionID, true)
-	if err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.BrowserAccess{}, err
 	}
 	if !value.ExpiresAt.After(now) {
-		return hostedinteraction.Interaction{}, hostedinteraction.ErrInteractionExpired
+		return hostedinteraction.BrowserAccess{}, hostedinteraction.ErrInteractionExpired
 	}
 	if _, err = tx.Exec(ctx, `UPDATE hosted_interaction.browser_sessions SET last_seen_at=$2 WHERE interaction_id=$1 AND status='active'`, interactionID, now); err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.BrowserAccess{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.BrowserAccess{}, err
 	}
-	return value, nil
+	return hostedinteraction.BrowserAccess{Interaction: value, BrowserSessionID: browserSessionID}, nil
 }
 
-func (r *Repository) BeginAuthentication(ctx context.Context, interactionID string, tokenDigest []byte) (hostedinteraction.Interaction, error) {
+func (r *Repository) BeginAuthentication(ctx context.Context, interactionID string, tokenDigest, leaseDigest []byte, leaseTTL time.Duration) (hostedinteraction.Interaction, time.Time, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	value, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
+	value, _, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
 	if err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
-	if value.Route != hostedinteraction.RouteAuth || value.Status != hostedinteraction.StatusOpened || !value.ExpiresAt.After(now) {
-		return hostedinteraction.Interaction{}, hostedinteraction.ErrAuthenticationNeeded
+	if value.Route != hostedinteraction.RouteAuth || !value.ExpiresAt.After(now) || len(leaseDigest) != 32 || leaseTTL <= 0 {
+		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrAuthenticationNeeded
 	}
-	if _, err = tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='authenticating',version=version+1 WHERE interaction_id=$1 AND status='opened'`, interactionID); err != nil {
-		return hostedinteraction.Interaction{}, err
+	if value.Status == hostedinteraction.StatusAuthenticating {
+		if value.AuthenticationLeaseExpiresAt != nil && value.AuthenticationLeaseExpiresAt.After(now) {
+			return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrTemporarilyUnavailable
+		}
+		result, resetErr := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='opened',version=version+1,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status='authenticating' AND authentication_lease_expires_at<= $2`, interactionID, now)
+		if resetErr != nil || result.RowsAffected() != 1 {
+			if resetErr == nil {
+				resetErr = hostedinteraction.ErrTemporarilyUnavailable
+			}
+			return hostedinteraction.Interaction{}, time.Time{}, resetErr
+		}
+		value.Status = hostedinteraction.StatusOpened
+	}
+	if value.Status != hostedinteraction.StatusOpened {
+		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrAuthenticationNeeded
+	}
+	leaseExpiresAt := minTime(now.Add(leaseTTL), value.ExpiresAt)
+	if !leaseExpiresAt.After(now) {
+		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrInteractionExpired
+	}
+	if _, err = tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='authenticating',version=version+1,authentication_lease_digest=$2,authentication_started_at=$3,authentication_lease_expires_at=$4 WHERE interaction_id=$1 AND status='opened'`, interactionID, leaseDigest, now, leaseExpiresAt); err != nil {
+		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
 	value, err = getInteraction(ctx, tx, interactionID, false)
 	if err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return hostedinteraction.Interaction{}, err
+		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
-	return value, nil
+	return value, leaseExpiresAt, nil
 }
 
-func (r *Repository) ResetAuthentication(ctx context.Context, interactionID string, tokenDigest []byte) error {
+func (r *Repository) ResetAuthentication(ctx context.Context, interactionID string, tokenDigest, leaseDigest []byte) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	value, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
+	value, _, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
 	if err != nil {
 		return err
 	}
-	if value.Status != hostedinteraction.StatusAuthenticating || !value.ExpiresAt.After(now) {
-		return hostedinteraction.ErrInvalidArgument
+	if value.Status != hostedinteraction.StatusAuthenticating || !value.ExpiresAt.After(now) || value.AuthenticationLeaseExpiresAt == nil || !value.AuthenticationLeaseExpiresAt.After(now) || !hmac.Equal(value.AuthenticationLeaseDigest, leaseDigest) {
+		return hostedinteraction.ErrLeaseLost
 	}
-	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='opened',version=version+1 WHERE interaction_id=$1 AND status='authenticating'`, interactionID)
+	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='opened',version=version+1,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status='authenticating' AND authentication_lease_digest=$2 AND authentication_lease_expires_at>$3`, interactionID, leaseDigest, now)
 	if err != nil || result.RowsAffected() != 1 {
 		if err == nil {
-			return hostedinteraction.ErrInvalidArgument
+			return hostedinteraction.ErrLeaseLost
 		}
 		return err
 	}
@@ -270,7 +309,7 @@ func (r *Repository) GetCompletionGrant(ctx context.Context, interactionID strin
 		return hostedinteraction.CompletionGrant{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	value, _, err := lockBrowserAndInteraction(ctx, tx, interactionID, browserTokenDigest)
+	value, _, _, err := lockBrowserAndInteraction(ctx, tx, interactionID, browserTokenDigest)
 	if err != nil {
 		return hostedinteraction.CompletionGrant{}, err
 	}
@@ -298,7 +337,7 @@ func (r *Repository) Complete(ctx context.Context, record hostedinteraction.Comp
 			return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, err
 		}
 	}
-	value, now, err := lockBrowserAndInteraction(ctx, tx, record.InteractionID, record.BrowserTokenDigest)
+	value, _, now, err := lockBrowserAndInteraction(ctx, tx, record.InteractionID, record.BrowserTokenDigest)
 	if err != nil {
 		return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, err
 	}
@@ -329,6 +368,13 @@ func (r *Repository) Complete(ctx context.Context, record hostedinteraction.Comp
 	if !contains(record.ExpectedStatus, value.Status) {
 		return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, hostedinteraction.ErrInvalidArgument
 	}
+	if record.GrantType == "authorization_code" {
+		if value.Status != hostedinteraction.StatusAuthenticating || value.AuthenticationLeaseExpiresAt == nil || !value.AuthenticationLeaseExpiresAt.After(now) || !hmac.Equal(value.AuthenticationLeaseDigest, record.AuthenticationLeaseDigest) {
+			return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, hostedinteraction.ErrLeaseLost
+		}
+	} else if len(record.AuthenticationLeaseDigest) != 0 {
+		return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, hostedinteraction.ErrInvalidArgument
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO hosted_interaction.completion_grants(grant_id,interaction_id,grant_type,code_digest,identity_proof_id,result_document,status,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,'available',$7,$8)`, record.GrantID, record.InteractionID, record.GrantType, record.CodeDigest, nullableString(record.IdentityProofID), json.RawMessage(record.ResultDocument), now, minTime(now.Add(record.GrantTTL), value.ExpiresAt))
 	if err != nil {
 		if unique(err) {
@@ -337,10 +383,15 @@ func (r *Repository) Complete(ctx context.Context, record hostedinteraction.Comp
 		return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, err
 	}
 	resultKind := record.GrantType
-	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='completed',version=version+1,result_kind=$2,completed_at=$3 WHERE interaction_id=$1 AND status=ANY($4)`, record.InteractionID, resultKind, now, statusStrings(record.ExpectedStatus))
+	var result pgconn.CommandTag
+	if record.GrantType == "authorization_code" {
+		result, err = tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='completed',version=version+1,result_kind=$2,completed_at=$3,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status='authenticating' AND authentication_lease_digest=$4 AND authentication_lease_expires_at>$3`, record.InteractionID, resultKind, now, record.AuthenticationLeaseDigest)
+	} else {
+		result, err = tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='completed',version=version+1,result_kind=$2,completed_at=$3 WHERE interaction_id=$1 AND status=ANY($4)`, record.InteractionID, resultKind, now, statusStrings(record.ExpectedStatus))
+	}
 	if err != nil || result.RowsAffected() != 1 {
 		if err == nil {
-			err = hostedinteraction.ErrInvalidArgument
+			err = hostedinteraction.ErrLeaseLost
 		}
 		return hostedinteraction.Interaction{}, hostedinteraction.CompletionGrant{}, false, err
 	}
@@ -378,7 +429,7 @@ func (r *Repository) Cancel(ctx context.Context, interactionID string, tokenDige
 		return hostedinteraction.Interaction{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	value, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
+	value, _, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
 	if err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
@@ -391,7 +442,7 @@ func (r *Repository) Cancel(ctx context.Context, interactionID string, tokenDige
 	if value.Status != hostedinteraction.StatusCreated && value.Status != hostedinteraction.StatusOpened && value.Status != hostedinteraction.StatusAuthenticating {
 		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidArgument
 	}
-	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='cancelled',version=version+1,result_kind='cancelled',terminal_at=$2 WHERE interaction_id=$1 AND status IN ('created','opened','authenticating')`, interactionID, now)
+	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='cancelled',version=version+1,result_kind='cancelled',terminal_at=$2,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status IN ('created','opened','authenticating')`, interactionID, now)
 	if err != nil || result.RowsAffected() != 1 {
 		if err == nil {
 			err = hostedinteraction.ErrInvalidArgument
@@ -482,7 +533,15 @@ func (r *Repository) ConsumeGrant(ctx context.Context, grantID string, leaseDige
 	var interactionID, status string
 	var storedLease []byte
 	var leaseExpires *time.Time
-	err = tx.QueryRow(ctx, `SELECT interaction_id,status,processing_token_digest,processing_expires_at FROM hosted_interaction.completion_grants WHERE grant_id=$1 FOR UPDATE`, grantID).Scan(&interactionID, &status, &storedLease, &leaseExpires)
+	err = tx.QueryRow(ctx, `SELECT interaction_id FROM hosted_interaction.completion_grants WHERE grant_id=$1`, grantID).Scan(&interactionID)
+	if err != nil {
+		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidGrant
+	}
+	value, err := getInteraction(ctx, tx, interactionID, true)
+	if err != nil {
+		return hostedinteraction.Interaction{}, err
+	}
+	err = tx.QueryRow(ctx, `SELECT status,processing_token_digest,processing_expires_at FROM hosted_interaction.completion_grants WHERE grant_id=$1 FOR UPDATE`, grantID).Scan(&status, &storedLease, &leaseExpires)
 	if err != nil {
 		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidGrant
 	}
@@ -490,7 +549,7 @@ func (r *Repository) ConsumeGrant(ctx context.Context, grantID string, leaseDige
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
-	if status != "processing" || leaseExpires == nil || !leaseExpires.After(now) || !hmac.Equal(storedLease, leaseDigest) {
+	if value.Status != hostedinteraction.StatusCompleted || status != "processing" || leaseExpires == nil || !leaseExpires.After(now) || !hmac.Equal(storedLease, leaseDigest) {
 		return hostedinteraction.Interaction{}, hostedinteraction.ErrLeaseLost
 	}
 	if _, err = tx.Exec(ctx, `UPDATE hosted_interaction.completion_grants SET status='consumed',processing_token_digest=NULL,processing_expires_at=NULL,consumed_at=$2 WHERE grant_id=$1 AND status='processing'`, grantID, now); err != nil {
@@ -507,7 +566,7 @@ func (r *Repository) ConsumeGrant(ctx context.Context, grantID string, leaseDige
 	if err = insertOutbox(ctx, tx, event); err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
-	value, err := getInteraction(ctx, tx, interactionID, false)
+	value, err = getInteraction(ctx, tx, interactionID, false)
 	if err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
@@ -526,7 +585,7 @@ func (r *Repository) ExpireDue(ctx context.Context, limit int) (int, error) {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	rows, err := tx.Query(ctx, `SELECT interaction_id FROM hosted_interaction.interactions WHERE status IN ('created','opened','authenticating','completed') AND expires_at<=clock_timestamp() ORDER BY expires_at,interaction_id FOR UPDATE SKIP LOCKED LIMIT $1`, limit)
+	rows, err := tx.Query(ctx, `SELECT i.interaction_id FROM hosted_interaction.interactions i LEFT JOIN hosted_interaction.completion_grants g ON g.interaction_id=i.interaction_id WHERE i.status IN ('created','opened','authenticating','completed') AND (i.expires_at<=clock_timestamp() OR (i.status='completed' AND g.expires_at<=clock_timestamp())) ORDER BY LEAST(i.expires_at,COALESCE(g.expires_at,i.expires_at)),i.interaction_id FOR UPDATE OF i SKIP LOCKED LIMIT $1`, limit)
 	if err != nil {
 		return 0, err
 	}
@@ -552,7 +611,7 @@ func (r *Repository) ExpireDue(ctx context.Context, limit int) (int, error) {
 			return 0, err
 		}
 		var version int64
-		if err = tx.QueryRow(ctx, `UPDATE hosted_interaction.interactions SET status='expired',version=version+1,result_kind='failed',failure_code='hosted.interaction_expired',terminal_at=$2 WHERE interaction_id=$1 AND status IN ('created','opened','authenticating','completed') RETURNING version`, id, now).Scan(&version); err != nil {
+		if err = tx.QueryRow(ctx, `UPDATE hosted_interaction.interactions SET status='expired',version=version+1,result_kind='failed',failure_code='hosted.interaction_expired',terminal_at=$2,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status IN ('created','opened','authenticating','completed') RETURNING version`, id, now).Scan(&version); err != nil {
 			return 0, err
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO hosted_interaction.outbox_events(event_id,interaction_id,event_type,payload,occurred_at,next_attempt_at) SELECT 'evt_'||md5($1||$2),interaction_id,'hosted.interaction_expired.v1',jsonb_build_object('interaction_id',interaction_id,'product_id',product_id,'application_id',application_id,'tenant_id',tenant_id,'route',route_id,'status','expired','trace_id',trace_id),$3,$3 FROM hosted_interaction.interactions WHERE interaction_id=$1`, id, strconv.FormatInt(version, 10), now)
@@ -571,7 +630,7 @@ func expireLocked(ctx context.Context, tx pgx.Tx, value hostedinteraction.Intera
 		return hostedinteraction.Interaction{}, err
 	}
 	var version int64
-	if err := tx.QueryRow(ctx, `UPDATE hosted_interaction.interactions SET status='expired',version=version+1,result_kind='failed',failure_code='hosted.interaction_expired',terminal_at=$2 WHERE interaction_id=$1 AND status IN ('created','opened','authenticating','completed') RETURNING version`, value.InteractionID, now).Scan(&version); err != nil {
+	if err := tx.QueryRow(ctx, `UPDATE hosted_interaction.interactions SET status='expired',version=version+1,result_kind='failed',failure_code='hosted.interaction_expired',terminal_at=$2,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status IN ('created','opened','authenticating','completed') RETURNING version`, value.InteractionID, now).Scan(&version); err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO hosted_interaction.outbox_events(event_id,interaction_id,event_type,payload,occurred_at,next_attempt_at) SELECT 'evt_'||md5($1||$2),interaction_id,'hosted.interaction_expired.v1',jsonb_build_object('interaction_id',interaction_id,'product_id',product_id,'application_id',application_id,'tenant_id',tenant_id,'route',route_id,'status','expired','trace_id',trace_id),$3,$3 FROM hosted_interaction.interactions WHERE interaction_id=$1`, value.InteractionID, strconv.FormatInt(version, 10), now)
@@ -592,9 +651,9 @@ func getInteraction(ctx context.Context, q queryable, interactionID string, lock
 	}
 	var value hostedinteraction.Interaction
 	var route, channel, status string
-	var tenant, userID, userSession, pkceMethod, locale, theme, result, failure *string
+	var tenant, clientSession, userID, userSession, pkceMethod, locale, theme, result, failure *string
 	var nonce, pkce []byte
-	err := q.QueryRow(ctx, query, interactionID).Scan(&value.InteractionID, &route, &value.Scope.ProductID, &value.Scope.ApplicationID, &tenant, &value.Scope.Environment, &channel, &value.Actor.Kind, &value.Actor.ClientSessionID, &userID, &userSession, &value.ReturnTargetCode, &value.ReturnTargetURI, &value.ReturnTargetPolicyVersion, &value.StateProtectorKeyRef, &value.StateCiphertext, &value.StateDigest, &nonce, &pkce, &pkceMethod, &locale, &theme, &status, &value.Version, &result, &failure, &value.TraceID, &value.CreatedAt, &value.ExpiresAt, &value.OpenedAt, &value.CompletedAt, &value.TerminalAt)
+	err := q.QueryRow(ctx, query, interactionID).Scan(&value.InteractionID, &route, &value.Scope.ProductID, &value.Scope.ApplicationID, &tenant, &value.Scope.Environment, &channel, &value.Actor.Kind, &clientSession, &userID, &userSession, &value.ReturnTargetCode, &value.ReturnTargetURI, &value.ReturnTargetPolicyVersion, &value.StateProtectorKeyRef, &value.StateCiphertext, &value.StateDigest, &nonce, &pkce, &pkceMethod, &locale, &theme, &status, &value.Version, &result, &failure, &value.TraceID, &value.CreatedAt, &value.ExpiresAt, &value.OpenedAt, &value.CompletedAt, &value.TerminalAt, &value.AuthenticationLeaseDigest, &value.AuthenticationStartedAt, &value.AuthenticationLeaseExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidArgument
 	}
@@ -602,6 +661,9 @@ func getInteraction(ctx context.Context, q queryable, interactionID string, lock
 		return hostedinteraction.Interaction{}, err
 	}
 	value.Route, value.Scope.Channel, value.Status, value.Scope.TenantID = hostedinteraction.Route(route), hostedinteraction.Channel(channel), hostedinteraction.Status(status), tenant
+	if clientSession != nil {
+		value.Actor.ClientSessionID = *clientSession
+	}
 	if userID != nil {
 		value.Actor.UserID = *userID
 	}
@@ -629,7 +691,7 @@ func getInteraction(ctx context.Context, q queryable, interactionID string, lock
 }
 
 func insertInteraction(ctx context.Context, tx pgx.Tx, v hostedinteraction.Interaction) error {
-	_, err := tx.Exec(ctx, `INSERT INTO hosted_interaction.interactions(`+interactionColumns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`, v.InteractionID, v.Route, v.Scope.ProductID, v.Scope.ApplicationID, v.Scope.TenantID, v.Scope.Environment, v.Scope.Channel, v.Actor.Kind, v.Actor.ClientSessionID, nullableString(v.Actor.UserID), nullableString(v.Actor.UserSessionID), v.ReturnTargetCode, v.ReturnTargetURI, v.ReturnTargetPolicyVersion, v.StateProtectorKeyRef, v.StateCiphertext, v.StateDigest, nullableBytes(v.NonceDigest), nullableBytes(v.PKCEChallengeDigest), nullableString(v.PKCEMethod), nullableString(v.Locale), nullableString(v.ThemeVariant), v.Status, v.Version, nullableString(v.ResultKind), nullableString(v.FailureCode), v.TraceID, v.CreatedAt, v.ExpiresAt, v.OpenedAt, v.CompletedAt, v.TerminalAt)
+	_, err := tx.Exec(ctx, `INSERT INTO hosted_interaction.interactions(`+interactionColumns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`, v.InteractionID, v.Route, v.Scope.ProductID, v.Scope.ApplicationID, v.Scope.TenantID, v.Scope.Environment, v.Scope.Channel, v.Actor.Kind, nullableString(v.Actor.ClientSessionID), nullableString(v.Actor.UserID), nullableString(v.Actor.UserSessionID), v.ReturnTargetCode, v.ReturnTargetURI, v.ReturnTargetPolicyVersion, v.StateProtectorKeyRef, v.StateCiphertext, v.StateDigest, nullableBytes(v.NonceDigest), nullableBytes(v.PKCEChallengeDigest), nullableString(v.PKCEMethod), nullableString(v.Locale), nullableString(v.ThemeVariant), v.Status, v.Version, nullableString(v.ResultKind), nullableString(v.FailureCode), v.TraceID, v.CreatedAt, v.ExpiresAt, v.OpenedAt, v.CompletedAt, v.TerminalAt, nullableBytes(v.AuthenticationLeaseDigest), v.AuthenticationStartedAt, v.AuthenticationLeaseExpiresAt)
 	return err
 }
 
@@ -659,24 +721,67 @@ func getCompletionGrant(ctx context.Context, q queryable, interactionID string) 
 	return grant, nil
 }
 
-func lockBrowserAndInteraction(ctx context.Context, tx pgx.Tx, interactionID string, tokenDigest []byte) (hostedinteraction.Interaction, time.Time, error) {
-	var now time.Time
-	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
-		return hostedinteraction.Interaction{}, time.Time{}, err
+func interactionDue(ctx context.Context, q queryable, value hostedinteraction.Interaction, now time.Time) (bool, error) {
+	if !value.ExpiresAt.After(now) {
+		return true, nil
 	}
-	var stored []byte
-	err := tx.QueryRow(ctx, `SELECT token_digest FROM hosted_interaction.browser_sessions WHERE interaction_id=$1 AND status='active' AND expires_at>$2 FOR UPDATE`, interactionID, now).Scan(&stored)
+	if value.Status != hostedinteraction.StatusCompleted {
+		return false, nil
+	}
+	var grantExpiresAt time.Time
+	err := q.QueryRow(ctx, `SELECT expires_at FROM hosted_interaction.completion_grants WHERE interaction_id=$1`, value.InteractionID).Scan(&grantExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrSessionRevoked
+		return false, hostedinteraction.ErrInvalidGrant
 	}
 	if err != nil {
-		return hostedinteraction.Interaction{}, time.Time{}, err
+		return false, err
+	}
+	return !grantExpiresAt.After(now), nil
+}
+
+func eventWithStatus(event hostedinteraction.OutboxEvent, status hostedinteraction.Status) (hostedinteraction.OutboxEvent, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil || payload == nil {
+		return hostedinteraction.OutboxEvent{}, hostedinteraction.ErrInvalidArgument
+	}
+	payload["status"] = string(status)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return hostedinteraction.OutboxEvent{}, err
+	}
+	event.Payload = raw
+	return event, nil
+}
+
+func lockBrowserAndInteraction(ctx context.Context, tx pgx.Tx, interactionID string, tokenDigest []byte) (hostedinteraction.Interaction, string, time.Time, error) {
+	value, err := getInteraction(ctx, tx, interactionID, true)
+	if err != nil {
+		return hostedinteraction.Interaction{}, "", time.Time{}, err
+	}
+	var now time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return hostedinteraction.Interaction{}, "", time.Time{}, err
+	}
+	var browserSessionID string
+	var stored []byte
+	err = tx.QueryRow(ctx, `SELECT browser_session_id,token_digest FROM hosted_interaction.browser_sessions WHERE interaction_id=$1 AND status='active' AND expires_at>$2 FOR UPDATE`, interactionID, now).Scan(&browserSessionID, &stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return hostedinteraction.Interaction{}, "", time.Time{}, hostedinteraction.ErrSessionRevoked
+	}
+	if err != nil {
+		return hostedinteraction.Interaction{}, "", time.Time{}, err
 	}
 	if !hmac.Equal(stored, tokenDigest) {
-		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrSessionRevoked
+		return hostedinteraction.Interaction{}, "", time.Time{}, hostedinteraction.ErrSessionRevoked
 	}
-	value, err := getInteraction(ctx, tx, interactionID, true)
-	return value, now, err
+	due, err := interactionDue(ctx, tx, value, now)
+	if err != nil {
+		return hostedinteraction.Interaction{}, "", time.Time{}, err
+	}
+	if due {
+		return hostedinteraction.Interaction{}, "", time.Time{}, hostedinteraction.ErrInteractionExpired
+	}
+	return value, browserSessionID, now, nil
 }
 
 func contains(values []hostedinteraction.Status, wanted hostedinteraction.Status) bool {
