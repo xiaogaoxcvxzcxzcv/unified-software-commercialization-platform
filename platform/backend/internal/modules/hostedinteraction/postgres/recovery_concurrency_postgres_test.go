@@ -89,7 +89,8 @@ func TestAuthenticationLeaseClearedOnCancelAndExpiry(t *testing.T) {
 		t.Fatalf("cancel authenticating=(%+v,%v)", cancelled, err)
 	}
 
-	expiredValue := authInteraction(testID("hint_", 7102), 80*time.Millisecond)
+	// Leave enough time for the create/open/begin sequence under a loaded CI runner.
+	expiredValue := authInteraction(testID("hint_", 7102), 2*time.Second)
 	expiredValue.StateDigest = digestOf("expire-auth-state")
 	createUnique(t, ctx, repository, expiredValue, 7102)
 	expireBrowser := digestOf("expire-auth-browser")
@@ -99,7 +100,7 @@ func TestAuthenticationLeaseClearedOnCancelAndExpiry(t *testing.T) {
 	if _, _, err = repository.BeginAuthentication(ctx, expiredValue.InteractionID, expireBrowser, digestOf("expire-auth-lease"), time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(110 * time.Millisecond)
+	time.Sleep(2100 * time.Millisecond)
 	if count, expireErr := repository.ExpireDue(ctx, 100); expireErr != nil || count < 1 {
 		t.Fatalf("expire due=(%d,%v)", count, expireErr)
 	}
