@@ -11,17 +11,19 @@ import (
 )
 
 var (
-	ErrInvalidEndUserIdentifier  = errors.New("invalid end-user identifier")
-	ErrEndUserIdentifierConflict = errors.New("end-user identifier already exists")
-	ErrEndUserVersionConflict    = errors.New("end-user version conflict")
-	ErrEndUserSessionExpired     = errors.New("end-user session expired")
-	ErrEndUserSessionRevoked     = errors.New("end-user session revoked")
-	ErrEndUserRefreshReplayed    = errors.New("end-user refresh token replayed")
-	ErrRecoveryChallengeExpired  = errors.New("recovery challenge expired")
-	ErrRecoveryProofInvalid      = errors.New("recovery proof invalid")
-	ErrRecoveryProofReplayed     = errors.New("recovery proof replayed")
-	ErrExternalIdentityConflict  = errors.New("external identity already linked")
-	ErrEndUserScopeMismatch      = errors.New("end-user session scope mismatch")
+	ErrInvalidEndUserIdentifier        = errors.New("invalid end-user identifier")
+	ErrEndUserIdentifierConflict       = errors.New("end-user identifier already exists")
+	ErrEndUserVersionConflict          = errors.New("end-user version conflict")
+	ErrEndUserSessionExpired           = errors.New("end-user session expired")
+	ErrEndUserSessionRevoked           = errors.New("end-user session revoked")
+	ErrEndUserRefreshReplayed          = errors.New("end-user refresh token replayed")
+	ErrRecoveryChallengeExpired        = errors.New("recovery challenge expired")
+	ErrRecoveryProofInvalid            = errors.New("recovery proof invalid")
+	ErrRecoveryProofReplayed           = errors.New("recovery proof replayed")
+	ErrExternalIdentityConflict        = errors.New("external identity already linked")
+	ErrEndUserScopeMismatch            = errors.New("end-user session scope mismatch")
+	ErrEndUserAccountDisabled          = errors.New("end-user account disabled")
+	ErrEndUserReauthenticationRequired = errors.New("end-user recent authentication required")
 )
 
 type IdentifierType string
@@ -147,6 +149,7 @@ type EndUserSession struct {
 	RiskSummaryDigest    []byte
 	RevokedAt            *time.Time
 	RevokeReason         *string
+	AccountStatus        string
 }
 
 type EndUserSessionScope struct {
@@ -183,12 +186,14 @@ type NewEndUserSession struct {
 }
 
 type EndUserRefreshRotation struct {
-	AccessToken      EndUserSessionToken
-	RefreshToken     EndUserSessionToken
-	AccessExpiresAt  time.Time
-	RefreshExpiresAt time.Time
-	Now              time.Time
-	OutboxEvent      OutboxEvent
+	AccessToken       EndUserSessionToken
+	RefreshToken      EndUserSessionToken
+	AccessExpiresAt   time.Time
+	RefreshExpiresAt  time.Time
+	Now               time.Time
+	OutboxEvent       OutboxEvent
+	RequestDigest     []byte
+	RecoveryExpiresAt time.Time
 }
 
 type RecoveryChallenge struct {
@@ -209,6 +214,40 @@ type RecoveryConsumption struct {
 	ChallengeID   string
 	MatchedUserID *string
 	ConsumedAt    time.Time
+}
+
+type EndUserRecoveryTarget struct {
+	UserID      *string
+	MaskedValue string
+}
+
+type EndUserLoginThrottle struct {
+	FailureCount int
+	BlockedUntil *time.Time
+}
+
+type EndUserLoginFailure struct {
+	ScopeID          string
+	IdentifierDigest []byte
+	SourceDigest     []byte
+	Now              time.Time
+	Window           time.Duration
+	MaximumAttempts  int
+	BlockDuration    time.Duration
+	OutboxEvent      OutboxEvent
+}
+
+type EndUserSessionSummary struct {
+	SessionID            string
+	ProductID            string
+	ApplicationID        string
+	TenantID             *string
+	Current              bool
+	AuthenticationMethod string
+	CreatedAt            time.Time
+	LastSeenAt           time.Time
+	ExpiresAt            time.Time
+	RevokedAt            *time.Time
 }
 
 type ExternalIdentity struct {
@@ -236,6 +275,72 @@ type ScopedSessionRevocation struct {
 	RequestDigest []byte
 	ActorDigest   []byte
 	OutboxEvent   OutboxEvent
+}
+
+type EndUserIdempotency struct {
+	Operation     string
+	ScopeID       string
+	ActorDigest   []byte
+	KeyDigest     []byte
+	RequestDigest []byte
+	ResourceID    string
+	Now           time.Time
+}
+
+type EndUserRegistrationResponse struct {
+	Session RegistrationSessionSnapshot `json:"session"`
+	Profile EndUserProfile              `json:"profile"`
+}
+
+type RegistrationSessionSnapshot struct {
+	SessionID            string    `json:"session_id"`
+	UserID               string    `json:"user_id"`
+	ProductID            string    `json:"product_id"`
+	ApplicationID        string    `json:"application_id"`
+	TenantID             *string   `json:"tenant_id"`
+	AuthenticationMethod string    `json:"authentication_method"`
+	Version              int64     `json:"version"`
+	AuthTime             time.Time `json:"auth_time"`
+	CreatedAt            time.Time `json:"created_at"`
+	LastSeenAt           time.Time `json:"last_seen_at"`
+	AccessExpiresAt      time.Time `json:"access_expires_at"`
+	RefreshExpiresAt     time.Time `json:"refresh_expires_at"`
+	AbsoluteExpiresAt    time.Time `json:"absolute_expires_at"`
+	AccountStatus        string    `json:"account_status"`
+}
+
+func NewRegistrationSessionSnapshot(session EndUserSession) RegistrationSessionSnapshot {
+	return RegistrationSessionSnapshot{
+		SessionID: session.SessionID, UserID: session.UserID, ProductID: session.ProductID,
+		ApplicationID: session.ApplicationID, TenantID: session.TenantID,
+		AuthenticationMethod: session.AuthenticationMethod, Version: session.Version,
+		AuthTime: session.AuthTime, CreatedAt: session.CreatedAt, LastSeenAt: session.LastSeenAt,
+		AccessExpiresAt: session.AccessExpiresAt, RefreshExpiresAt: session.RefreshExpiresAt,
+		AbsoluteExpiresAt: session.AbsoluteExpiresAt, AccountStatus: session.AccountStatus,
+	}
+}
+
+func (s RegistrationSessionSnapshot) EndUserSession() EndUserSession {
+	return EndUserSession{
+		SessionID: s.SessionID, UserID: s.UserID, ProductID: s.ProductID,
+		ApplicationID: s.ApplicationID, TenantID: s.TenantID,
+		AuthenticationMethod: s.AuthenticationMethod, Version: s.Version,
+		AuthTime: s.AuthTime, CreatedAt: s.CreatedAt, LastSeenAt: s.LastSeenAt,
+		AccessExpiresAt: s.AccessExpiresAt, RefreshExpiresAt: s.RefreshExpiresAt,
+		AbsoluteExpiresAt: s.AbsoluteExpiresAt, AccountStatus: s.AccountStatus,
+	}
+}
+
+type EndUserProfilePatchValue struct {
+	Set   bool
+	Value *string
+}
+
+type EndUserProfilePatch struct {
+	DisplayName EndUserProfilePatchValue
+	AvatarRef   EndUserProfilePatchValue
+	Locale      EndUserProfilePatchValue
+	Timezone    EndUserProfilePatchValue
 }
 
 func (r EndUserRegistration) Validate() error {
