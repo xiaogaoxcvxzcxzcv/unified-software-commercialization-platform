@@ -29,11 +29,11 @@ func (authStub) ResolveBearer(_ context.Context, token string) (BearerPrincipal,
 	}
 }
 
-func (authStub) ResolveHostedSession(_ context.Context, token string) (HostedPrincipal, error) {
-	if token != "hosted-cookie-0000000000000000000000000000000000" {
+func (authStub) ResolveHostedSession(_ context.Context, interactionID, token string) (HostedPrincipal, error) {
+	if interactionID != testInteractionID || token != "hosted-cookie-0000000000000000000000000000000000" {
 		return HostedPrincipal{}, ErrSessionRevoked
 	}
-	return HostedPrincipal{InteractionID: testInteractionID, BrowserSessionID: "browser-session-a", CSRFToken: "csrf-token-0000000000000000000000000000"}, nil
+	return HostedPrincipal{InteractionID: interactionID, BrowserSessionID: "browser-session-a", CSRFToken: "csrf-token-0000000000000000000000000000"}, nil
 }
 
 type serviceStub struct {
@@ -264,7 +264,7 @@ func TestHostedWritesRequireExactCookieOriginAndCSRF(t *testing.T) {
 	hosted(r)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	assertProblem(t, w, http.StatusNotFound, "hosted.invalid_interaction")
+	assertProblem(t, w, http.StatusUnauthorized, "hosted.session_revoked")
 }
 
 func TestGetAccountCancelAndExchangeAuthenticationBoundaries(t *testing.T) {

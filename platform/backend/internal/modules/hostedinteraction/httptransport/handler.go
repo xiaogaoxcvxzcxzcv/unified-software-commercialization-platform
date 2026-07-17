@@ -68,7 +68,7 @@ type HostedPrincipal struct {
 
 type Authenticator interface {
 	ResolveBearer(context.Context, string) (BearerPrincipal, error)
-	ResolveHostedSession(context.Context, string) (HostedPrincipal, error)
+	ResolveHostedSession(context.Context, string, string) (HostedPrincipal, error)
 }
 
 type Service interface {
@@ -283,7 +283,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 	if !onlyMethod(w, r, http.MethodGet) || !emptyBody(w, r) {
 		return
 	}
-	access, ok := h.requireAccess(w, r)
+	access, ok := h.requireAccess(w, r, id)
 	if !ok {
 		return
 	}
@@ -466,7 +466,7 @@ func (h *Handler) requireBearer(w http.ResponseWriter, r *http.Request) (BearerP
 	return p, true
 }
 
-func (h *Handler) requireAccess(w http.ResponseWriter, r *http.Request) (AccessPrincipal, bool) {
+func (h *Handler) requireAccess(w http.ResponseWriter, r *http.Request, interactionID string) (AccessPrincipal, bool) {
 	hasAuth := len(r.Header.Values("Authorization")) != 0
 	cookie, hasCookie := hostedCookie(r)
 	if hasAuth == hasCookie {
@@ -477,7 +477,7 @@ func (h *Handler) requireAccess(w http.ResponseWriter, r *http.Request) (AccessP
 		p, ok := h.requireBearer(w, r)
 		return AccessPrincipal{Bearer: &p}, ok
 	}
-	p, err := h.auth.ResolveHostedSession(r.Context(), cookie)
+	p, err := h.auth.ResolveHostedSession(r.Context(), interactionID, cookie)
 	if err != nil || !validHostedPrincipal(p) {
 		h.writeError(w, r, ErrSessionRevoked)
 		return AccessPrincipal{}, false
@@ -495,7 +495,7 @@ func (h *Handler) requireHostedWrite(w http.ResponseWriter, r *http.Request, id 
 		h.writeError(w, r, ErrAuthenticationRequired)
 		return HostedPrincipal{}, false
 	}
-	p, err := h.auth.ResolveHostedSession(r.Context(), cookie)
+	p, err := h.auth.ResolveHostedSession(r.Context(), id, cookie)
 	if err != nil || !validHostedPrincipal(p) {
 		h.writeError(w, r, ErrSessionRevoked)
 		return HostedPrincipal{}, false

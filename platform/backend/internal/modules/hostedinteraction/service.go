@@ -174,11 +174,17 @@ func (s *Service) OpenBrowserSession(ctx context.Context, interactionID string) 
 }
 
 func (s *Service) GetForBrowser(ctx context.Context, interactionID, browserToken string) (Projection, error) {
+	projection, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
+	return projection, err
+}
+
+func (s *Service) ResolveBrowserAccess(ctx context.Context, interactionID, browserToken string) (Projection, string, error) {
 	value, err := s.repository.ValidateBrowserSession(ctx, interactionID, s.digest("browser-token", browserToken))
 	if err != nil {
-		return Projection{}, err
+		return Projection{}, "", err
 	}
-	return Project(value), nil
+	csrf := base64.RawURLEncoding.EncodeToString(s.digest("browser-csrf", browserToken))
+	return Project(value), csrf, nil
 }
 
 func (s *Service) ValidateBrowserWrite(ctx context.Context, interactionID, browserToken, csrfToken string) (Projection, error) {
@@ -186,7 +192,8 @@ func (s *Service) ValidateBrowserWrite(ctx context.Context, interactionID, brows
 	if !hmac.Equal([]byte(wanted), []byte(csrfToken)) {
 		return Projection{}, ErrCSRF
 	}
-	return s.GetForBrowser(ctx, interactionID, browserToken)
+	projection, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
+	return projection, err
 }
 
 type AuthenticateCommand struct {
