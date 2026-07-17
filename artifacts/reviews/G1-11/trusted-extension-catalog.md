@@ -2,7 +2,7 @@
 
 日期：2026-07-17
 
-状态：`local_verified`，等待托管 CI 后晋级主计划状态。
+状态：`verified`。
 
 ## 验收范围
 
@@ -44,3 +44,9 @@ Manifest 为 closed Schema，不接受产品展示名或秘密值；真实扩展
 - 未把任何完整能力包标记为 `available`。
 
 以上项目继续留在 G2C；G1-11 只证明可信目录与计划基础成立。
+
+## 托管验证
+
+- 草稿 PR：`#9`，基线 `codex/g1-10-lifecycle-api`，head `bb34d767971ada9d1fdc158ed27895bf1fd6a534`，状态 `OPEN/CLEAN`。
+- push `quality-gate`：run `29557504811`，job `87812770268`，`SUCCESS`，2m27s。
+- pull_request `quality-gate`：run `29557543494`，job `87812887849`，`SUCCESS`，2m43s。
