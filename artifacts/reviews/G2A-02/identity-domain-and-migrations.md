@@ -2,7 +2,7 @@
 
 日期：2026-07-17
 
-当前结论：本地验收通过，等待托管 `quality-gate`。在 push/PR CI 通过前不把本关标记为 `verified`。
+结论：`verified`。本关只完成 Identity 用户域、Product User Access 存储与 Repository，不声称 G2A-03 HTTP API、G2A-04 Provider 或 `package.account` 九个交付面已经完成。
 
 ## 交付
 
@@ -29,6 +29,7 @@
 - 迁移：15 对连续迁移，全量 up、重复 up、down、re-up 和 Assembly lineage 回归通过。
 - Go：全后端测试与 vet 通过；Identity、PUA 和迁移专项真实 PostgreSQL 测试通过。
 - SDK 8/8、Client UI 14/14、Standard-A Web/desktop 各 7/7、Admin 133/133，三个前端生产构建通过。
+- 托管门禁：push run `29564448637` / job `87833823149` 通过（2m14s）；PR run `29564466333` / job `87833877458` 通过（2m38s）。
 
 ## 下一关硬边界
 
