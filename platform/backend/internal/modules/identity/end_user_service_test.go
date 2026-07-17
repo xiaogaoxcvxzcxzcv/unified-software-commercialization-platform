@@ -61,7 +61,7 @@ func TestEndUserLoginRateLimitCarriesRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.Login(context.Background(), EndUserLoginCommand{Scope: EndUserSessionScope{ProductID: "product.rate", ApplicationID: "application.rate"}, Identifier: "person@example.com", Credential: "password", Source: "source"})
+	_, err = service.Login(context.Background(), EndUserLoginCommand{Scope: EndUserSessionScope{ProductID: "product.rate", ApplicationID: "application.rate", Environment: "test"}, Identifier: "person@example.com", Credential: "password", Source: "source"})
 	var rateLimit *EndUserRateLimitError
 	if !errors.As(err, &rateLimit) || !errors.Is(err, ErrEndUserRateLimited) || rateLimit.RetryAfter != 37*time.Second || !rateLimit.BlockedUntil.Equal(blockedUntil) {
 		t.Fatalf("rate limit error = %#v", err)
@@ -126,7 +126,7 @@ func TestEndUserLoginUsesOneAdaptiveCompareForMissingAndWrongCredential(t *testi
 				t.Fatal(err)
 			}
 			passwords.compares = 0
-			_, err = service.Login(context.Background(), EndUserLoginCommand{Scope: EndUserSessionScope{ProductID: "product.one", ApplicationID: "application.one"}, Identifier: "person@example.com", Credential: "wrong password", Source: "source", TraceID: "trace"})
+			_, err = service.Login(context.Background(), EndUserLoginCommand{Scope: EndUserSessionScope{ProductID: "product.one", ApplicationID: "application.one", Environment: "test"}, Identifier: "person@example.com", Credential: "wrong password", Source: "source", TraceID: "trace"})
 			if !errors.Is(err, ErrEndUserInvalidCredentials) || passwords.compares != 1 || repository.failures != 1 {
 				t.Fatalf("Login() error=%v compares=%d failures=%d", err, passwords.compares, repository.failures)
 			}
@@ -158,9 +158,9 @@ func TestEndUserLoginAdmissionFailureNeverCreatesSession(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope := EndUserSessionScope{ProductID: "product.admission", ApplicationID: "application.admission"}
+			scope := EndUserSessionScope{ProductID: "product.admission", ApplicationID: "application.admission", Environment: "test"}
 			_, err = service.Login(context.Background(), EndUserLoginCommand{Scope: scope, Identifier: "admission@example.com", Credential: "correct password", Source: "loopback"})
-			if !errors.Is(err, test.err) || repository.sessions != 0 || len(admission.requests) != 1 || admission.requests[0].UserID != "user.admission" || !admission.requests[0].Scope.Matches(EndUserSession{ProductID: scope.ProductID, ApplicationID: scope.ApplicationID}) || !admission.requests[0].At.Equal(now) {
+			if !errors.Is(err, test.err) || repository.sessions != 0 || len(admission.requests) != 1 || admission.requests[0].UserID != "user.admission" || !admission.requests[0].Scope.Matches(EndUserSession{ProductID: scope.ProductID, ApplicationID: scope.ApplicationID, Environment: scope.Environment}) || !admission.requests[0].At.Equal(now) {
 				t.Fatalf("Login() err=%v sessions=%d requests=%+v", err, repository.sessions, admission.requests)
 			}
 		})

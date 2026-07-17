@@ -69,6 +69,7 @@ type EndUserPolicy struct {
 	LoginMaximumAttempts  int
 	LoginBlockDuration    time.Duration
 	RecentAuthTTL         time.Duration
+	HostedAuthProofTTL    time.Duration
 }
 
 type EndUserService struct {
@@ -80,6 +81,7 @@ type EndUserService struct {
 	proofs     RegistrationProofVerifier
 	recovery   RecoveryDeliveryPort
 	admission  EndUserAdmissionPort
+	hosted     HostedAuthRepository
 	policy     EndUserPolicy
 	now        func() time.Time
 	fakeHash   []byte
@@ -89,7 +91,7 @@ func NewEndUserService(repository EndUserRepository, normalizer IdentifierNormal
 	if repository == nil || normalizer == nil || passwords == nil {
 		return nil, errors.New("end-user repository, normalizer, and password verifier are required")
 	}
-	if policy.AccessTTL <= 0 || policy.RefreshTTL <= 0 || policy.RefreshAbsoluteTTL < policy.RefreshTTL || policy.RefreshRecoveryWindow <= 0 || policy.RecoveryTTL <= 0 || policy.RecoveryMaxAttempts < 1 || policy.LoginWindow <= 0 || policy.LoginMaximumAttempts < 1 || policy.LoginBlockDuration <= 0 || policy.RecentAuthTTL <= 0 {
+	if policy.AccessTTL <= 0 || policy.RefreshTTL <= 0 || policy.RefreshAbsoluteTTL < policy.RefreshTTL || policy.RefreshRecoveryWindow <= 0 || policy.RecoveryTTL <= 0 || policy.RecoveryMaxAttempts < 1 || policy.LoginWindow <= 0 || policy.LoginMaximumAttempts < 1 || policy.LoginBlockDuration <= 0 || policy.RecentAuthTTL <= 0 || policy.HostedAuthProofTTL < 0 {
 		return nil, errors.New("invalid end-user policy")
 	}
 	if now == nil {
@@ -102,7 +104,8 @@ func NewEndUserService(repository EndUserRepository, normalizer IdentifierNormal
 	if err := ValidateAdaptivePasswordHash("bcrypt", fakeHash); err != nil {
 		return nil, err
 	}
-	service := &EndUserService{repository: repository, normalizer: normalizer, passwords: passwords, hasher: hasher, secrets: securevalue.DefaultGenerator(), proofs: proofs, recovery: recovery, policy: policy, now: now, fakeHash: fakeHash}
+	hosted, _ := repository.(HostedAuthRepository)
+	service := &EndUserService{repository: repository, normalizer: normalizer, passwords: passwords, hasher: hasher, secrets: securevalue.DefaultGenerator(), proofs: proofs, recovery: recovery, admission: nil, hosted: hosted, policy: policy, now: now, fakeHash: fakeHash}
 	for _, option := range options {
 		if option == nil {
 			return nil, errors.New("nil end-user service option")
@@ -142,6 +145,9 @@ type EndUserIssuedSession struct {
 }
 
 func (s *EndUserService) Register(ctx context.Context, command EndUserRegisterCommand) (EndUserIssuedSession, error) {
+	if !ValidEndUserEnvironment(command.Scope.Environment) {
+		return EndUserIssuedSession{}, ErrEndUserScopeMismatch
+	}
 	if s.proofs == nil {
 		return EndUserIssuedSession{}, ErrEndUserProviderUnavailable
 	}
@@ -227,57 +233,75 @@ func (s *EndUserService) Register(ctx context.Context, command EndUserRegisterCo
 }
 
 func (s *EndUserService) Login(ctx context.Context, command EndUserLoginCommand) (EndUserIssuedSession, error) {
-	normalized, err := s.normalize(command.Identifier)
-	if err != nil {
-		return EndUserIssuedSession{}, ErrEndUserInvalidCredentials
+	if !ValidEndUserEnvironment(command.Scope.Environment) {
+		return EndUserIssuedSession{}, ErrEndUserScopeMismatch
 	}
-	identifierDigest := s.hasher.Digest("identifier\x00" + normalized.Value)
-	sourceDigest := s.hasher.Digest("login-source\x00" + command.Source)
-	scopeID := trustedScopeID(command.Scope)
-	now := s.now().UTC()
-	throttle, err := s.repository.EndUserLoginThrottle(ctx, scopeID, identifierDigest, sourceDigest, now)
+	authenticated, err := s.authenticatePassword(ctx, command.Scope, command.Identifier, command.Credential, command.Source, command.TraceID)
 	if err != nil {
 		return EndUserIssuedSession{}, err
-	}
-	if throttle.BlockedUntil != nil && throttle.BlockedUntil.After(now) {
-		return EndUserIssuedSession{}, &EndUserRateLimitError{BlockedUntil: *throttle.BlockedUntil, RetryAfter: throttle.BlockedUntil.Sub(now)}
-	}
-	credential, findErr := s.repository.FindEndUserPasswordCredential(ctx, normalized.Type, identifierDigest)
-	comparisonHash := s.fakeHash
-	if findErr == nil {
-		comparisonHash = credential.PasswordHash
-	} else if !errors.Is(findErr, ErrNotFound) {
-		return EndUserIssuedSession{}, findErr
-	}
-	compareErr := s.passwords.Compare(comparisonHash, []byte(command.Credential))
-	if findErr != nil || compareErr != nil || credential.AccountStatus != "active" {
-		if err := s.recordLoginFailure(ctx, scopeID, identifierDigest, sourceDigest, command.TraceID, now); err != nil {
-			return EndUserIssuedSession{}, err
-		}
-		return EndUserIssuedSession{}, ErrEndUserInvalidCredentials
-	}
-	if s.admission != nil {
-		if err := s.admission.AdmitEndUser(ctx, EndUserAdmissionRequest{Scope: command.Scope, UserID: credential.UserID, At: now}); err != nil {
-			return EndUserIssuedSession{}, err
-		}
 	}
 	risk, err := json.Marshal(command.RiskSummary)
 	if err != nil {
 		return EndUserIssuedSession{}, err
 	}
-	issued, stored, err := s.newSession(credential.UserID, command.Scope, "password", s.hasher.Digest("risk\x00"+string(risk)), now, command.TraceID)
+	issued, stored, err := s.newSession(authenticated.Credential.UserID, command.Scope, "password", s.hasher.Digest("risk\x00"+string(risk)), authenticated.Now, command.TraceID)
 	if err != nil {
 		return EndUserIssuedSession{}, err
 	}
-	if err := s.repository.CreateEndUserSessionAndClearFailures(ctx, stored, scopeID, identifierDigest); err != nil {
+	if err := s.repository.CreateEndUserSessionAndClearFailures(ctx, stored, authenticated.ScopeID, authenticated.IdentifierDigest); err != nil {
 		return EndUserIssuedSession{}, err
 	}
-	profile, err := s.repository.GetEndUserProfile(ctx, credential.UserID)
+	profile, err := s.repository.GetEndUserProfile(ctx, authenticated.Credential.UserID)
 	if err != nil {
 		return EndUserIssuedSession{}, err
 	}
 	issued.Profile = profile
 	return issued, nil
+}
+
+type authenticatedEndUserPassword struct {
+	Credential       EndUserPasswordCredential
+	IdentifierDigest []byte
+	ScopeID          string
+	Now              time.Time
+}
+
+func (s *EndUserService) authenticatePassword(ctx context.Context, scope EndUserSessionScope, identifier, credentialValue, source, traceID string) (authenticatedEndUserPassword, error) {
+	normalized, err := s.normalize(identifier)
+	if err != nil {
+		return authenticatedEndUserPassword{}, ErrEndUserInvalidCredentials
+	}
+	identifierDigest := s.hasher.Digest("identifier\x00" + normalized.Value)
+	sourceDigest := s.hasher.Digest("login-source\x00" + source)
+	scopeID := trustedScopeID(scope)
+	now := s.now().UTC()
+	throttle, err := s.repository.EndUserLoginThrottle(ctx, scopeID, identifierDigest, sourceDigest, now)
+	if err != nil {
+		return authenticatedEndUserPassword{}, err
+	}
+	if throttle.BlockedUntil != nil && throttle.BlockedUntil.After(now) {
+		return authenticatedEndUserPassword{}, &EndUserRateLimitError{BlockedUntil: *throttle.BlockedUntil, RetryAfter: throttle.BlockedUntil.Sub(now)}
+	}
+	storedCredential, findErr := s.repository.FindEndUserPasswordCredential(ctx, normalized.Type, identifierDigest)
+	comparisonHash := s.fakeHash
+	if findErr == nil {
+		comparisonHash = storedCredential.PasswordHash
+	} else if !errors.Is(findErr, ErrNotFound) {
+		return authenticatedEndUserPassword{}, findErr
+	}
+	compareErr := s.passwords.Compare(comparisonHash, []byte(credentialValue))
+	if findErr != nil || compareErr != nil || storedCredential.AccountStatus != "active" {
+		if err := s.recordLoginFailure(ctx, scopeID, identifierDigest, sourceDigest, traceID, now); err != nil {
+			return authenticatedEndUserPassword{}, err
+		}
+		return authenticatedEndUserPassword{}, ErrEndUserInvalidCredentials
+	}
+	if s.admission != nil {
+		if err := s.admission.AdmitEndUser(ctx, EndUserAdmissionRequest{Scope: scope, UserID: storedCredential.UserID, At: now}); err != nil {
+			return authenticatedEndUserPassword{}, err
+		}
+	}
+	return authenticatedEndUserPassword{Credential: storedCredential, IdentifierDigest: identifierDigest, ScopeID: scopeID, Now: now}, nil
 }
 
 func (s *EndUserService) CurrentSession(ctx context.Context, accessToken string, scope EndUserSessionScope) (EndUserIssuedSession, error) {
@@ -657,6 +681,9 @@ func identityRequestDigest(hasher securevalue.Hasher, operation string, fields .
 }
 
 func (s *EndUserService) newSession(userID string, scope EndUserSessionScope, method string, riskDigest []byte, now time.Time, traceID string) (EndUserIssuedSession, NewEndUserSession, error) {
+	if userID == "" || !ValidEndUserEnvironment(scope.Environment) {
+		return EndUserIssuedSession{}, NewEndUserSession{}, ErrEndUserScopeMismatch
+	}
 	sessionID, err := s.secrets.ID("uses_")
 	if err != nil {
 		return EndUserIssuedSession{}, NewEndUserSession{}, err
@@ -682,7 +709,7 @@ func (s *EndUserService) newSession(userID string, scope EndUserSessionScope, me
 		return EndUserIssuedSession{}, NewEndUserSession{}, err
 	}
 	accessExpires, refreshExpires, absoluteExpires := now.Add(s.policy.AccessTTL), now.Add(s.policy.RefreshTTL), now.Add(s.policy.RefreshAbsoluteTTL)
-	session := EndUserSession{SessionID: sessionID, UserID: userID, ProductID: scope.ProductID, ApplicationID: scope.ApplicationID, TenantID: scope.TenantID, TokenFamilyID: familyID, AuthenticationMethod: method, Version: 1, AuthTime: now, CreatedAt: now, LastSeenAt: now, AccessExpiresAt: accessExpires, RefreshExpiresAt: refreshExpires, AbsoluteExpiresAt: absoluteExpires, RiskSummaryDigest: riskDigest, AccountStatus: "active"}
+	session := EndUserSession{SessionID: sessionID, UserID: userID, ProductID: scope.ProductID, ApplicationID: scope.ApplicationID, TenantID: scope.TenantID, Environment: scope.Environment, TokenFamilyID: familyID, AuthenticationMethod: method, Version: 1, AuthTime: now, CreatedAt: now, LastSeenAt: now, AccessExpiresAt: accessExpires, RefreshExpiresAt: refreshExpires, AbsoluteExpiresAt: absoluteExpires, RiskSummaryDigest: riskDigest, AccountStatus: "active"}
 	event, err := s.event("identity.session_created.v1", "identity.session_created", userID, traceID, "success", "", now)
 	if err != nil {
 		return EndUserIssuedSession{}, NewEndUserSession{}, err
@@ -721,11 +748,15 @@ func trustedScopeID(scope EndUserSessionScope) string {
 	if scope.TenantID != nil {
 		tenant = *scope.TenantID
 	}
-	return fmt.Sprintf("p%d:%s|a%d:%s|t%d:%s", len(scope.ProductID), scope.ProductID, len(scope.ApplicationID), scope.ApplicationID, len(tenant), tenant)
+	result := fmt.Sprintf("p%d:%s|a%d:%s|t%d:%s", len(scope.ProductID), scope.ProductID, len(scope.ApplicationID), scope.ApplicationID, len(tenant), tenant)
+	if scope.Environment != "" {
+		result += fmt.Sprintf("|e%d:%s", len(scope.Environment), scope.Environment)
+	}
+	return result
 }
 
 func scopeFromSession(session EndUserSession) EndUserSessionScope {
-	return EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID}
+	return EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID, Environment: session.Environment}
 }
 
 func maskEndUserIdentifier(value NormalizedIdentifier) string {

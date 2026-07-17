@@ -49,14 +49,19 @@ func NewExternalAuthService(repository ExternalAuthRepository, users EndUserRepo
 }
 
 func (s *ExternalAuthService) Start(ctx context.Context, command ExternalAuthStartCommand) (ExternalAuthStartResult, error) {
-	if command.Scope.ProductID == "" || command.Scope.ApplicationID == "" || command.Provider == "" || command.Environment == "" || command.ReturnTargetCode == "" || command.BrowserSession == "" || (command.Mode != "redirect" && command.Mode != "qr" && command.Mode != "native") {
+	if command.Scope.ProductID == "" || command.Scope.ApplicationID == "" || command.Provider == "" || !ValidEndUserEnvironment(command.Environment) || command.ReturnTargetCode == "" || command.BrowserSession == "" || (command.Mode != "redirect" && command.Mode != "qr" && command.Mode != "native") {
 		return ExternalAuthStartResult{}, ErrExternalAuthFlowInvalid
 	}
-	providerApplication, err := s.resolveProvider(ctx, command.Scope, command.Environment, command.Provider)
+	if command.Scope.Environment != "" && command.Scope.Environment != command.Environment {
+		return ExternalAuthStartResult{}, ErrExternalAuthFlowInvalid
+	}
+	trustedScope := command.Scope
+	trustedScope.Environment = command.Environment
+	providerApplication, err := s.resolveProvider(ctx, trustedScope, command.Environment, command.Provider)
 	if err != nil {
 		return ExternalAuthStartResult{}, err
 	}
-	target, err := s.returns.ResolveAuthReturnTarget(ctx, command.Scope, command.Environment, command.ReturnTargetCode)
+	target, err := s.returns.ResolveAuthReturnTarget(ctx, trustedScope, command.Environment, command.ReturnTargetCode)
 	if err != nil || target.Code != command.ReturnTargetCode || strings.TrimSpace(target.URI) == "" || target.PolicyVersion < 1 {
 		return ExternalAuthStartResult{}, ErrExternalAuthFlowInvalid
 	}
@@ -71,7 +76,7 @@ func (s *ExternalAuthService) Start(ctx context.Context, command ExternalAuthSta
 	challenge := base64.RawURLEncoding.EncodeToString(challengeRaw[:])
 	now := s.now().UTC()
 	flow := ExternalAuthFlow{
-		FlowID: flowID, Scope: command.Scope, Environment: command.Environment,
+		FlowID: flowID, Scope: trustedScope, Environment: command.Environment,
 		Provider: command.Provider, ProviderApplicationRef: providerApplication.ProviderApplicationRef,
 		Mode: command.Mode, ReturnTargetCode: target.Code, ReturnTargetURI: target.URI,
 		ReturnTargetPolicyVersion: target.PolicyVersion,
@@ -149,7 +154,9 @@ func (s *ExternalAuthService) Complete(ctx context.Context, command ExternalAuth
 				return ExternalAuthResult{}, err
 			}
 		}
-		issued, stored, err := s.sessions.newSession(linked.UserID, flow.Scope, externalAuthenticationMethod(flow.Provider), nil, completedAt, command.TraceID)
+		sessionScope := flow.Scope
+		sessionScope.Environment = flow.Environment
+		issued, stored, err := s.sessions.newSession(linked.UserID, sessionScope, externalAuthenticationMethod(flow.Provider), nil, completedAt, command.TraceID)
 		if err != nil {
 			return ExternalAuthResult{}, err
 		}
@@ -231,7 +238,7 @@ func (s *ExternalAuthService) Unlink(ctx context.Context, command UnlinkExternal
 
 func (s *ExternalAuthService) resolveProvider(ctx context.Context, scope EndUserSessionScope, environment, provider string) (ExternalProviderApplication, error) {
 	resolved, err := s.registry.ResolveExternalProvider(ctx, ExternalProviderQuery{Scope: scope, Environment: environment, Provider: provider})
-	if err != nil || !resolved.Enabled || resolved.Provider != provider || resolved.Environment != environment || !resolved.Scope.Matches(EndUserSession{ProductID: scope.ProductID, ApplicationID: scope.ApplicationID, TenantID: scope.TenantID}) || resolved.ProviderApplicationRef == "" {
+	if err != nil || !resolved.Enabled || resolved.Provider != provider || resolved.Environment != environment || !resolved.Scope.Matches(EndUserSession{ProductID: scope.ProductID, ApplicationID: scope.ApplicationID, TenantID: scope.TenantID, Environment: scope.Environment}) || resolved.ProviderApplicationRef == "" {
 		return ExternalProviderApplication{}, ErrExternalProviderDisabled
 	}
 	return resolved, nil

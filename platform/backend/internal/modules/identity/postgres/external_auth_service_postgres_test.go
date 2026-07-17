@@ -25,7 +25,7 @@ func TestConcurrentExternalIdentityUnlinkPreservesOneLoginMethod(t *testing.T) {
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 	sessions := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
-	registered, err := sessions.Register(context.Background(), identity.EndUserRegisterCommand{Scope: identity.EndUserSessionScope{ProductID: "product.concurrent-unlink", ApplicationID: "application.concurrent-unlink"}, Identifier: "concurrent-unlink@example.com", Credential: "correct concurrent password", VerificationProof: strings.Repeat("u", 16), TraceID: "trace.concurrent-unlink.register", IdempotencyKey: "register-concurrent-unlink-01"})
+	registered, err := sessions.Register(context.Background(), identity.EndUserRegisterCommand{Scope: identity.EndUserSessionScope{ProductID: "product.concurrent-unlink", ApplicationID: "application.concurrent-unlink", Environment: "test"}, Identifier: "concurrent-unlink@example.com", Credential: "correct concurrent password", VerificationProof: strings.Repeat("u", 16), TraceID: "trace.concurrent-unlink.register", IdempotencyKey: "register-concurrent-unlink-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestExternalAuthLifecycleIsScopedSingleUseAndFailClosed(t *testing.T) {
 	now := time.Date(2026, 7, 18, 5, 0, 0, 0, time.UTC)
 	clock := now
 	sessions := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return clock })
-	scope := identity.EndUserSessionScope{ProductID: "product.external", ApplicationID: "application.external"}
+	scope := identity.EndUserSessionScope{ProductID: "product.external", ApplicationID: "application.external", Environment: "test"}
 	registered, err := sessions.Register(context.Background(), identity.EndUserRegisterCommand{Scope: scope, Identifier: "external@example.com", Credential: "correct external password", VerificationProof: strings.Repeat("e", 16), TraceID: "trace.external.register", IdempotencyKey: "register-external-key-01"})
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +169,15 @@ func TestExternalAuthLifecycleIsScopedSingleUseAndFailClosed(t *testing.T) {
 	if err := database.Pool.QueryRow(context.Background(), `SELECT count(*) FROM identity.external_identity_proofs`).Scan(&proofs); err != nil || proofs != 1 {
 		t.Fatalf("proof count after code replay=%d err=%v", proofs, err)
 	}
+	var proofEnvironment string
+	if err := database.Pool.QueryRow(context.Background(), `SELECT environment FROM identity.external_identity_proofs WHERE flow_id=$1`, first.FlowID).Scan(&proofEnvironment); err != nil || proofEnvironment != scope.Environment {
+		t.Fatalf("external proof environment=%q err=%v", proofEnvironment, err)
+	}
+	forgedSession := registered.Session
+	forgedSession.Environment = "production"
+	if _, err := service.Link(context.Background(), identity.LinkExternalIdentityCommand{Session: forgedSession, Provider: "oidc", ExternalProofID: result.ExternalProofID, IdempotencyKey: "external-link-cross-env-01", TraceID: "trace.external.cross-env"}); !errors.Is(err, identity.ErrExternalProofInvalid) {
+		t.Fatalf("cross-environment link error=%v", err)
+	}
 
 	linked, err := service.Link(context.Background(), identity.LinkExternalIdentityCommand{Session: registered.Session, Provider: "oidc", ExternalProofID: result.ExternalProofID, IdempotencyKey: "external-link-key-0001", TraceID: "trace.external.link"})
 	if err != nil || linked.UserID != registered.Session.UserID || linked.ProviderApplicationID != "oidc.app" || linked.SubjectMasked != "oidc identity" || len(linked.SubjectDigest) != 0 || len(linked.UnionSubjectDigest) != 0 {
@@ -190,9 +199,9 @@ func TestExternalAuthLifecycleIsScopedSingleUseAndFailClosed(t *testing.T) {
 	if err != nil || authenticated.Status != "authenticated" || authenticated.Session == nil || authenticated.Session.Session.AuthenticationMethod != "oidc" || authenticated.Session.Session.UserID != registered.Session.UserID {
 		t.Fatalf("bound Complete() result=%+v err=%v", authenticated, err)
 	}
-	var sessionExternalIdentityID string
-	if err := database.Pool.QueryRow(context.Background(), `SELECT external_identity_id FROM identity.end_user_sessions WHERE session_id=$1`, authenticated.Session.Session.SessionID).Scan(&sessionExternalIdentityID); err != nil || sessionExternalIdentityID != linked.ExternalIdentityID {
-		t.Fatalf("external session provenance=%q err=%v", sessionExternalIdentityID, err)
+	var sessionExternalIdentityID, sessionEnvironment string
+	if err := database.Pool.QueryRow(context.Background(), `SELECT external_identity_id,environment FROM identity.end_user_sessions WHERE session_id=$1`, authenticated.Session.Session.SessionID).Scan(&sessionExternalIdentityID, &sessionEnvironment); err != nil || sessionExternalIdentityID != linked.ExternalIdentityID || sessionEnvironment != "test" {
+		t.Fatalf("external session provenance=%q environment=%q err=%v", sessionExternalIdentityID, sessionEnvironment, err)
 	}
 
 	wechat := start("wechat")
@@ -205,7 +214,7 @@ func TestExternalAuthLifecycleIsScopedSingleUseAndFailClosed(t *testing.T) {
 	if _, err := service.Complete(context.Background(), identity.ExternalAuthCallbackCommand{FlowID: wechat.FlowID, Provider: "wechat", BrowserSession: "browser-session", State: "wrong-state", Code: "wechat-code"}); !errors.Is(err, identity.ErrExternalAuthFlowInvalid) || provider.exchanges != exchangesBefore {
 		t.Fatalf("wechat missing state boundary error=%v exchanges=%d/%d", err, provider.exchanges, exchangesBefore)
 	}
-	wrongClientScope := identity.EndUserSessionScope{ProductID: "other-product", ApplicationID: scope.ApplicationID}
+	wrongClientScope := identity.EndUserSessionScope{ProductID: "other-product", ApplicationID: scope.ApplicationID, Environment: scope.Environment}
 	if _, err := service.Complete(context.Background(), identity.ExternalAuthCallbackCommand{FlowID: wechat.FlowID, Provider: "wechat", ExpectedScope: &wrongClientScope, BrowserSession: "browser-session", State: wechatRequest.State, Code: "wechat-code"}); !errors.Is(err, identity.ErrExternalAuthFlowInvalid) || provider.exchanges != exchangesBefore {
 		t.Fatalf("wechat cross-client scope error=%v exchanges=%d/%d", err, provider.exchanges, exchangesBefore)
 	}
@@ -290,7 +299,7 @@ func TestExternalAuthClaimLeaseCannotReexchangeAfterAbandonment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := identity.EndUserSessionScope{ProductID: "product.claim", ApplicationID: "application.claim"}
+	scope := identity.EndUserSessionScope{ProductID: "product.claim", ApplicationID: "application.claim", Environment: "test"}
 	flow := identity.ExternalAuthFlow{FlowID: "flow-claim-abandoned", Scope: scope, Environment: "test", Provider: "oidc", ProviderApplicationRef: "oidc.claim", Mode: "redirect", ReturnTargetCode: "account", ReturnTargetURI: "https://app.example/callback", ReturnTargetPolicyVersion: 1, StateDigest: hasher.Digest("state"), NonceDigest: hasher.Digest("nonce"), PKCEChallengeDigest: hasher.Digest("pkce"), BrowserSessionDigest: hasher.Digest("browser"), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 	if err := repository.CreateExternalAuthFlow(context.Background(), flow); err != nil {
 		t.Fatal(err)

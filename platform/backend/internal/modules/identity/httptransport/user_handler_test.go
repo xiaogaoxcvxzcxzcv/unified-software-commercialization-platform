@@ -73,26 +73,61 @@ func (s *userServiceStub) LogoutUser(_ context.Context, c UserSessionContext) er
 }
 
 type userResolverStub struct {
-	clientCalls, userCalls, logoutCalls int
-	clientToken, userToken, logoutToken string
-	clientErr, userErr, logoutErr       error
-	userAccessToken, logoutAccessToken  string
+	clientCalls, userCalls, logoutCalls                   int
+	clientToken, userToken, logoutToken                   string
+	clientErr, userErr, logoutErr                         error
+	userAccessToken, logoutAccessToken                    string
+	clientEnvironment, userEnvironment, logoutEnvironment string
 }
 
 func (r *userResolverStub) ResolveClientSession(_ context.Context, token string) (ClientSessionContext, error) {
 	r.clientCalls++
 	r.clientToken = token
-	return ClientSessionContext{SessionID: "client-session-a", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", Environment: "test"}, r.clientErr
+	environment := r.clientEnvironment
+	if environment == "" {
+		environment = "test"
+	}
+	return ClientSessionContext{SessionID: "client-session-a", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", Environment: environment}, r.clientErr
 }
 func (r *userResolverStub) ResolveUserSession(_ context.Context, token string) (UserSessionContext, error) {
 	r.userCalls++
 	r.userToken = token
-	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", AccountStatus: "active", AccessToken: r.userAccessToken}, r.userErr
+	environment := r.userEnvironment
+	if environment == "" {
+		environment = "test"
+	}
+	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", Environment: environment, AccountStatus: "active", AccessToken: r.userAccessToken}, r.userErr
 }
 func (r *userResolverStub) ResolveLogoutSession(_ context.Context, token string) (UserSessionContext, error) {
 	r.logoutCalls++
 	r.logoutToken = token
-	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", AccountStatus: "active", AccessToken: r.logoutAccessToken}, r.logoutErr
+	environment := r.logoutEnvironment
+	if environment == "" {
+		environment = "test"
+	}
+	return UserSessionContext{UserID: "user-a", SessionID: "session-current", ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", Environment: environment, AccountStatus: "active", AccessToken: r.logoutAccessToken}, r.logoutErr
+}
+
+func TestUserHandlerRejectsInvalidResolvedEnvironment(t *testing.T) {
+	tests := []struct {
+		name, method, path, body, auth string
+		configure                      func(*userResolverStub)
+	}{
+		{name: "client", method: http.MethodPost, path: "/api/v1/auth/login", body: `{"identifier":"user@example.com","credential":"password"}`, auth: "client", configure: func(r *userResolverStub) { r.clientEnvironment = "staging" }},
+		{name: "user", method: http.MethodGet, path: "/api/v1/auth/session", auth: "user", configure: func(r *userResolverStub) { r.userEnvironment = "staging" }},
+		{name: "logout", method: http.MethodPost, path: "/api/v1/auth/logout", auth: "user", configure: func(r *userResolverStub) { r.logoutEnvironment = "staging" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &userServiceStub{}
+			resolver := &userResolverStub{}
+			test.configure(resolver)
+			response := serveUser(NewUserHandler(service, resolver), test.method, test.path, test.body, test.auth, "")
+			if response.Code != http.StatusUnauthorized || len(service.calls) != 0 {
+				t.Fatalf("status=%d calls=%v body=%s", response.Code, service.calls, response.Body.String())
+			}
+		})
+	}
 }
 
 func TestUserHandlerImplementsFrozenRouteSurface(t *testing.T) {

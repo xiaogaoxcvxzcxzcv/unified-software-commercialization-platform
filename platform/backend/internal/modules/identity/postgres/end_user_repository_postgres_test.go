@@ -68,6 +68,12 @@ func TestEndUserRepositoryRefreshReplayRevokesFamily(t *testing.T) {
 	}
 	session := newEndUserSession("session.refresh", "family.refresh", registration.User.UserID, now)
 	scope := endUserScope(session.Session)
+	invalidSession := session
+	invalidSession.Session.SessionID = "session.refresh.invalid-environment"
+	invalidSession.Session.Environment = ""
+	if err := repository.CreateEndUserSession(context.Background(), invalidSession); !errors.Is(err, identity.ErrEndUserScopeMismatch) {
+		t.Fatalf("CreateEndUserSession() empty environment error = %v", err)
+	}
 	if err := repository.CreateEndUserSession(context.Background(), session); err != nil {
 		t.Fatalf("CreateEndUserSession() error = %v", err)
 	}
@@ -314,7 +320,7 @@ func endUserRegistration(t *testing.T, userID, credentialID, identifierID, email
 
 func newEndUserSession(sessionID, familyID, userID string, now time.Time) identity.NewEndUserSession {
 	return identity.NewEndUserSession{
-		Session:      identity.EndUserSession{SessionID: sessionID, UserID: userID, ProductID: "product.one", ApplicationID: "application.one", TokenFamilyID: familyID, AuthenticationMethod: "password", AuthTime: now, CreatedAt: now, LastSeenAt: now, AccessExpiresAt: now.Add(15 * time.Minute), RefreshExpiresAt: now.Add(time.Hour), AbsoluteExpiresAt: now.Add(24 * time.Hour), RiskSummaryDigest: protectedDigest("risk")},
+		Session:      identity.EndUserSession{SessionID: sessionID, UserID: userID, ProductID: "product.one", ApplicationID: "application.one", Environment: "test", TokenFamilyID: familyID, AuthenticationMethod: "password", AuthTime: now, CreatedAt: now, LastSeenAt: now, AccessExpiresAt: now.Add(15 * time.Minute), RefreshExpiresAt: now.Add(time.Hour), AbsoluteExpiresAt: now.Add(24 * time.Hour), RiskSummaryDigest: protectedDigest("risk")},
 		AccessToken:  identity.EndUserSessionToken{TokenID: "access." + sessionID, TokenType: "access", Generation: 1, Digest: protectedDigest("access-" + sessionID), CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute)},
 		RefreshToken: identity.EndUserSessionToken{TokenID: "refresh." + sessionID, TokenType: "refresh", Generation: 1, Digest: protectedDigest("refresh-" + sessionID), CreatedAt: now, ExpiresAt: now.Add(time.Hour)},
 		OutboxEvent:  endUserEvent("event.session."+sessionID, "identity.session_created.v1", userID, now),
@@ -322,7 +328,7 @@ func newEndUserSession(sessionID, familyID, userID string, now time.Time) identi
 }
 
 func endUserScope(session identity.EndUserSession) identity.EndUserSessionScope {
-	return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID}
+	return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID, Environment: session.Environment}
 }
 
 func endUserEvent(eventID, topic, actor string, now time.Time) identity.OutboxEvent {

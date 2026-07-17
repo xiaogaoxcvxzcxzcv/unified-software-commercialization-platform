@@ -45,7 +45,7 @@ func TestEndUserServiceAuthenticationLifecycleAndRefreshRecovery(t *testing.T) {
 	now := time.Date(2026, 7, 18, 1, 0, 0, 0, time.UTC)
 	clock := now
 	service := newEndUserService(t, repository, acceptingRegistrationProof{}, delivery, func() time.Time { return clock })
-	scope := identity.EndUserSessionScope{ProductID: "product.service", ApplicationID: "application.service"}
+	scope := identity.EndUserSessionScope{ProductID: "product.service", ApplicationID: "application.service", Environment: "test"}
 	registerCommand := identity.EndUserRegisterCommand{Scope: scope, Identifier: "service@example.com", Credential: "correct service password", VerificationProof: strings.Repeat("p", 16), DisplayName: "Service User", TraceID: "trace.register", IdempotencyKey: "register-key-00000001"}
 	registered, err := service.Register(context.Background(), registerCommand)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestEndUserServiceRejectsExistingBearerAfterGlobalDisable(t *testing.T) {
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 1, 30, 0, 0, time.UTC)
 	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
-	scope := identity.EndUserSessionScope{ProductID: "product.disabled", ApplicationID: "application.disabled"}
+	scope := identity.EndUserSessionScope{ProductID: "product.disabled", ApplicationID: "application.disabled", Environment: "test"}
 	registered, err := service.Register(context.Background(), identity.EndUserRegisterCommand{Scope: scope, Identifier: "disabled@example.com", Credential: "correct disabled password", VerificationProof: strings.Repeat("d", 16), TraceID: "trace.disabled", IdempotencyKey: "register-key-disabled-01"})
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestEndUserAccessCannotOutliveAbsoluteSessionExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 18, 1, 40, 0, 0, time.UTC)
 	clock := now
 	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return clock })
-	scope := identity.EndUserSessionScope{ProductID: "product.absolute", ApplicationID: "application.absolute"}
+	scope := identity.EndUserSessionScope{ProductID: "product.absolute", ApplicationID: "application.absolute", Environment: "test"}
 	registered, err := service.Register(context.Background(), identity.EndUserRegisterCommand{Scope: scope, Identifier: "absolute@example.com", Credential: "correct absolute password", VerificationProof: strings.Repeat("a", 16), TraceID: "trace.absolute", IdempotencyKey: "register-key-absolute-01"})
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestEndUserRegistrationInvalidProofIsStableButProviderFailureIsRetryable(t 
 	database := testpostgres.Open(t)
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 1, 45, 0, 0, time.UTC)
-	scope := identity.EndUserSessionScope{ProductID: "product.proof", ApplicationID: "application.proof"}
+	scope := identity.EndUserSessionScope{ProductID: "product.proof", ApplicationID: "application.proof", Environment: "test"}
 	command := identity.EndUserRegisterCommand{Scope: scope, Identifier: "proof@example.com", Credential: "correct proof password", VerificationProof: "invalid-proof-value", TraceID: "trace.proof", IdempotencyKey: "register-invalid-proof-01"}
 	service := newEndUserService(t, repository, errorRegistrationProof{err: identity.ErrEndUserInvalidCredentials}, &capturingRecoveryDelivery{}, func() time.Time { return now })
 	for attempt := 0; attempt < 2; attempt++ {
@@ -259,7 +259,7 @@ func TestEndUserRegistrationConcurrentSameKeyWaitsAndRecovers(t *testing.T) {
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 1, 47, 0, 0, time.UTC)
 	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
-	command := identity.EndUserRegisterCommand{Scope: identity.EndUserSessionScope{ProductID: "product.concurrent", ApplicationID: "application.concurrent"}, Identifier: "concurrent@example.com", Credential: "correct concurrent password", VerificationProof: strings.Repeat("q", 16), DisplayName: "Concurrent User", TraceID: "trace.concurrent", IdempotencyKey: "register-concurrent-key-01"}
+	command := identity.EndUserRegisterCommand{Scope: identity.EndUserSessionScope{ProductID: "product.concurrent", ApplicationID: "application.concurrent", Environment: "test"}, Identifier: "concurrent@example.com", Credential: "correct concurrent password", VerificationProof: strings.Repeat("q", 16), DisplayName: "Concurrent User", TraceID: "trace.concurrent", IdempotencyKey: "register-concurrent-key-01"}
 	start := make(chan struct{})
 	results := make(chan struct {
 		issued identity.EndUserIssuedSession
@@ -307,7 +307,7 @@ func TestEndUserPasswordVersionConflictIsTerminal(t *testing.T) {
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 1, 50, 0, 0, time.UTC)
 	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
-	scope := identity.EndUserSessionScope{ProductID: "product.password-conflict", ApplicationID: "application.password-conflict"}
+	scope := identity.EndUserSessionScope{ProductID: "product.password-conflict", ApplicationID: "application.password-conflict", Environment: "test"}
 	registered, err := service.Register(context.Background(), identity.EndUserRegisterCommand{Scope: scope, Identifier: "password-conflict@example.com", Credential: "original conflict password", VerificationProof: strings.Repeat("c", 16), TraceID: "trace.password-conflict.register", IdempotencyKey: "register-password-conflict"})
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +343,7 @@ func TestEndUserPasswordChangeConcurrentSameKeyWaitsAndRecovers(t *testing.T) {
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 1, 55, 0, 0, time.UTC)
 	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
-	scope := identity.EndUserSessionScope{ProductID: "product.password-concurrent", ApplicationID: "application.password-concurrent"}
+	scope := identity.EndUserSessionScope{ProductID: "product.password-concurrent", ApplicationID: "application.password-concurrent", Environment: "test"}
 	registered, err := service.Register(context.Background(), identity.EndUserRegisterCommand{Scope: scope, Identifier: "password-concurrent@example.com", Credential: "original concurrent password", VerificationProof: strings.Repeat("w", 16), TraceID: "trace.password-concurrent.register", IdempotencyKey: "register-password-concurrent"})
 	if err != nil {
 		t.Fatal(err)
@@ -377,7 +377,7 @@ func TestEndUserServiceRecoveryAndProviderFailClosed(t *testing.T) {
 	database := testpostgres.Open(t)
 	repository := identitypostgres.New(database.Pool)
 	now := time.Date(2026, 7, 18, 2, 0, 0, 0, time.UTC)
-	scope := identity.EndUserSessionScope{ProductID: "product.recovery", ApplicationID: "application.recovery"}
+	scope := identity.EndUserSessionScope{ProductID: "product.recovery", ApplicationID: "application.recovery", Environment: "test"}
 	withoutProviders := newEndUserService(t, repository, nil, nil, func() time.Time { return now })
 	if _, err := withoutProviders.Register(context.Background(), identity.EndUserRegisterCommand{Scope: scope}); !errors.Is(err, identity.ErrEndUserProviderUnavailable) {
 		t.Fatalf("Register without provider error = %v", err)
@@ -445,7 +445,7 @@ func TestEndUserServiceRecoveryAndProviderFailClosed(t *testing.T) {
 	if err := database.Pool.QueryRow(context.Background(), `SELECT normalized_digest FROM identity.user_identifiers WHERE user_id=$1`, registered.Session.UserID).Scan(&identifierDigest); err != nil {
 		t.Fatal(err)
 	}
-	scopeID := "p16:product.recovery|a20:application.recovery|t1:-"
+	scopeID := "p16:product.recovery|a20:application.recovery|t1:-|e4:test"
 	if _, err := database.Pool.Exec(context.Background(), `INSERT INTO identity.end_user_login_failures(scope_id,identifier_digest,source_digest,failure_count,window_started_at,last_failed_at) VALUES($1,$2,$3,1,$4,$4)`, scopeID, identifierDigest, protectedDigest("source-before-login"), now); err != nil {
 		t.Fatal(err)
 	}

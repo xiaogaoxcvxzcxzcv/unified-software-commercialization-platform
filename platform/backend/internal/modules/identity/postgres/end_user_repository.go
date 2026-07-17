@@ -586,12 +586,12 @@ func (r *Repository) ResolveEndUserRefreshScope(ctx context.Context, digest []by
 		return identity.EndUserSessionScope{}, identity.ErrEndUserAccountDisabled
 	}
 	if token.consumedAt != nil && token.rotationRecoveryExpiresAt != nil && token.rotationRecoveryExpiresAt.After(now) && session.RefreshExpiresAt.After(now) && session.AbsoluteExpiresAt.After(now) {
-		return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID}, nil
+		return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID, Environment: session.Environment}, nil
 	}
 	if !token.expiresAt.After(now) || !session.RefreshExpiresAt.After(now) || !session.AbsoluteExpiresAt.After(now) {
 		return identity.EndUserSessionScope{}, identity.ErrEndUserSessionExpired
 	}
-	return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID}, nil
+	return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID, Environment: session.Environment}, nil
 }
 
 func (r *Repository) RotateEndUserRefresh(ctx context.Context, digest []byte, scope identity.EndUserSessionScope, rotation identity.EndUserRefreshRotation) (identity.EndUserSession, error) {
@@ -702,7 +702,7 @@ func (r *Repository) RevokeEndUserSession(ctx context.Context, userID, sessionID
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var family string
-	err = tx.QueryRow(ctx, `SELECT token_family_id FROM identity.end_user_sessions WHERE session_id=$1 AND user_id=$2 AND product_id=$3 AND application_id=$4 AND tenant_id IS NOT DISTINCT FROM $5 FOR UPDATE`, sessionID, userID, scope.ProductID, scope.ApplicationID, scope.TenantID).Scan(&family)
+	err = tx.QueryRow(ctx, `SELECT token_family_id FROM identity.end_user_sessions WHERE session_id=$1 AND user_id=$2 AND product_id=$3 AND application_id=$4 AND tenant_id IS NOT DISTINCT FROM $5 AND COALESCE(environment,'')=$6 FOR UPDATE`, sessionID, userID, scope.ProductID, scope.ApplicationID, scope.TenantID, scope.Environment).Scan(&family)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.ErrEndUserScopeMismatch
 	}
@@ -803,7 +803,7 @@ func (r *Repository) RevokeScopedSessions(ctx context.Context, command identity.
 }
 
 func (r *Repository) ListEndUserSessions(ctx context.Context, userID, currentSessionID string, scope identity.EndUserSessionScope) ([]identity.EndUserSessionSummary, error) {
-	rows, err := r.pool.Query(ctx, `SELECT session_id,product_id,application_id,tenant_id,authentication_method,created_at,last_seen_at,refresh_expires_at,revoked_at FROM identity.end_user_sessions WHERE user_id=$1 AND product_id=$2 AND application_id=$3 AND tenant_id IS NOT DISTINCT FROM $4 ORDER BY created_at DESC,session_id`, userID, scope.ProductID, scope.ApplicationID, scope.TenantID)
+	rows, err := r.pool.Query(ctx, `SELECT session_id,product_id,application_id,tenant_id,COALESCE(environment,''),authentication_method,created_at,last_seen_at,refresh_expires_at,revoked_at FROM identity.end_user_sessions WHERE user_id=$1 AND product_id=$2 AND application_id=$3 AND tenant_id IS NOT DISTINCT FROM $4 AND COALESCE(environment,'')=$5 ORDER BY created_at DESC,session_id`, userID, scope.ProductID, scope.ApplicationID, scope.TenantID, scope.Environment)
 	if err != nil {
 		return nil, err
 	}
@@ -811,7 +811,7 @@ func (r *Repository) ListEndUserSessions(ctx context.Context, userID, currentSes
 	var result []identity.EndUserSessionSummary
 	for rows.Next() {
 		var item identity.EndUserSessionSummary
-		if err := rows.Scan(&item.SessionID, &item.ProductID, &item.ApplicationID, &item.TenantID, &item.AuthenticationMethod, &item.CreatedAt, &item.LastSeenAt, &item.ExpiresAt, &item.RevokedAt); err != nil {
+		if err := rows.Scan(&item.SessionID, &item.ProductID, &item.ApplicationID, &item.TenantID, &item.Environment, &item.AuthenticationMethod, &item.CreatedAt, &item.LastSeenAt, &item.ExpiresAt, &item.RevokedAt); err != nil {
 			return nil, err
 		}
 		item.Current = item.SessionID == currentSessionID
@@ -1143,12 +1143,12 @@ type endUserTokenState struct {
 	rotationRecoveryExpiresAt *time.Time
 }
 
-const endUserTokenQuery = `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,s.token_family_id,s.authentication_method,s.external_identity_id,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status,t.token_id,t.token_type,t.generation,t.expires_at,t.consumed_at,t.revoked_at,t.replaced_by_token_id,t.rotation_request_digest,t.rotation_recovery_expires_at FROM identity.end_user_session_tokens t JOIN identity.end_user_sessions s ON s.session_id=t.session_id JOIN identity.users u ON u.user_id=s.user_id`
+const endUserTokenQuery = `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,COALESCE(s.environment,''),s.token_family_id,s.authentication_method,s.external_identity_id,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status,t.token_id,t.token_type,t.generation,t.expires_at,t.consumed_at,t.revoked_at,t.replaced_by_token_id,t.rotation_request_digest,t.rotation_recovery_expires_at FROM identity.end_user_session_tokens t JOIN identity.end_user_sessions s ON s.session_id=t.session_id JOIN identity.users u ON u.user_id=s.user_id`
 
 func scanEndUserToken(row rowScanner) (identity.EndUserSession, endUserTokenState, error) {
 	var session identity.EndUserSession
 	var token endUserTokenState
-	err := row.Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.TokenFamilyID, &session.AuthenticationMethod, &session.ExternalIdentityID, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus, &token.tokenID, &token.tokenType, &token.generation, &token.expiresAt, &token.consumedAt, &token.revokedAt, &token.replacedByTokenID, &token.rotationRequestDigest, &token.rotationRecoveryExpiresAt)
+	err := row.Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.Environment, &session.TokenFamilyID, &session.AuthenticationMethod, &session.ExternalIdentityID, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus, &token.tokenID, &token.tokenType, &token.generation, &token.expiresAt, &token.consumedAt, &token.revokedAt, &token.replacedByTokenID, &token.rotationRequestDigest, &token.rotationRecoveryExpiresAt)
 	return session, token, err
 }
 
@@ -1156,7 +1156,7 @@ func findEndUserSessionByID(ctx context.Context, queryer interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, sessionID string) (identity.EndUserSession, error) {
 	var session identity.EndUserSession
-	err := queryer.QueryRow(ctx, `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,s.token_family_id,s.authentication_method,s.external_identity_id,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status FROM identity.end_user_sessions s JOIN identity.users u ON u.user_id=s.user_id WHERE s.session_id=$1`, sessionID).Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.TokenFamilyID, &session.AuthenticationMethod, &session.ExternalIdentityID, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus)
+	err := queryer.QueryRow(ctx, `SELECT s.session_id,s.user_id,s.product_id,s.application_id,s.tenant_id,COALESCE(s.environment,''),s.token_family_id,s.authentication_method,s.external_identity_id,s.session_version,s.auth_time,s.created_at,s.last_seen_at,s.access_expires_at,s.refresh_expires_at,s.absolute_expires_at,s.risk_summary_digest,s.revoked_at,s.revoke_reason,u.account_status FROM identity.end_user_sessions s JOIN identity.users u ON u.user_id=s.user_id WHERE s.session_id=$1`, sessionID).Scan(&session.SessionID, &session.UserID, &session.ProductID, &session.ApplicationID, &session.TenantID, &session.Environment, &session.TokenFamilyID, &session.AuthenticationMethod, &session.ExternalIdentityID, &session.Version, &session.AuthTime, &session.CreatedAt, &session.LastSeenAt, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.AbsoluteExpiresAt, &session.RiskSummaryDigest, &session.RevokedAt, &session.RevokeReason, &session.AccountStatus)
 	return session, err
 }
 
@@ -1283,7 +1283,10 @@ func insertEndUserRegistration(ctx context.Context, tx pgx.Tx, registration iden
 
 func insertNewEndUserSession(ctx context.Context, tx pgx.Tx, value identity.NewEndUserSession) error {
 	session := value.Session
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.end_user_sessions(session_id,user_id,product_id,application_id,tenant_id,token_family_id,authentication_method,external_identity_id,session_version,auth_time,created_at,last_seen_at,access_expires_at,refresh_expires_at,absolute_expires_at,risk_summary_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$10,$11,$12,$13,$14)`, session.SessionID, session.UserID, session.ProductID, session.ApplicationID, session.TenantID, session.TokenFamilyID, session.AuthenticationMethod, session.ExternalIdentityID, session.AuthTime, session.CreatedAt, session.AccessExpiresAt, session.RefreshExpiresAt, session.AbsoluteExpiresAt, endUserNullableBytes(session.RiskSummaryDigest)); err != nil {
+	if session.UserID == "" || !identity.ValidEndUserEnvironment(session.Environment) {
+		return identity.ErrEndUserScopeMismatch
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.end_user_sessions(session_id,user_id,product_id,application_id,tenant_id,environment,token_family_id,authentication_method,external_identity_id,session_version,auth_time,created_at,last_seen_at,access_expires_at,refresh_expires_at,absolute_expires_at,risk_summary_digest) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,1,$10,$11,$11,$12,$13,$14,$15)`, session.SessionID, session.UserID, session.ProductID, session.ApplicationID, session.TenantID, session.Environment, session.TokenFamilyID, session.AuthenticationMethod, session.ExternalIdentityID, session.AuthTime, session.CreatedAt, session.AccessExpiresAt, session.RefreshExpiresAt, session.AbsoluteExpiresAt, endUserNullableBytes(session.RiskSummaryDigest)); err != nil {
 		return err
 	}
 	if err := insertEndUserToken(ctx, tx, session.SessionID, session.TokenFamilyID, value.AccessToken); err != nil {

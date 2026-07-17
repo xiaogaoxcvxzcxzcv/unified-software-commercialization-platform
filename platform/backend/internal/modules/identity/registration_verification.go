@@ -88,7 +88,7 @@ func NewRegistrationVerificationService(repository RegistrationVerificationRepos
 }
 
 func (s *RegistrationVerificationService) Start(ctx context.Context, command StartRegistrationVerificationCommand) (string, error) {
-	if command.Scope.ProductID == "" || command.Scope.ApplicationID == "" || len(command.IdempotencyKey) < 16 {
+	if command.Scope.ProductID == "" || command.Scope.ApplicationID == "" || !ValidEndUserEnvironment(command.Scope.Environment) || len(command.IdempotencyKey) < 16 {
 		return "", ErrRegistrationVerificationInvalid
 	}
 	normalized, err := normalizeRegistrationIdentifier(s.normalizer, command.Identifier)
@@ -124,7 +124,7 @@ func (s *RegistrationVerificationService) Start(ctx context.Context, command Sta
 
 func (s *RegistrationVerificationService) VerifyRegistration(ctx context.Context, scope EndUserSessionScope, identifier NormalizedIdentifier, continuation, proof string, consumerKeyDigest, consumerRequestDigest []byte) error {
 	normalized, err := s.normalizer.Normalize(identifier.Type, identifier.Value)
-	if err != nil || normalized.Value != identifier.Value || normalized.NormalizationVersion != identifier.NormalizationVersion || strings.TrimSpace(continuation) == "" || strings.TrimSpace(proof) == "" || len(consumerKeyDigest) != 32 || len(consumerRequestDigest) != 32 {
+	if err != nil || !ValidEndUserEnvironment(scope.Environment) || normalized.Value != identifier.Value || normalized.NormalizationVersion != identifier.NormalizationVersion || strings.TrimSpace(continuation) == "" || strings.TrimSpace(proof) == "" || len(consumerKeyDigest) != 32 || len(consumerRequestDigest) != 32 {
 		return ErrRegistrationVerificationInvalid
 	}
 	err = s.repository.ConsumeRegistrationVerification(ctx, scope, normalized.Type, s.hasher.Digest("identifier\x00"+normalized.Value), s.hasher.Digest("registration-continuation\x00"+continuation), s.hasher.Digest("registration-proof\x00"+proof), consumerKeyDigest, consumerRequestDigest, s.now().UTC())

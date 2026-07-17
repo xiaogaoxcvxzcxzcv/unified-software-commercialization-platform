@@ -54,7 +54,7 @@ func TestRegistrationVerificationDeliveryActivationAndSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := identity.EndUserSessionScope{ProductID: "product.verify", ApplicationID: "application.verify"}
+	scope := identity.EndUserSessionScope{ProductID: "product.verify", ApplicationID: "application.verify", Environment: "test"}
 	command := identity.StartRegistrationVerificationCommand{Scope: scope, Identifier: "verify@example.com", IdempotencyKey: "registration-verify-key-01", TraceID: "trace.verify"}
 	if continuation, err := service.Start(context.Background(), command); !errors.Is(err, deliveryFailure) || continuation != "" || len(delivery.commands) != 1 {
 		t.Fatalf("failed Start() continuation=%q err=%v commands=%+v", continuation, err, delivery.commands)
@@ -74,11 +74,20 @@ func TestRegistrationVerificationDeliveryActivationAndSingleUse(t *testing.T) {
 	}
 	delivery.err = nil
 	continuation, err := service.Start(context.Background(), command)
-	if err != nil || continuation == "" || len(delivery.commands) != 2 || delivery.commands[0].DeliveryID != delivery.commands[1].DeliveryID || delivery.commands[0].Proof != delivery.commands[1].Proof || delivery.commands[1].Purpose != "registration_verify" || !delivery.commands[1].Scope.Matches(identity.EndUserSession{ProductID: scope.ProductID, ApplicationID: scope.ApplicationID}) || delivery.commands[1].TraceID != command.TraceID {
+	if err != nil || continuation == "" || len(delivery.commands) != 2 || delivery.commands[0].DeliveryID != delivery.commands[1].DeliveryID || delivery.commands[0].Proof != delivery.commands[1].Proof || delivery.commands[1].Purpose != "registration_verify" || !delivery.commands[1].Scope.Matches(identity.EndUserSession{ProductID: scope.ProductID, ApplicationID: scope.ApplicationID, Environment: scope.Environment}) || delivery.commands[1].TraceID != command.TraceID {
 		t.Fatalf("retry Start() continuation=%q err=%v commands=%+v", continuation, err, delivery.commands)
 	}
-	if err := service.VerifyRegistration(context.Background(), identity.EndUserSessionScope{ProductID: "other", ApplicationID: scope.ApplicationID}, normalized, continuation, delivery.commands[1].Proof, consumerKey, consumerRequest); !errors.Is(err, identity.ErrRegistrationVerificationInvalid) {
+	var challengeEnvironment string
+	if err := database.Pool.QueryRow(context.Background(), `SELECT environment FROM identity.registration_verification_challenges WHERE delivery_status='active'`).Scan(&challengeEnvironment); err != nil || challengeEnvironment != scope.Environment {
+		t.Fatalf("registration challenge environment=%q err=%v", challengeEnvironment, err)
+	}
+	if err := service.VerifyRegistration(context.Background(), identity.EndUserSessionScope{ProductID: "other", ApplicationID: scope.ApplicationID, Environment: scope.Environment}, normalized, continuation, delivery.commands[1].Proof, consumerKey, consumerRequest); !errors.Is(err, identity.ErrRegistrationVerificationInvalid) {
 		t.Fatalf("cross-scope proof error = %v", err)
+	}
+	wrongEnvironment := scope
+	wrongEnvironment.Environment = "production"
+	if err := service.VerifyRegistration(context.Background(), wrongEnvironment, normalized, continuation, delivery.commands[1].Proof, consumerKey, consumerRequest); !errors.Is(err, identity.ErrRegistrationVerificationInvalid) {
+		t.Fatalf("cross-environment proof error = %v", err)
 	}
 	if err := service.VerifyRegistration(context.Background(), scope, normalized, continuation, delivery.commands[1].Proof, consumerKey, consumerRequest); err != nil {
 		t.Fatalf("active proof error = %v", err)
@@ -88,6 +97,19 @@ func TestRegistrationVerificationDeliveryActivationAndSingleUse(t *testing.T) {
 	}
 	if err := service.VerifyRegistration(context.Background(), scope, normalized, continuation, delivery.commands[1].Proof, hasher.Digest("other-consumer"), consumerRequest); !errors.Is(err, identity.ErrRegistrationVerificationInvalid) {
 		t.Fatalf("replayed proof error = %v", err)
+	}
+	legacyCommand := identity.StartRegistrationVerificationCommand{Scope: scope, Identifier: "legacy-null@example.com", IdempotencyKey: "registration-legacy-null-01", TraceID: "trace.verify.legacy-null"}
+	legacyContinuation, err := service.Start(context.Background(), legacyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyProof := delivery.commands[len(delivery.commands)-1].Proof
+	legacyNormalized, _ := (identity.StrictIdentifierNormalizer{}).Normalize(identity.IdentifierEmail, legacyCommand.Identifier)
+	if _, err := database.Pool.Exec(context.Background(), `UPDATE identity.registration_verification_challenges SET environment=NULL WHERE identifier_digest=$1`, hasher.Digest("identifier\x00"+legacyNormalized.Value)); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.VerifyRegistration(context.Background(), scope, legacyNormalized, legacyContinuation, legacyProof, hasher.Digest("legacy-consumer"), hasher.Digest("legacy-request")); !errors.Is(err, identity.ErrRegistrationVerificationInvalid) {
+		t.Fatalf("legacy null environment proof error = %v", err)
 	}
 	registerVerification := identity.StartRegistrationVerificationCommand{Scope: scope, Identifier: "new-user@example.com", IdempotencyKey: "registration-verify-key-03", TraceID: "trace.verify.register"}
 	registerContinuation, err := service.Start(context.Background(), registerVerification)
@@ -137,7 +159,7 @@ func TestRecoveryPendingCannotCompleteAndRetryActivates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := identity.EndUserSessionScope{ProductID: "product.recovery-pending", ApplicationID: "application.recovery-pending"}
+	scope := identity.EndUserSessionScope{ProductID: "product.recovery-pending", ApplicationID: "application.recovery-pending", Environment: "test"}
 	command := identity.StartEndUserRecoveryCommand{Scope: scope, Identifier: "missing@example.com", IdempotencyKey: "recovery-pending-key-01", TraceID: "trace.recovery.pending"}
 	if continuation, err := service.StartRecovery(context.Background(), command); !errors.Is(err, deliveryFailure) || continuation != "" || len(delivery.commands) != 1 {
 		t.Fatalf("failed recovery Start() continuation=%q err=%v commands=%+v", continuation, err, delivery.commands)

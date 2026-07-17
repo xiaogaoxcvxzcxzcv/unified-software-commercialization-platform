@@ -50,7 +50,7 @@ func (p *externalProviderStub) StartAuthorization(_ context.Context, _ ExternalP
 
 func TestExternalAuthStartRejectsProviderModeMismatch(t *testing.T) {
 	now := time.Date(2026, 7, 18, 4, 20, 0, 0, time.UTC)
-	scope := EndUserSessionScope{ProductID: "product.mode", ApplicationID: "application.mode"}
+	scope := EndUserSessionScope{ProductID: "product.mode", ApplicationID: "application.mode", Environment: "test"}
 	hasher, err := securevalue.NewHasher(strings.Repeat("external-mode-pepper-", 2))
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func (r externalReturnTargetStub) ResolveAuthReturnTarget(context.Context, EndUs
 
 func TestExternalAuthStartUsesDeterministicS256AndPersistsOnlyDigests(t *testing.T) {
 	now := time.Date(2026, 7, 18, 4, 0, 0, 0, time.UTC)
-	scope := EndUserSessionScope{ProductID: "product.external", ApplicationID: "application.external"}
+	scope := EndUserSessionScope{ProductID: "product.external", ApplicationID: "application.external", Environment: "test"}
 	hasher, err := securevalue.NewHasher(strings.Repeat("external-auth-pepper-", 2))
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestSecurityServicesRejectUnconfiguredHasher(t *testing.T) {
 
 func TestExternalAuthStartFailsClosedForDisabledOrMismatchedProvider(t *testing.T) {
 	now := time.Date(2026, 7, 18, 4, 10, 0, 0, time.UTC)
-	scope := EndUserSessionScope{ProductID: "product.external", ApplicationID: "application.external"}
+	scope := EndUserSessionScope{ProductID: "product.external", ApplicationID: "application.external", Environment: "test"}
 	hasher, err := securevalue.NewHasher(strings.Repeat("external-disabled-pepper-", 2))
 	if err != nil {
 		t.Fatal(err)

@@ -29,9 +29,12 @@ func (r *Repository) CreateRegistrationVerificationIdempotent(ctx context.Contex
 			return identity.RegistrationVerificationChallenge{}, false, err
 		}
 		persisted, err := findRegistrationVerification(ctx, tx, resourceID)
+		if err == nil && !identity.ValidEndUserEnvironment(persisted.Scope.Environment) {
+			return identity.RegistrationVerificationChallenge{}, false, identity.ErrRegistrationVerificationInvalid
+		}
 		return persisted, true, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO identity.registration_verification_challenges(challenge_id,continuation_digest,product_id,application_id,tenant_id,identifier_type,identifier_digest,proof_digest,delivery_id,delivery_status,max_attempts,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12)`, challenge.ChallengeID, challenge.ContinuationDigest, challenge.Scope.ProductID, challenge.Scope.ApplicationID, challenge.Scope.TenantID, challenge.IdentifierType, challenge.IdentifierDigest, challenge.ProofDigest, challenge.DeliveryID, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt)
+	_, err = tx.Exec(ctx, `INSERT INTO identity.registration_verification_challenges(challenge_id,continuation_digest,product_id,application_id,tenant_id,environment,identifier_type,identifier_digest,proof_digest,delivery_id,delivery_status,max_attempts,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,$12,$13)`, challenge.ChallengeID, challenge.ContinuationDigest, challenge.Scope.ProductID, challenge.Scope.ApplicationID, challenge.Scope.TenantID, challenge.Scope.Environment, challenge.IdentifierType, challenge.IdentifierDigest, challenge.ProofDigest, challenge.DeliveryID, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt)
 	if err != nil {
 		return identity.RegistrationVerificationChallenge{}, false, err
 	}
@@ -67,7 +70,7 @@ func (r *Repository) ConsumeRegistrationVerification(ctx context.Context, scope 
 	var expires time.Time
 	var consumed *time.Time
 	var storedConsumerKey, storedConsumerRequest []byte
-	err = tx.QueryRow(ctx, `SELECT challenge_id,proof_digest,attempt_count,max_attempts,expires_at,consumed_at,consumer_key_digest,consumer_request_digest FROM identity.registration_verification_challenges WHERE product_id=$1 AND application_id=$2 AND tenant_id IS NOT DISTINCT FROM $3 AND identifier_type=$4 AND identifier_digest=$5 AND continuation_digest=$6 AND delivery_status='active' FOR UPDATE`, scope.ProductID, scope.ApplicationID, scope.TenantID, identifierType, identifierDigest, continuationDigest).Scan(&challengeID, &storedProof, &attempts, &maximum, &expires, &consumed, &storedConsumerKey, &storedConsumerRequest)
+	err = tx.QueryRow(ctx, `SELECT challenge_id,proof_digest,attempt_count,max_attempts,expires_at,consumed_at,consumer_key_digest,consumer_request_digest FROM identity.registration_verification_challenges WHERE product_id=$1 AND application_id=$2 AND tenant_id IS NOT DISTINCT FROM $3 AND environment=$4 AND identifier_type=$5 AND identifier_digest=$6 AND continuation_digest=$7 AND delivery_status='active' FOR UPDATE`, scope.ProductID, scope.ApplicationID, scope.TenantID, scope.Environment, identifierType, identifierDigest, continuationDigest).Scan(&challengeID, &storedProof, &attempts, &maximum, &expires, &consumed, &storedConsumerKey, &storedConsumerRequest)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.ErrRegistrationVerificationInvalid
 	}
@@ -106,6 +109,6 @@ func (r *Repository) ConsumeRegistrationVerification(ctx context.Context, scope 
 
 func findRegistrationVerification(ctx context.Context, tx pgx.Tx, challengeID string) (identity.RegistrationVerificationChallenge, error) {
 	var challenge identity.RegistrationVerificationChallenge
-	err := tx.QueryRow(ctx, `SELECT challenge_id,continuation_digest,product_id,application_id,tenant_id,identifier_type,identifier_digest,proof_digest,delivery_id,delivery_status,attempt_count,max_attempts,created_at,expires_at,consumed_at FROM identity.registration_verification_challenges WHERE challenge_id=$1`, challengeID).Scan(&challenge.ChallengeID, &challenge.ContinuationDigest, &challenge.Scope.ProductID, &challenge.Scope.ApplicationID, &challenge.Scope.TenantID, &challenge.IdentifierType, &challenge.IdentifierDigest, &challenge.ProofDigest, &challenge.DeliveryID, &challenge.DeliveryStatus, &challenge.AttemptCount, &challenge.MaxAttempts, &challenge.CreatedAt, &challenge.ExpiresAt, &challenge.ConsumedAt)
+	err := tx.QueryRow(ctx, `SELECT challenge_id,continuation_digest,product_id,application_id,tenant_id,COALESCE(environment,''),identifier_type,identifier_digest,proof_digest,delivery_id,delivery_status,attempt_count,max_attempts,created_at,expires_at,consumed_at FROM identity.registration_verification_challenges WHERE challenge_id=$1`, challengeID).Scan(&challenge.ChallengeID, &challenge.ContinuationDigest, &challenge.Scope.ProductID, &challenge.Scope.ApplicationID, &challenge.Scope.TenantID, &challenge.Scope.Environment, &challenge.IdentifierType, &challenge.IdentifierDigest, &challenge.ProofDigest, &challenge.DeliveryID, &challenge.DeliveryStatus, &challenge.AttemptCount, &challenge.MaxAttempts, &challenge.CreatedAt, &challenge.ExpiresAt, &challenge.ConsumedAt)
 	return challenge, err
 }

@@ -33,6 +33,10 @@ const (
 	IdentifierPhone IdentifierType = "phone"
 )
 
+func ValidEndUserEnvironment(value string) bool {
+	return value == "local" || value == "test" || value == "production"
+}
+
 type NormalizedIdentifier struct {
 	Type                 IdentifierType
 	Value                string
@@ -137,6 +141,7 @@ type EndUserSession struct {
 	ProductID            string
 	ApplicationID        string
 	TenantID             *string
+	Environment          string
 	TokenFamilyID        string
 	AuthenticationMethod string
 	ExternalIdentityID   *string
@@ -157,10 +162,11 @@ type EndUserSessionScope struct {
 	ProductID     string
 	ApplicationID string
 	TenantID      *string
+	Environment   string
 }
 
 func (s EndUserSessionScope) Matches(session EndUserSession) bool {
-	return s.ProductID != "" && s.ApplicationID != "" && s.ProductID == session.ProductID && s.ApplicationID == session.ApplicationID && nullableStringEqual(s.TenantID, session.TenantID)
+	return s.ProductID != "" && s.ApplicationID != "" && s.ProductID == session.ProductID && s.ApplicationID == session.ApplicationID && nullableStringEqual(s.TenantID, session.TenantID) && s.Environment == session.Environment
 }
 
 func nullableStringEqual(left, right *string) bool {
@@ -244,6 +250,7 @@ type EndUserSessionSummary struct {
 	ProductID            string
 	ApplicationID        string
 	TenantID             *string
+	Environment          string
 	Current              bool
 	AuthenticationMethod string
 	CreatedAt            time.Time
@@ -301,6 +308,7 @@ type RegistrationSessionSnapshot struct {
 	ProductID            string    `json:"product_id"`
 	ApplicationID        string    `json:"application_id"`
 	TenantID             *string   `json:"tenant_id"`
+	Environment          string    `json:"environment,omitempty"`
 	AuthenticationMethod string    `json:"authentication_method"`
 	Version              int64     `json:"version"`
 	AuthTime             time.Time `json:"auth_time"`
@@ -316,6 +324,7 @@ func NewRegistrationSessionSnapshot(session EndUserSession) RegistrationSessionS
 	return RegistrationSessionSnapshot{
 		SessionID: session.SessionID, UserID: session.UserID, ProductID: session.ProductID,
 		ApplicationID: session.ApplicationID, TenantID: session.TenantID,
+		Environment:          session.Environment,
 		AuthenticationMethod: session.AuthenticationMethod, Version: session.Version,
 		AuthTime: session.AuthTime, CreatedAt: session.CreatedAt, LastSeenAt: session.LastSeenAt,
 		AccessExpiresAt: session.AccessExpiresAt, RefreshExpiresAt: session.RefreshExpiresAt,
@@ -327,6 +336,7 @@ func (s RegistrationSessionSnapshot) EndUserSession() EndUserSession {
 	return EndUserSession{
 		SessionID: s.SessionID, UserID: s.UserID, ProductID: s.ProductID,
 		ApplicationID: s.ApplicationID, TenantID: s.TenantID,
+		Environment:          s.Environment,
 		AuthenticationMethod: s.AuthenticationMethod, Version: s.Version,
 		AuthTime: s.AuthTime, CreatedAt: s.CreatedAt, LastSeenAt: s.LastSeenAt,
 		AccessExpiresAt: s.AccessExpiresAt, RefreshExpiresAt: s.RefreshExpiresAt,

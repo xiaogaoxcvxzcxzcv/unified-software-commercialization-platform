@@ -61,6 +61,7 @@ type UserSessionContext struct {
 	ProductID     string
 	ApplicationID string
 	TenantID      string
+	Environment   string
 	AccountStatus string
 	AuthTime      time.Time
 	AccessToken   string `json:"-"`
@@ -667,7 +668,7 @@ func (h *UserHandler) logoutUser(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if user.UserID == "" || user.SessionID == "" || user.ProductID == "" || user.ApplicationID == "" {
+	if user.UserID == "" || user.SessionID == "" || user.ProductID == "" || user.ApplicationID == "" || !validUserEnvironment(user.Environment) {
 		unauthorized(w, r)
 		return
 	}
@@ -694,7 +695,7 @@ func (h *UserHandler) requireClient(w http.ResponseWriter, r *http.Request) (Cli
 		}
 		return ClientSessionContext{}, false
 	}
-	if value.ProductID == "" || value.ApplicationID == "" {
+	if value.SessionID == "" || value.ProductID == "" || value.ApplicationID == "" || !validUserEnvironment(value.Environment) {
 		unauthorized(w, r)
 		return ClientSessionContext{}, false
 	}
@@ -715,12 +716,16 @@ func (h *UserHandler) requireUser(w http.ResponseWriter, r *http.Request) (UserS
 		}
 		return UserSessionContext{}, false
 	}
-	if value.UserID == "" || value.SessionID == "" || value.ProductID == "" || value.ApplicationID == "" {
+	if value.UserID == "" || value.SessionID == "" || value.ProductID == "" || value.ApplicationID == "" || !validUserEnvironment(value.Environment) {
 		unauthorized(w, r)
 		return UserSessionContext{}, false
 	}
 	value.AccessToken = token
 	return value, true
+}
+
+func validUserEnvironment(value string) bool {
+	return value == "local" || value == "test" || value == "production"
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {

@@ -39,7 +39,7 @@ func (r *Repository) ClaimExternalAuthFlow(ctx context.Context, claim identity.E
 	if err != nil {
 		return identity.ExternalAuthFlow{}, err
 	}
-	if flow.Provider != claim.Provider || !hmac.Equal(flow.StateDigest, claim.StateDigest) || !hmac.Equal(flow.BrowserSessionDigest, claim.BrowserSessionDigest) || (claim.ExpectedScope != nil && !claim.ExpectedScope.Matches(identity.EndUserSession{ProductID: flow.Scope.ProductID, ApplicationID: flow.Scope.ApplicationID, TenantID: flow.Scope.TenantID})) {
+	if flow.Provider != claim.Provider || !hmac.Equal(flow.StateDigest, claim.StateDigest) || !hmac.Equal(flow.BrowserSessionDigest, claim.BrowserSessionDigest) || (claim.ExpectedScope != nil && !claim.ExpectedScope.Matches(identity.EndUserSession{ProductID: flow.Scope.ProductID, ApplicationID: flow.Scope.ApplicationID, TenantID: flow.Scope.TenantID, Environment: flow.Environment})) {
 		return identity.ExternalAuthFlow{}, identity.ErrExternalAuthFlowInvalid
 	}
 	if flow.Status == "expired" {
@@ -96,13 +96,17 @@ func (r *Repository) ConsumeExternalAuthFlowWithProof(ctx context.Context, flowI
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := lockAndValidateClaimedExternalFlow(ctx, tx, flowID, stateDigest, now); err != nil {
+	flow, err := lockAndValidateClaimedExternalFlow(ctx, tx, flowID, stateDigest, now)
+	if err != nil {
 		if errors.Is(err, identity.ErrExternalAuthFlowExpired) {
 			return terminalizeExpiredClaim(ctx, tx, flowID, now)
 		}
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO identity.external_identity_proofs(proof_id,flow_id,product_id,application_id,tenant_id,provider,provider_application_ref,subject_digest,subject_masked,union_subject_digest,proof_digest,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, proof.ProofID, proof.FlowID, proof.Scope.ProductID, proof.Scope.ApplicationID, proof.Scope.TenantID, proof.Provider, proof.ProviderApplicationRef, proof.SubjectDigest, proof.SubjectMasked, nullableExternalBytes(proof.UnionSubjectDigest), proof.ProofDigest, proof.CreatedAt, proof.ExpiresAt)
+	if !flow.Scope.Matches(identity.EndUserSession{ProductID: proof.Scope.ProductID, ApplicationID: proof.Scope.ApplicationID, TenantID: proof.Scope.TenantID, Environment: proof.Scope.Environment}) || flow.Provider != proof.Provider || flow.ProviderApplicationRef != proof.ProviderApplicationRef {
+		return identity.ErrExternalAuthFlowInvalid
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO identity.external_identity_proofs(proof_id,flow_id,product_id,application_id,tenant_id,environment,provider,provider_application_ref,subject_digest,subject_masked,union_subject_digest,proof_digest,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, proof.ProofID, proof.FlowID, proof.Scope.ProductID, proof.Scope.ApplicationID, proof.Scope.TenantID, flow.Environment, proof.Provider, proof.ProviderApplicationRef, proof.SubjectDigest, proof.SubjectMasked, nullableExternalBytes(proof.UnionSubjectDigest), proof.ProofDigest, proof.CreatedAt, proof.ExpiresAt)
 	if err != nil {
 		return err
 	}
@@ -207,7 +211,7 @@ func (r *Repository) ConsumeExternalIdentityProofAndLink(ctx context.Context, pr
 		return response.identity(), true, nil
 	}
 	var proof identity.ExternalIdentityProof
-	err = tx.QueryRow(ctx, `SELECT proof_id,flow_id,product_id,application_id,tenant_id,provider,provider_application_ref,subject_digest,subject_masked,union_subject_digest,proof_digest,created_at,expires_at,consumed_at FROM identity.external_identity_proofs WHERE proof_digest=$1 FOR UPDATE`, proofDigest).Scan(&proof.ProofID, &proof.FlowID, &proof.Scope.ProductID, &proof.Scope.ApplicationID, &proof.Scope.TenantID, &proof.Provider, &proof.ProviderApplicationRef, &proof.SubjectDigest, &proof.SubjectMasked, &proof.UnionSubjectDigest, &proof.ProofDigest, &proof.CreatedAt, &proof.ExpiresAt, &proof.ConsumedAt)
+	err = tx.QueryRow(ctx, `SELECT proof_id,flow_id,product_id,application_id,tenant_id,environment,provider,provider_application_ref,subject_digest,subject_masked,union_subject_digest,proof_digest,created_at,expires_at,consumed_at FROM identity.external_identity_proofs WHERE proof_digest=$1 FOR UPDATE`, proofDigest).Scan(&proof.ProofID, &proof.FlowID, &proof.Scope.ProductID, &proof.Scope.ApplicationID, &proof.Scope.TenantID, &proof.Scope.Environment, &proof.Provider, &proof.ProviderApplicationRef, &proof.SubjectDigest, &proof.SubjectMasked, &proof.UnionSubjectDigest, &proof.ProofDigest, &proof.CreatedAt, &proof.ExpiresAt, &proof.ConsumedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.ExternalIdentity{}, false, identity.ErrExternalProofInvalid
 	}
@@ -220,7 +224,7 @@ func (r *Repository) ConsumeExternalIdentityProofAndLink(ctx context.Context, pr
 	if !proof.ExpiresAt.After(now) {
 		return identity.ExternalIdentity{}, false, identity.ErrExternalProofExpired
 	}
-	if proof.Provider != provider || !scope.Matches(identity.EndUserSession{ProductID: proof.Scope.ProductID, ApplicationID: proof.Scope.ApplicationID, TenantID: proof.Scope.TenantID}) {
+	if proof.Provider != provider || !scope.Matches(identity.EndUserSession{ProductID: proof.Scope.ProductID, ApplicationID: proof.Scope.ApplicationID, TenantID: proof.Scope.TenantID, Environment: proof.Scope.Environment}) {
 		return identity.ExternalIdentity{}, false, identity.ErrExternalProofInvalid
 	}
 	var accountStatus string
@@ -346,7 +350,11 @@ func (r *Repository) UnlinkExternalIdentity(ctx context.Context, userID, externa
 const externalAuthFlowSelect = `SELECT flow_id,product_id,application_id,tenant_id,environment,provider,provider_application_ref,mode,return_target_code,return_target_uri,return_target_policy_version,state_digest,nonce_digest,pkce_challenge_digest,browser_session_digest,authorization_code_digest,processing_token_digest,processing_expires_at,status,created_at,expires_at,consumed_at,failure_code FROM identity.external_auth_flows`
 
 func scanExternalAuthFlow(row pgx.Row, flow *identity.ExternalAuthFlow) error {
-	return row.Scan(&flow.FlowID, &flow.Scope.ProductID, &flow.Scope.ApplicationID, &flow.Scope.TenantID, &flow.Environment, &flow.Provider, &flow.ProviderApplicationRef, &flow.Mode, &flow.ReturnTargetCode, &flow.ReturnTargetURI, &flow.ReturnTargetPolicyVersion, &flow.StateDigest, &flow.NonceDigest, &flow.PKCEChallengeDigest, &flow.BrowserSessionDigest, &flow.AuthorizationCodeDigest, &flow.ProcessingTokenDigest, &flow.ProcessingExpiresAt, &flow.Status, &flow.CreatedAt, &flow.ExpiresAt, &flow.ConsumedAt, &flow.FailureCode)
+	if err := row.Scan(&flow.FlowID, &flow.Scope.ProductID, &flow.Scope.ApplicationID, &flow.Scope.TenantID, &flow.Environment, &flow.Provider, &flow.ProviderApplicationRef, &flow.Mode, &flow.ReturnTargetCode, &flow.ReturnTargetURI, &flow.ReturnTargetPolicyVersion, &flow.StateDigest, &flow.NonceDigest, &flow.PKCEChallengeDigest, &flow.BrowserSessionDigest, &flow.AuthorizationCodeDigest, &flow.ProcessingTokenDigest, &flow.ProcessingExpiresAt, &flow.Status, &flow.CreatedAt, &flow.ExpiresAt, &flow.ConsumedAt, &flow.FailureCode); err != nil {
+		return err
+	}
+	flow.Scope.Environment = flow.Environment
+	return nil
 }
 
 func lockExternalFlow(ctx context.Context, tx pgx.Tx, flowID string) (identity.ExternalAuthFlow, error) {
