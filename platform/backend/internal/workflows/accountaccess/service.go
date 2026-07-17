@@ -68,9 +68,14 @@ func (s *Service) Decide(ctx context.Context, user UserContext, scope Scope, pol
 		return Decision{}, err
 	}
 	if !admission.Allowed {
-		stage := "product"
-		if admission.Code == "TENANT_USER_ACCESS_SUSPENDED" {
+		stage := ""
+		switch admission.Code {
+		case "PRODUCT_USER_ACCESS_SUSPENDED":
+			stage = "product"
+		case "TENANT_USER_ACCESS_SUSPENDED":
 			stage = "tenant"
+		default:
+			return Decision{}, ErrInvalidContext
 		}
 		return Decision{Allowed: false, DecisionStage: stage, ReasonCode: admission.Code}, nil
 	}

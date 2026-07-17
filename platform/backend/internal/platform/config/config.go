@@ -2,6 +2,9 @@ package config
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,9 +98,21 @@ type AssemblyOutputTarget struct {
 }
 
 func Load(lookup LookupEnv) (Config, error) {
+	environment := value(lookup, "PLATFORM_ENVIRONMENT", "local")
 	adminTokenPepper := value(lookup, "PLATFORM_ADMIN_TOKEN_PEPPER", "")
+	userTokenPepper, userTokenPepperProvided := lookup("PLATFORM_USER_TOKEN_PEPPER")
+	userTokenPepper = strings.TrimSpace(userTokenPepper)
+	if !userTokenPepperProvided && environment == "production" {
+		return Config{}, errors.New("PLATFORM_USER_TOKEN_PEPPER is required in production")
+	}
+	if !userTokenPepperProvided {
+		userTokenPepper = deriveSecret(adminTokenPepper, "platform-user-auth-v1")
+	}
+	if userTokenPepper != "" && hmac.Equal([]byte(userTokenPepper), []byte(adminTokenPepper)) {
+		return Config{}, errors.New("PLATFORM_USER_TOKEN_PEPPER must be independent from PLATFORM_ADMIN_TOKEN_PEPPER")
+	}
 	cfg := Config{
-		Environment:        value(lookup, "PLATFORM_ENVIRONMENT", "local"),
+		Environment:        environment,
 		HTTPAddress:        value(lookup, "PLATFORM_HTTP_ADDRESS", ":8080"),
 		HealthCheckTimeout: duration(lookup, "PLATFORM_HEALTH_CHECK_TIMEOUT", 2*time.Second),
 		ReadHeaderTimeout:  duration(lookup, "PLATFORM_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
@@ -123,7 +138,7 @@ func Load(lookup LookupEnv) (Config, error) {
 			BearerEnabled:        false,
 		},
 		UserAuth: UserAuth{
-			TokenPepper:             value(lookup, "PLATFORM_USER_TOKEN_PEPPER", adminTokenPepper),
+			TokenPepper:             userTokenPepper,
 			AccessTTL:               duration(lookup, "PLATFORM_USER_ACCESS_TTL", 15*time.Minute),
 			RefreshTTL:              duration(lookup, "PLATFORM_USER_REFRESH_TTL", 30*24*time.Hour),
 			AbsoluteTTL:             duration(lookup, "PLATFORM_USER_ABSOLUTE_TTL", 90*24*time.Hour),
@@ -167,6 +182,12 @@ func Load(lookup LookupEnv) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func deriveSecret(root, label string) string {
+	mac := hmac.New(sha256.New, []byte(root))
+	_, _ = mac.Write([]byte(label))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (c Config) validate() error {

@@ -68,3 +68,11 @@ func TestDecisionPropagatesAdmissionFailureWithoutInventingAllow(t *testing.T) {
 		t.Fatalf("error = %v, want %v", err, want)
 	}
 }
+
+func TestDecisionRejectsUnknownAdmissionDenial(t *testing.T) {
+	service := New(&admissionStub{result: productuseraccess.Admission{Allowed: false, Code: "UNKNOWN_DENIAL"}})
+	_, err := service.Decide(context.Background(), UserContext{UserID: "user-a", AccountStatus: "active"}, Scope{ProductID: "product-a", ApplicationID: "app-a"}, OperationPolicy{})
+	if !errors.Is(err, ErrInvalidContext) {
+		t.Fatalf("unknown denial error = %v", err)
+	}
+}

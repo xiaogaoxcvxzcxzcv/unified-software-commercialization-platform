@@ -208,7 +208,7 @@ func TestLoadUserAuthDefaultsUseDomainSeparatedPlatformSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.UserAuth.TokenPepper != cfg.AdminAuth.TokenPepper || cfg.UserAuth.RefreshRecoveryWindow <= 0 || cfg.UserAuth.AbsoluteTTL < cfg.UserAuth.RefreshTTL {
+	if cfg.UserAuth.TokenPepper == cfg.AdminAuth.TokenPepper || len(cfg.UserAuth.TokenPepper) < 32 || cfg.UserAuth.RefreshRecoveryWindow <= 0 || cfg.UserAuth.AbsoluteTTL < cfg.UserAuth.RefreshTTL {
 		t.Fatalf("unexpected user auth defaults: %#v", cfg.UserAuth)
 	}
 }
@@ -224,5 +224,22 @@ func TestLoadRejectsUnsafeUserAuthPolicy(t *testing.T) {
 	_, err := Load(func(key string) (string, bool) { v, ok := values[key]; return v, ok })
 	if err == nil || !strings.Contains(err.Error(), "PLATFORM_USER_TOKEN_PEPPER") {
 		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoadRequiresIndependentUserPepperInProduction(t *testing.T) {
+	base := map[string]string{
+		"PLATFORM_ENVIRONMENT":             "production",
+		"PLATFORM_DATABASE_URL":            "postgres://user@localhost/platform?sslmode=require",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":      validTestPepper(),
+		"PLATFORM_ADMIN_ALLOWED_ORIGINS":   "https://admin.example.test",
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": validAssemblyOutputTargets(t, "production-target"),
+	}
+	if _, err := Load(func(key string) (string, bool) { v, ok := base[key]; return v, ok }); err == nil || !strings.Contains(err.Error(), "required in production") {
+		t.Fatalf("missing production user pepper error = %v", err)
+	}
+	base["PLATFORM_USER_TOKEN_PEPPER"] = validTestPepper()
+	if _, err := Load(func(key string) (string, bool) { v, ok := base[key]; return v, ok }); err == nil || !strings.Contains(err.Error(), "independent") {
+		t.Fatalf("shared user pepper error = %v", err)
 	}
 }
