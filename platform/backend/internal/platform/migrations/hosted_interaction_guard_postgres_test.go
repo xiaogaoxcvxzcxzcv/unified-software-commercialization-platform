@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"platform.local/capability-platform/backend/internal/platform/migrations"
 	testpostgres "platform.local/capability-platform/backend/internal/testsupport/postgres"
 )
 
@@ -18,22 +19,30 @@ func TestHostedInteractionMigrationProtectsFactsAndTerminalStates(t *testing.T) 
 		value[0] = marker
 		return value
 	}
+	ciphertext := func(marker byte) []byte {
+		value := make([]byte, 32)
+		value[0] = marker
+		return value
+	}
 
 	insertInteraction := func(id string, marker byte) {
 		t.Helper()
 		_, err := database.Pool.Exec(ctx, `INSERT INTO hosted_interaction.interactions(
 			interaction_id,route_id,product_id,application_id,environment,channel,initiator_kind,
 			initiator_client_session_id,return_target_code,return_target_uri,return_target_policy_version,
-			state_ciphertext,state_digest,nonce_digest,pkce_challenge_digest,pkce_method,status,trace_id,created_at,expires_at
+			state_protector_key_ref,state_ciphertext,state_digest,nonce_digest,pkce_challenge_digest,pkce_method,status,trace_id,created_at,expires_at
 		) VALUES($1,'hosted.auth','product_guard','application_guard','test','desktop','client',
-			'client_session_guard','login.complete','https://client.example.test/callback',1,$2,$3,$4,$5,'S256','created','trace_guard',$6,$7)`,
-			id, []byte{marker, marker + 1}, digest(marker), digest(marker+20), digest(marker+40), now, now.Add(10*time.Minute))
+			'client_session_guard','login.complete','https://client.example.test/callback',1,'hosted.state.guard',$2,$3,$4,$5,'S256','created','trace_guard',$6,$7)`,
+			id, ciphertext(marker), digest(marker), digest(marker+20), digest(marker+40), now, now.Add(10*time.Minute))
 		if err != nil {
 			t.Fatalf("insert interaction %s: %v", id, err)
 		}
 	}
 
 	insertInteraction("hint_guard_fact_abcdefghijklmnop", 1)
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO hosted_interaction.browser_sessions(browser_session_id,interaction_id,token_digest,status,created_at,last_seen_at,expires_at) VALUES('hbs_short_digest_abcdefghijklmnop','hint_guard_fact_abcdefghijklmnop','\x01'::bytea,'active',$1,$1,$2)`, now, now.Add(time.Minute)); err == nil || !strings.Contains(err.Error(), "browser_sessions_token_digest_check") {
+		t.Fatalf("short browser digest error=%v", err)
+	}
 	if _, err := database.Pool.Exec(ctx, `UPDATE hosted_interaction.interactions SET locale='en-US',version=version+1 WHERE interaction_id='hint_guard_fact_abcdefghijklmnop'`); err == nil || !strings.Contains(err.Error(), "security facts are immutable") {
 		t.Fatalf("interaction fact mutation error=%v", err)
 	}
@@ -81,5 +90,38 @@ func TestHostedInteractionMigrationProtectsFactsAndTerminalStates(t *testing.T) 
 	}
 	if _, err := database.Pool.Exec(ctx, `UPDATE identity.hosted_auth_proofs SET consumed_by_grant_id=NULL,consumed_at=NULL WHERE proof_id='hproof_guard_abcdefghijklmnopqrst'`); err == nil || !strings.Contains(err.Error(), "exactly once") {
 		t.Fatalf("hosted proof reversal error=%v", err)
+	}
+}
+
+func TestHostedInteractionRollbackRefusesDurableState(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	digest := make([]byte, 32)
+	digest[0] = 1
+	digest2 := append([]byte(nil), digest...)
+	digest2[0] = 2
+	digest3 := append([]byte(nil), digest...)
+	digest3[0] = 3
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO hosted_interaction.interactions(
+		interaction_id,route_id,product_id,application_id,environment,channel,initiator_kind,
+		initiator_client_session_id,return_target_code,return_target_uri,return_target_policy_version,
+		state_protector_key_ref,state_ciphertext,state_digest,nonce_digest,pkce_challenge_digest,pkce_method,status,trace_id,created_at,expires_at
+	) VALUES('hint_rollback_guard_abcdefghijklmnop','hosted.auth','product_guard','application_guard','test','desktop','client',
+		'client_session_guard','login.complete','https://client.example.test/callback',1,'hosted.state.guard',$1,$2,$3,$4,'S256','created','trace_guard',$5,$6)`,
+		append(make([]byte, 12), make([]byte, 32)...), digest, digest2, digest3, now, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	err := migrations.ApplyDownAll(ctx, database.Pool, database.MigrationPath)
+	if err == nil || !strings.Contains(err.Error(), "rollback refused") {
+		t.Fatalf("ApplyDownAll() error=%v, want rollback refusal", err)
+	}
+	var retained bool
+	if err := database.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM platform_meta.schema_migrations WHERE version=18)`).Scan(&retained); err != nil {
+		t.Fatal(err)
+	}
+	if !retained {
+		t.Fatal("failed rollback removed migration 18 history")
 	}
 }

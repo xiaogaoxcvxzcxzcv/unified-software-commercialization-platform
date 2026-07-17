@@ -17,10 +17,11 @@ CREATE TABLE hosted_interaction.interactions (
     return_target_code TEXT NOT NULL CHECK (return_target_code ~ '^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$'),
     return_target_uri TEXT NOT NULL CHECK (char_length(return_target_uri) BETWEEN 1 AND 2048),
     return_target_policy_version BIGINT NOT NULL CHECK (return_target_policy_version > 0),
-    state_ciphertext BYTEA NOT NULL,
-    state_digest BYTEA NOT NULL UNIQUE,
-    nonce_digest BYTEA UNIQUE,
-    pkce_challenge_digest BYTEA,
+    state_protector_key_ref TEXT NOT NULL CHECK (char_length(state_protector_key_ref) BETWEEN 1 AND 256),
+    state_ciphertext BYTEA NOT NULL CHECK (octet_length(state_ciphertext) BETWEEN 29 AND 1024),
+    state_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(state_digest) = 32),
+    nonce_digest BYTEA UNIQUE CHECK (nonce_digest IS NULL OR octet_length(nonce_digest) = 32),
+    pkce_challenge_digest BYTEA CHECK (pkce_challenge_digest IS NULL OR octet_length(pkce_challenge_digest) = 32),
     pkce_method TEXT,
     locale TEXT CHECK (locale IS NULL OR char_length(locale) BETWEEN 2 AND 32),
     theme_variant TEXT CHECK (theme_variant IS NULL OR char_length(theme_variant) BETWEEN 1 AND 64),
@@ -54,7 +55,7 @@ CREATE INDEX hosted_interactions_scope_idx
 CREATE TABLE hosted_interaction.browser_sessions (
     browser_session_id TEXT PRIMARY KEY CHECK (browser_session_id ~ '^hbs_[A-Za-z0-9_-]{24,160}$'),
     interaction_id TEXT NOT NULL REFERENCES hosted_interaction.interactions(interaction_id),
-    token_digest BYTEA NOT NULL UNIQUE,
+    token_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(token_digest) = 32),
     status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired')),
     created_at TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
@@ -74,11 +75,11 @@ CREATE TABLE hosted_interaction.completion_grants (
     grant_id TEXT PRIMARY KEY CHECK (grant_id ~ '^hgrant_[A-Za-z0-9_-]{24,160}$'),
     interaction_id TEXT NOT NULL UNIQUE REFERENCES hosted_interaction.interactions(interaction_id),
     grant_type TEXT NOT NULL CHECK (grant_type IN ('authorization_code', 'account_completed')),
-    code_digest BYTEA NOT NULL UNIQUE,
+    code_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(code_digest) = 32),
     identity_proof_id TEXT,
     result_document JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(result_document) = 'object'),
     status TEXT NOT NULL CHECK (status IN ('available', 'processing', 'consumed', 'expired')),
-    processing_token_digest BYTEA,
+    processing_token_digest BYTEA CHECK (processing_token_digest IS NULL OR octet_length(processing_token_digest) = 32),
     processing_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
@@ -95,9 +96,9 @@ CREATE TABLE hosted_interaction.completion_grants (
 
 CREATE TABLE hosted_interaction.idempotency_records (
     operation TEXT NOT NULL CHECK (operation IN ('create', 'account_complete')),
-    actor_digest BYTEA NOT NULL,
-    key_digest BYTEA NOT NULL,
-    request_digest BYTEA NOT NULL,
+    actor_digest BYTEA NOT NULL CHECK (octet_length(actor_digest) = 32),
+    key_digest BYTEA NOT NULL CHECK (octet_length(key_digest) = 32),
+    request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32),
     interaction_id TEXT NOT NULL REFERENCES hosted_interaction.interactions(interaction_id),
     response_document JSONB NOT NULL CHECK (jsonb_typeof(response_document) = 'object'),
     created_at TIMESTAMPTZ NOT NULL,
@@ -145,6 +146,7 @@ BEGIN
         OR NEW.return_target_code <> OLD.return_target_code
         OR NEW.return_target_uri <> OLD.return_target_uri
         OR NEW.return_target_policy_version <> OLD.return_target_policy_version
+        OR NEW.state_protector_key_ref <> OLD.state_protector_key_ref
         OR NEW.state_ciphertext <> OLD.state_ciphertext
         OR NEW.state_digest <> OLD.state_digest
         OR NEW.nonce_digest IS DISTINCT FROM OLD.nonce_digest
@@ -284,7 +286,7 @@ CREATE TABLE identity.hosted_auth_proofs (
     application_id TEXT NOT NULL CHECK (char_length(application_id) BETWEEN 1 AND 160),
     tenant_id TEXT CHECK (tenant_id IS NULL OR char_length(tenant_id) BETWEEN 1 AND 160),
     authentication_method TEXT NOT NULL CHECK (authentication_method IN ('password', 'oidc', 'wechat')),
-    risk_summary_digest BYTEA NOT NULL,
+    risk_summary_digest BYTEA NOT NULL CHECK (octet_length(risk_summary_digest) = 32),
     created_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_by_grant_id TEXT UNIQUE,
@@ -296,7 +298,7 @@ CREATE TABLE identity.hosted_auth_proofs (
 CREATE TABLE identity.hosted_grant_redemptions (
     grant_id TEXT PRIMARY KEY CHECK (grant_id ~ '^hgrant_[A-Za-z0-9_-]{24,160}$'),
     proof_id TEXT NOT NULL UNIQUE REFERENCES identity.hosted_auth_proofs(proof_id),
-    request_digest BYTEA NOT NULL,
+    request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32),
     session_id TEXT NOT NULL UNIQUE REFERENCES identity.end_user_sessions(session_id),
     created_at TIMESTAMPTZ NOT NULL
 );
