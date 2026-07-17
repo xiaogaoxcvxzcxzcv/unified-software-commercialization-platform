@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-- 当前阶段：F0 已退出；G1-07/G1-07.1 和 G1-08.1 至 G1-08.4 已 verified。当前唯一关口 G1-10 lifecycle API 已达 `candidate_verified_local`，等待托管 required check；G1-11 仍为 `planned`。真实工具版本尚未发布，普通创建入口继续真实空状态并失败关闭。
+- 当前阶段：F0 已退出；G1-07/G1-07.1、G1-08.1 至 G1-08.4 和 G1-10 已 verified。当前唯一关口为 G1-11 可信 Extension Catalog。真实工具版本尚未发布，普通创建入口继续真实空状态并失败关闭。
 - 正式代码目录：`platform/`。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建/恢复 Client、`/create` 五步向导、真实 Product 工作区和 `/assemblies` 连接真实后端，未标记 ready 的业务页面仍不得混同为生产数据源。

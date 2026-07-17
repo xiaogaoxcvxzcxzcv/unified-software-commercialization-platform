@@ -1,6 +1,6 @@
 # G1-10 公开生命周期 API 证据
 
-状态：`candidate_verified_local`（2026-07-17，等待托管 required check）
+状态：`verified`（2026-07-17）
 
 ## 已交付
 
@@ -34,4 +34,4 @@
 
 - 本证据只证明 G1-10 的模板/文件生命周期子范围，不宣称完整能力包 ST-031 已通过。
 - 普通生产能力包、模板和工具目录仍为空；experimental 候选不得伪装成 `available`。
-- 托管 required check 绿色前 G1-10 不得标记 `verified`，G1-11 保持 `planned`。
+- GitHub push 与 PR 的 `quality-gate` 均通过；对应 Actions run 为 `29554611373` 和 `29554629293`。G1-10 已满足关口，下一唯一关口为 G1-11。
