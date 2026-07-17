@@ -17,6 +17,7 @@ HostedScope
 
 - API：`POST /api/v1/hosted/interactions`
 - 身份：`hosted.auth` 使用 Client Session；`hosted.account` 使用 User Session。身份类型与 route 不匹配时拒绝。
+- Actor 绑定：`hosted.auth` 持久化发起它的 Client Session ID，且不得带 user/session；`hosted.account` 只持久化当前 User ID 与 User Session ID，`initiator_client_session_id` 必须为空。User Session 不保存来源 Client Session 时禁止猜造、复用或回填其他 ID。
 - 幂等：必须提交 `Idempotency-Key`；同身份、范围、route 与 key 的等价请求返回同一 interaction，不同请求返回冲突。
 - 输入：`route_id`、`channel`、`return_target_code`、`state`、auth 所需 `nonce`、`code_challenge` 与固定 `S256`，以及受限 locale/theme。
 - 输出：`interaction_id`、仅含该 ID 的 HTTPS `interaction_url`、状态和过期时间。
