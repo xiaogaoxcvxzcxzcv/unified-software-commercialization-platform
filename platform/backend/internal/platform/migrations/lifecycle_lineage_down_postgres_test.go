@@ -41,8 +41,8 @@ func TestPostgreSQLMigrationsDownHandlesMultiGenerationLifecycleLineage(t *testi
 	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM platform_meta.schema_migrations`).Scan(&migrationCount); err != nil {
 		t.Fatalf("count reapplied migrations: %v", err)
 	}
-	if migrationCount != 13 {
-		t.Fatalf("reapplied migration count = %d, want 13", migrationCount)
+	if migrationCount != 15 {
+		t.Fatalf("reapplied migration count = %d, want 15", migrationCount)
 	}
 	assertMigrationState(t, database)
 }
