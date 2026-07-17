@@ -150,6 +150,9 @@ BEGIN
         OR NEW.nonce_digest IS DISTINCT FROM OLD.nonce_digest
         OR NEW.pkce_challenge_digest IS DISTINCT FROM OLD.pkce_challenge_digest
         OR NEW.pkce_method IS DISTINCT FROM OLD.pkce_method
+        OR NEW.locale IS DISTINCT FROM OLD.locale
+        OR NEW.theme_variant IS DISTINCT FROM OLD.theme_variant
+        OR NEW.trace_id <> OLD.trace_id
         OR NEW.created_at <> OLD.created_at
         OR NEW.expires_at <> OLD.expires_at THEN
         RAISE EXCEPTION 'hosted interaction scope and security facts are immutable';
@@ -175,6 +178,44 @@ $$;
 CREATE TRIGGER hosted_interaction_one_way
 BEFORE UPDATE OR DELETE ON hosted_interaction.interactions
 FOR EACH ROW EXECUTE FUNCTION hosted_interaction.enforce_interaction_transition();
+
+CREATE FUNCTION hosted_interaction.enforce_browser_session_transition() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'hosted browser sessions are immutable';
+    END IF;
+    IF NEW.browser_session_id <> OLD.browser_session_id
+        OR NEW.interaction_id <> OLD.interaction_id
+        OR NEW.token_digest <> OLD.token_digest
+        OR NEW.created_at <> OLD.created_at
+        OR NEW.expires_at <> OLD.expires_at THEN
+        RAISE EXCEPTION 'hosted browser session security facts are immutable';
+    END IF;
+    IF OLD.status <> 'active' THEN
+        RAISE EXCEPTION 'hosted browser session terminal state is immutable';
+    END IF;
+    IF NEW.status NOT IN ('active', 'revoked', 'expired') OR NEW.last_seen_at < OLD.last_seen_at THEN
+        RAISE EXCEPTION 'invalid hosted browser session transition';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER hosted_browser_session_one_way
+BEFORE UPDATE OR DELETE ON hosted_interaction.browser_sessions
+FOR EACH ROW EXECUTE FUNCTION hosted_interaction.enforce_browser_session_transition();
+
+CREATE FUNCTION hosted_interaction.reject_idempotency_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'hosted idempotency records are immutable';
+END;
+$$;
+
+CREATE TRIGGER hosted_idempotency_immutable
+BEFORE UPDATE OR DELETE ON hosted_interaction.idempotency_records
+FOR EACH ROW EXECUTE FUNCTION hosted_interaction.reject_idempotency_mutation();
 
 CREATE FUNCTION hosted_interaction.enforce_grant_transition() RETURNS trigger
 LANGUAGE plpgsql AS $$
