@@ -1,5 +1,19 @@
 BEGIN;
 
+DELETE FROM product_user_access.outbox_events
+WHERE event_type = 'product-user-access.command-audited.v1';
+
+ALTER TABLE product_user_access.outbox_events
+    DROP CONSTRAINT outbox_events_event_type_check,
+    ADD CONSTRAINT outbox_events_event_type_check CHECK (event_type IN (
+        'product-user-access.status-changed.v1',
+        'product-user-access.session-revocation-requested.v1'
+    ));
+
+ALTER TABLE product_user_access.idempotency_records
+    DROP CONSTRAINT IF EXISTS product_user_access_idempotency_audit_id_format,
+    DROP COLUMN IF EXISTS audit_id;
+
 DROP INDEX IF EXISTS identity.end_user_session_tokens_rotation_recovery_idx;
 
 ALTER TABLE identity.end_user_session_tokens

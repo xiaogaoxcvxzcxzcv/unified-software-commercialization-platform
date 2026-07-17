@@ -30,4 +30,17 @@ CREATE INDEX end_user_session_tokens_rotation_recovery_idx
     ON identity.end_user_session_tokens (rotation_request_digest, rotation_recovery_expires_at)
     WHERE rotation_request_digest IS NOT NULL;
 
+ALTER TABLE product_user_access.idempotency_records
+    ADD COLUMN audit_id TEXT,
+    ADD CONSTRAINT product_user_access_idempotency_audit_id_format
+        CHECK (audit_id IS NULL OR char_length(audit_id) BETWEEN 16 AND 160);
+
+ALTER TABLE product_user_access.outbox_events
+    DROP CONSTRAINT outbox_events_event_type_check,
+    ADD CONSTRAINT outbox_events_event_type_check CHECK (event_type IN (
+        'product-user-access.status-changed.v1',
+        'product-user-access.session-revocation-requested.v1',
+        'product-user-access.command-audited.v1'
+    ));
+
 COMMIT;
