@@ -34,6 +34,7 @@ type Config struct {
 	Database             Database
 	AdminAuth            AdminAuth
 	UserAuth             UserAuth
+	HostedInteraction    HostedInteraction
 	SecurityNotification SecurityNotification
 	Assembly             Assembly
 }
@@ -82,6 +83,18 @@ type SecurityNotification struct {
 	DigestKey          string
 }
 
+type HostedInteraction struct {
+	BaseURL        string
+	AllowedOrigin  string
+	StateKey       string
+	DigestKey      string
+	InteractionTTL time.Duration
+	BrowserTTL     time.Duration
+	GrantTTL       time.Duration
+	GrantLeaseTTL  time.Duration
+	AuthProofTTL   time.Duration
+}
+
 type Assembly struct {
 	SchemaDirectory                   string
 	CapabilityPackageRoot             string
@@ -122,6 +135,18 @@ func Load(lookup LookupEnv) (Config, error) {
 	if userTokenPepper != "" && hmac.Equal([]byte(userTokenPepper), []byte(adminTokenPepper)) {
 		return Config{}, errors.New("PLATFORM_USER_TOKEN_PEPPER must be independent from PLATFORM_ADMIN_TOKEN_PEPPER")
 	}
+	hostedStateKey, hostedStateKeyProvided := lookup("PLATFORM_HOSTED_STATE_KEY")
+	hostedDigestKey, hostedDigestKeyProvided := lookup("PLATFORM_HOSTED_DIGEST_KEY")
+	hostedStateKey, hostedDigestKey = strings.TrimSpace(hostedStateKey), strings.TrimSpace(hostedDigestKey)
+	if environment == "production" && (!hostedStateKeyProvided || !hostedDigestKeyProvided) {
+		return Config{}, errors.New("PLATFORM_HOSTED_STATE_KEY and PLATFORM_HOSTED_DIGEST_KEY are required in production")
+	}
+	if !hostedStateKeyProvided {
+		hostedStateKey = deriveSecret(userTokenPepper, "platform-hosted-state-v1")
+	}
+	if !hostedDigestKeyProvided {
+		hostedDigestKey = deriveSecret(userTokenPepper, "platform-hosted-digest-v1")
+	}
 	cfg := Config{
 		Environment:        environment,
 		HTTPAddress:        value(lookup, "PLATFORM_HTTP_ADDRESS", ":8080"),
@@ -161,6 +186,17 @@ func Load(lookup LookupEnv) (Config, error) {
 			RecoveryTTL:             duration(lookup, "PLATFORM_USER_RECOVERY_TTL", 15*time.Minute),
 			RecoveryMaximumAttempts: intValue(lookup, "PLATFORM_USER_RECOVERY_MAXIMUM_ATTEMPTS", 5),
 			RecentAuthTTL:           duration(lookup, "PLATFORM_USER_RECENT_AUTH_TTL", 10*time.Minute),
+		},
+		HostedInteraction: HostedInteraction{
+			BaseURL:        value(lookup, "PLATFORM_HOSTED_BASE_URL", "https://127.0.0.1:5175"),
+			AllowedOrigin:  value(lookup, "PLATFORM_HOSTED_ALLOWED_ORIGIN", "https://127.0.0.1:5175"),
+			StateKey:       hostedStateKey,
+			DigestKey:      hostedDigestKey,
+			InteractionTTL: duration(lookup, "PLATFORM_HOSTED_INTERACTION_TTL", 10*time.Minute),
+			BrowserTTL:     duration(lookup, "PLATFORM_HOSTED_BROWSER_TTL", 10*time.Minute),
+			GrantTTL:       duration(lookup, "PLATFORM_HOSTED_GRANT_TTL", 2*time.Minute),
+			GrantLeaseTTL:  duration(lookup, "PLATFORM_HOSTED_GRANT_LEASE_TTL", 30*time.Second),
+			AuthProofTTL:   duration(lookup, "PLATFORM_HOSTED_AUTH_PROOF_TTL", 5*time.Minute),
 		},
 		SecurityNotification: SecurityNotification{
 			ProviderRef:    value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_REF", ""),
@@ -299,6 +335,23 @@ func (c Config) validate() error {
 	}
 	if c.UserAuth.RecentAuthTTL <= 0 || c.UserAuth.RecentAuthTTL > 24*time.Hour {
 		return errors.New("PLATFORM_USER_RECENT_AUTH_TTL must be greater than zero and at most 24h")
+	}
+	baseURL, err := url.Parse(c.HostedInteraction.BaseURL)
+	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" {
+		return errors.New("PLATFORM_HOSTED_BASE_URL must be an exact HTTPS base URL")
+	}
+	origin, err := url.Parse(c.HostedInteraction.AllowedOrigin)
+	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
+		return errors.New("PLATFORM_HOSTED_ALLOWED_ORIGIN must be an exact HTTPS origin")
+	}
+	if len(c.HostedInteraction.StateKey) < 32 || len(c.HostedInteraction.DigestKey) < 32 {
+		return errors.New("hosted state and digest keys must each be at least 32 bytes")
+	}
+	if hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.HostedInteraction.DigestKey)) || hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.UserAuth.TokenPepper)) || hmac.Equal([]byte(c.HostedInteraction.DigestKey), []byte(c.UserAuth.TokenPepper)) {
+		return errors.New("hosted state, digest, and user token secrets must be independent")
+	}
+	if c.HostedInteraction.InteractionTTL <= 0 || c.HostedInteraction.InteractionTTL > 30*time.Minute || c.HostedInteraction.BrowserTTL <= 0 || c.HostedInteraction.BrowserTTL > c.HostedInteraction.InteractionTTL || c.HostedInteraction.GrantTTL <= 0 || c.HostedInteraction.GrantTTL > 10*time.Minute || c.HostedInteraction.GrantLeaseTTL <= 0 || c.HostedInteraction.GrantLeaseTTL > time.Minute || c.HostedInteraction.AuthProofTTL <= 0 || c.HostedInteraction.AuthProofTTL > c.HostedInteraction.InteractionTTL {
+		return errors.New("hosted interaction TTL policy is outside the allowed bounds")
 	}
 	if c.SecurityNotification.Enabled {
 		if !assemblyReferencePattern.MatchString(c.SecurityNotification.ProviderRef) {

@@ -227,6 +227,47 @@ func TestLoadRejectsUnsafeUserAuthPolicy(t *testing.T) {
 	}
 }
 
+func TestLoadHostedInteractionDefaultsAreHTTPSAndDomainSeparated(t *testing.T) {
+	values := map[string]string{
+		"PLATFORM_DATABASE_URL":            "postgres://user@localhost/platform?sslmode=disable",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":      validTestPepper(),
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": validAssemblyOutputTargets(t, "hosted-target"),
+	}
+	cfg, err := Load(func(key string) (string, bool) { value, ok := values[key]; return value, ok })
+	if err != nil {
+		t.Fatalf("Load() hosted defaults error = %v", err)
+	}
+	if !strings.HasPrefix(cfg.HostedInteraction.BaseURL, "https://") || !strings.HasPrefix(cfg.HostedInteraction.AllowedOrigin, "https://") || len(cfg.HostedInteraction.StateKey) < 32 || len(cfg.HostedInteraction.DigestKey) < 32 || cfg.HostedInteraction.StateKey == cfg.HostedInteraction.DigestKey || cfg.HostedInteraction.StateKey == cfg.UserAuth.TokenPepper || cfg.HostedInteraction.DigestKey == cfg.UserAuth.TokenPepper {
+		t.Fatalf("unsafe HostedInteraction defaults: %#v", cfg.HostedInteraction)
+	}
+}
+
+func TestLoadHostedInteractionRequiresProductionSecretsAndExactOrigin(t *testing.T) {
+	base := map[string]string{
+		"PLATFORM_ENVIRONMENT":             "production",
+		"PLATFORM_DATABASE_URL":            "postgres://user@localhost/platform?sslmode=require",
+		"PLATFORM_ADMIN_TOKEN_PEPPER":      validTestPepper(),
+		"PLATFORM_USER_TOKEN_PEPPER":       strings.Repeat("independent-user-", 3),
+		"PLATFORM_ADMIN_ALLOWED_ORIGINS":   "https://admin.example.test",
+		"PLATFORM_ASSEMBLY_OUTPUT_TARGETS": validAssemblyOutputTargets(t, "hosted-production"),
+	}
+	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "PLATFORM_HOSTED_STATE_KEY") {
+		t.Fatalf("missing hosted production secrets error = %v", err)
+	}
+	base["PLATFORM_HOSTED_STATE_KEY"] = strings.Repeat("hosted-state-", 3)
+	base["PLATFORM_HOSTED_DIGEST_KEY"] = strings.Repeat("hosted-digest-", 3)
+	base["PLATFORM_HOSTED_BASE_URL"] = "https://hosted.example.test"
+	base["PLATFORM_HOSTED_ALLOWED_ORIGIN"] = "https://hosted.example.test/path"
+	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "exact HTTPS origin") {
+		t.Fatalf("unsafe hosted origin error = %v", err)
+	}
+	base["PLATFORM_HOSTED_ALLOWED_ORIGIN"] = "https://hosted.example.test"
+	base["PLATFORM_HOSTED_DIGEST_KEY"] = base["PLATFORM_HOSTED_STATE_KEY"]
+	if _, err := Load(func(key string) (string, bool) { value, ok := base[key]; return value, ok }); err == nil || !strings.Contains(err.Error(), "independent") {
+		t.Fatalf("shared hosted key error = %v", err)
+	}
+}
+
 func TestLoadRequiresIndependentUserPepperInProduction(t *testing.T) {
 	base := map[string]string{
 		"PLATFORM_ENVIRONMENT":             "production",
