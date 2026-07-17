@@ -23,17 +23,52 @@ const requiredOperations = new Set([
   "POST /api/v1/admin/products/{product_id}/applications/{application_id}/suspend",
   "POST /api/v1/admin/products/{product_id}/tenants",
   "POST /api/v1/admin/products/{product_id}/tenants/{tenant_id}/admins",
+  "POST /api/v1/auth/register",
   "POST /api/v1/auth/login",
+  "GET /api/v1/auth/session",
+  "POST /api/v1/auth/recovery/start",
+  "POST /api/v1/auth/recovery/complete",
   "POST /api/v1/auth/external/{provider}/start",
+  "POST /api/v1/auth/external/{provider}/callback",
+  "POST /api/v1/auth/verification/start",
   "POST /api/v1/auth/external/wechat/exchange",
   "POST /api/v1/account/external-identities/{provider}/link",
   "DELETE /api/v1/account/external-identities/{external_identity_id}",
+  "GET /api/v1/account/external-identities",
+  "GET /api/v1/account/profile",
+  "PATCH /api/v1/account/profile",
+  "PUT /api/v1/account/password",
+  "GET /api/v1/account/sessions",
+  "DELETE /api/v1/account/sessions/{session_id}",
+  "GET /api/v1/account/access",
   "POST /api/v1/auth/refresh",
   "POST /api/v1/auth/logout",
+  "POST /api/v1/hosted/interactions",
+  "GET /api/v1/hosted/interactions/{interaction_id}",
+  "POST /api/v1/hosted/interactions/{interaction_id}/browser-session",
+  "POST /api/v1/hosted/interactions/{interaction_id}/auth/password",
+  "POST /api/v1/hosted/interactions/{interaction_id}/account/complete",
+  "POST /api/v1/hosted/interactions/{interaction_id}/cancel",
+  "POST /api/v1/hosted/interactions/{interaction_id}/exchange",
   "POST /api/v1/admin/auth/login",
   "GET /api/v1/admin/auth/session",
   "POST /api/v1/admin/auth/refresh",
   "POST /api/v1/admin/auth/logout",
+  "GET /api/v1/admin/users",
+  "GET /api/v1/admin/products/{product_id}/users",
+  "GET /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users",
+  "PUT /api/v1/admin/users/{user_id}/security-status",
+  "PUT /api/v1/admin/products/{product_id}/users/{user_id}/access",
+  "PUT /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/access",
+  "POST /api/v1/admin/assembly-runs/{run_id}/cancel",
+  "GET /api/v1/admin/assemblies/{assembly_id}/lifecycle-source",
+  "POST /api/v1/admin/assemblies/{assembly_id}/upgrade-plans",
+  "POST /api/v1/admin/assemblies/{assembly_id}/eject-plans",
+  "GET /api/v1/admin/assembly-lifecycle-plans/{lifecycle_plan_id}",
+  "POST /api/v1/admin/assembly-lifecycle-plans/{lifecycle_plan_id}/execute",
+  "GET /api/v1/admin/assembly-lifecycle-operations/{operation_id}",
+  "POST /api/v1/admin/assembly-lifecycle-operations/{operation_id}/cancel",
+  "POST /api/v1/admin/assembly-lifecycle-operations/{operation_id}/rollback",
   "POST /api/v1/entitlements/check",
   "POST /api/v1/admin/entitlements",
   "GET /api/v1/devices",
@@ -63,6 +98,14 @@ const requiredOperations = new Set([
   "GET /api/v1/admin/audit/events"
 ]);
 const foundOperations = new Set();
+const accountAdminPolicies = new Map([
+  ["GET /api/v1/admin/users", ["identity.user.read", "platform", false]],
+  ["GET /api/v1/admin/products/{product_id}/users", ["identity.user.read", "product", false]],
+  ["GET /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users", ["identity.user.read", "tenant", false]],
+  ["PUT /api/v1/admin/users/{user_id}/security-status", ["identity.security.manage", "platform", true]],
+  ["PUT /api/v1/admin/products/{product_id}/users/{user_id}/access", ["product.user-access.manage", "product", true]],
+  ["PUT /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/access", ["product.user-access.manage", "tenant", true]]
+]);
 
 for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
   if (!path.startsWith("/")) errors.push(`invalid path: ${path}`);
@@ -111,11 +154,93 @@ for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
       const hasAdminCsrfToken = parameters.some((parameter) => parameter.$ref === "#/components/parameters/AdminCsrfToken" || parameter.name === "X-CSRF-Token");
       if (!hasAdminCsrfToken) errors.push(`${location} needs conditional X-CSRF-Token for administrator Cookie transport`);
     }
+    const accountPolicy = accountAdminPolicies.get(location);
+    if (accountPolicy) {
+      const [permission, scope, recentAuth] = accountPolicy;
+      if (operation["x-required-permission"] !== permission) errors.push(`${location} must require permission ${permission}`);
+      if (operation["x-required-scope"] !== scope) errors.push(`${location} must require ${scope} scope`);
+      if (recentAuth && operation["x-recent-auth-required"] !== true) errors.push(`${location} must require recent authentication`);
+    }
   }
 }
 
 for (const requiredOperation of requiredOperations) {
   if (!foundOperations.has(requiredOperation)) errors.push(`required operation is missing: ${requiredOperation}`);
+}
+
+const currentSessionResponse = document.paths?.["/api/v1/auth/session"]?.get?.responses?.["200"]?.$ref;
+if (currentSessionResponse !== "#/components/responses/CurrentUserSession") {
+  errors.push("GET /api/v1/auth/session must return the credential-free CurrentUserSession response");
+}
+const currentSessionProperties = document.components?.schemas?.CurrentUserSession?.properties ?? {};
+for (const forbidden of ["access_token", "refresh_token", "token_pair"]) {
+  if (Object.hasOwn(currentSessionProperties, forbidden)) errors.push(`CurrentUserSession must not contain ${forbidden}`);
+}
+for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPair", "RecoveryChallenge", "VerificationChallenge", "ExternalLoginFlow", "ExternalExchange", "HostedInteractionLaunch", "HostedInteraction", "HostedBrowserSession", "HostedCompletion", "HostedExchange"]) {
+  const cacheControl = document.components?.responses?.[responseName]?.headers?.["Cache-Control"]?.schema?.const;
+  if (cacheControl !== "no-store") errors.push(`${responseName} response must declare Cache-Control: no-store`);
+}
+const recoveryRequired = document.components?.schemas?.RecoveryChallenge?.required ?? [];
+if (!recoveryRequired.includes("continuation_id")) errors.push("RecoveryChallenge must always return an opaque continuation_id");
+const registerRequired = document.components?.schemas?.RegisterUserRequest?.required ?? [];
+if (!registerRequired.includes("verification_continuation_id") || !registerRequired.includes("verification_proof")) {
+  errors.push("RegisterUserRequest must bind both verification_continuation_id and verification_proof");
+}
+const registerOperation = document.paths?.["/api/v1/auth/register"]?.post;
+const registerParameters = registerOperation?.parameters ?? [];
+if (registerOperation?.["x-idempotency-exemption"] || !registerParameters.some((parameter) => parameter.$ref === "#/components/parameters/IdempotencyKey" || parameter.name === "Idempotency-Key")) {
+  errors.push("user registration must require Idempotency-Key and cannot use a one-time exchange exemption");
+}
+const callbackSecurity = document.paths?.["/api/v1/auth/external/{provider}/callback"]?.post?.security ?? [];
+if (!callbackSecurity.some((requirement) => Object.hasOwn(requirement, "ClientSessionBearer"))) {
+  errors.push("external provider callback exchange must be bound to ClientSessionBearer");
+}
+const wechatExchange = document.paths?.["/api/v1/auth/external/wechat/exchange"]?.post;
+const wechatParameters = wechatExchange?.parameters ?? [];
+if (!wechatExchange?.["x-idempotency-exemption"] || wechatParameters.some((parameter) => parameter.$ref === "#/components/parameters/IdempotencyKey" || parameter.name === "Idempotency-Key")) {
+  errors.push("WeChat exchange must use the one-time flow replay exemption rather than an Idempotency-Key");
+}
+const linkExternalProperties = document.components?.schemas?.LinkExternalIdentityRequest?.properties ?? {};
+if (Object.hasOwn(linkExternalProperties, "recent_auth_proof")) {
+  errors.push("external identity link must use server session auth_time, not client recent_auth_proof");
+}
+const externalStartCodeRef = document.components?.schemas?.StartExternalLoginRequest?.properties?.return_target_code?.$ref;
+if (externalStartCodeRef !== "#/components/schemas/StableCode") {
+  errors.push("external return_target_code must use StableCode");
+}
+const hostedCreate = document.paths?.["/api/v1/hosted/interactions"]?.post;
+const hostedCreateSecurity = hostedCreate?.security ?? [];
+if (!hostedCreateSecurity.some((item) => Object.hasOwn(item, "ClientSessionBearer")) || !hostedCreateSecurity.some((item) => Object.hasOwn(item, "UserBearer"))) {
+  errors.push("hosted interaction creation must declare both route-specific ClientSessionBearer and UserBearer transports");
+}
+const hostedCreateProperties = document.components?.schemas?.CreateHostedInteractionRequest?.properties ?? {};
+for (const forbidden of ["product_id", "application_id", "tenant_id", "user_id", "session_id", "return_target", "return_url", "return_uri"]) {
+  if (Object.hasOwn(hostedCreateProperties, forbidden)) errors.push(`CreateHostedInteractionRequest must not accept ${forbidden}`);
+}
+for (const required of ["route_id", "channel", "return_target_code", "state"]) {
+  if (!(document.components?.schemas?.CreateHostedInteractionRequest?.required ?? []).includes(required)) errors.push(`CreateHostedInteractionRequest must require ${required}`);
+}
+const hostedPassword = document.paths?.["/api/v1/hosted/interactions/{interaction_id}/auth/password"]?.post;
+const hostedPasswordSecurity = hostedPassword?.security ?? [];
+const hostedPasswordParameters = hostedPassword?.parameters ?? [];
+if (hostedPasswordSecurity.length !== 1 || !Object.hasOwn(hostedPasswordSecurity[0] ?? {}, "HostedSessionCookie")) {
+  errors.push("hosted password authentication must use only HostedSessionCookie");
+}
+if (!hostedPasswordParameters.some((parameter) => parameter.$ref === "#/components/parameters/HostedCsrfToken")) {
+  errors.push("hosted password authentication must require HostedCsrfToken");
+}
+const hostedOpen = document.paths?.["/api/v1/hosted/interactions/{interaction_id}/browser-session"]?.post;
+if ((hostedOpen?.security ?? null)?.length !== 0 || !hostedOpen?.["x-idempotency-exemption"]) {
+  errors.push("hosted browser-session open must be anonymous interaction launch with explicit rotation exemption");
+}
+const hostedExchange = document.paths?.["/api/v1/hosted/interactions/{interaction_id}/exchange"]?.post;
+const hostedExchangeSecurity = hostedExchange?.security ?? [];
+if (hostedExchangeSecurity.length !== 1 || !Object.hasOwn(hostedExchangeSecurity[0] ?? {}, "ClientSessionBearer") || !hostedExchange?.["x-idempotency-exemption"]) {
+  errors.push("hosted completion exchange must use only ClientSessionBearer and the one-time grant exemption");
+}
+const hostedCompletionProperties = Object.keys(document.components?.schemas?.HostedCompletion?.properties ?? {}).sort();
+if (hostedCompletionProperties.join(",") !== ["expires_at", "interaction_id", "return_url", "status"].sort().join(",")) {
+  errors.push("HostedCompletion may expose only interaction_id, status, return_url and expires_at");
 }
 
 function visit(value, location = "#") {

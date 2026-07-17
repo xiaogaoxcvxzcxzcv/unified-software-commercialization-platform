@@ -1,4 +1,4 @@
-import { IconAlertTriangle, IconArrowLeft, IconCheck, IconExternalLink, IconFileAnalytics, IconLoader2, IconRefresh } from "@tabler/icons-react";
+import { IconAlertTriangle, IconArrowLeft, IconCheck, IconExternalLink, IconFileAnalytics, IconLoader2, IconRefresh, IconVersions } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { assemblyClient, type AssemblyRunRecord } from "../api/assemblyClient";
@@ -7,7 +7,7 @@ import { useAppContext } from "../app/AppContext";
 import { Shell } from "../components/Shell";
 import { StatusBadge } from "../components/StatusBadge";
 
-const terminalStatuses = new Set(["completed", "failed", "rolled_back"]);
+const terminalStatuses = new Set(["completed", "failed", "cancelled", "rolled_back"]);
 const time = (value: string | null) => value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)) : "--";
 const retryKeyPattern = /^assembly-retry-[A-Za-z0-9-]{8,100}$/;
 function persistedRetryKey(runId: string) {
@@ -104,6 +104,7 @@ export function AssemblyRunPage() {
   return <Shell title="装配运行" subtitle={runId ? `运行 ${runId}` : "持久化运行详情"}>
     <div className="toolbar"><button className="secondary-button" type="button" onClick={() => navigate("/assemblies")}><IconArrowLeft size={17} />返回记录</button><div className="assembly-toolbar-spacer" />
       <button className="secondary-button" type="button" disabled={loading} onClick={() => load()}><IconRefresh className={loading ? "spin" : ""} size={17} />刷新</button>
+      {run && <button className="secondary-button" type="button" onClick={() => navigate(`/assemblies/${encodeURIComponent(run.run_id)}/lifecycle`)}><IconVersions size={17} />生命周期</button>}
       {run?.status === "failed" && run.recovery.retryable && !run.recovery.rollback_required && <button className="primary-button" type="button" disabled={retrying} onClick={() => void retry()}><IconRefresh size={17} />{retrying ? "正在创建新尝试..." : "重试此运行"}</button>}
     </div>
     {error && <div className="query-state query-error" role="alert"><span>{error}</span><button className="secondary-button" type="button" onClick={() => load()}>重新读取</button></div>}

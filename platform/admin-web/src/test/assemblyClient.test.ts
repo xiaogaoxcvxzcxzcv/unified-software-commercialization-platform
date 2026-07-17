@@ -214,7 +214,9 @@ describe("assemblyClient request contract", () => {
   });
 
   it("uses stable encoded read paths and forwards AbortSignal", async () => {
-    authenticatedRequest.mockImplementation(async (path?: string) => String(path).includes("/assembly-runs/") ? runResponse : String(path).includes("/assembly-plans/") ? planResponse : String(path).includes("/blueprints/") ? blueprintResponse : {});
+    const manifestResponse = { assembly_id: "assembly:1", product_id: "product-1", run_id: "run-1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", created_at: "2026-07-16T01:00:00Z" };
+    const lockResponse = { lock_id: "lock:1", product_id: "product-1", run_id: "run-1", assembly_id: "assembly:1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", created_at: "2026-07-16T01:00:00Z" };
+    authenticatedRequest.mockImplementation(async (path?: string) => String(path).includes("/assembly-runs/") ? runResponse : String(path).includes("/assembly-plans/") ? planResponse : String(path).includes("/blueprints/") ? blueprintResponse : String(path).includes("/assembly-manifests/") ? manifestResponse : String(path).includes("/generated-project-locks/") ? lockResponse : {});
     const controller = new AbortController();
     const options = { signal: controller.signal };
 
@@ -294,6 +296,11 @@ describe("assemblyClient request contract", () => {
     expect(authenticatedRequest).toHaveBeenNthCalledWith(2, "/api/v1/admin/assembly-runs/run-1/retry", expect.objectContaining({
       method: "POST", headers: { "Idempotency-Key": "assembly-retry-00001" }, body: JSON.stringify({ expected_version: 2 }),
     }));
+  });
+
+  it("accepts the persisted cancelled run terminal state", async () => {
+    authenticatedRequest.mockResolvedValue({ ...runResponse, status: "cancelled", version: 2, completed_at: "2026-07-16T01:01:00Z" });
+    await expect(assemblyClient.getRun("run-1")).resolves.toMatchObject({ status: "cancelled", version: 2 });
   });
 
   it("rejects unknown fields and host paths in diagnostic projections", async () => {

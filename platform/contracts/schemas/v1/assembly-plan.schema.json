@@ -14,9 +14,10 @@
     "catalog_snapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "checksum"],
+      "required": ["revision", "scope", "checksum"],
       "properties": {
         "revision": { "$ref": "common.schema.json#/$defs/identifier" },
+        "scope": { "type": "string", "enum": ["ordinary", "experimental"] },
         "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },
@@ -193,12 +194,15 @@
     "resolvedExtension": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["extension_id", "version", "manifest_path", "checksum"],
+      "required": ["extension_id", "version", "product_code", "manifest_path", "manifest_sha256", "content_tree_sha256", "data_namespace"],
       "properties": {
         "extension_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "product_code": { "$ref": "common.schema.json#/$defs/identifier" },
         "manifest_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
-        "checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+        "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "data_namespace": { "type": "string", "pattern": "^ext_[a-z][a-z0-9_]{2,62}$" }
       }
     },
     "resolvedDependency": {

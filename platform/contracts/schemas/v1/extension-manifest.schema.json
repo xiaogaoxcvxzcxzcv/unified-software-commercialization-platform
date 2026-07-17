@@ -1,35 +1,105 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.local/capability-platform/v1/extension-manifest.schema.json",
-  "title": "Product Extension Manifest",
+  "title": "Trusted Product Extension Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "extension_id", "version", "product_id", "public_api_operations", "published_events", "subscribed_events", "slots", "owned_paths", "manifest_checksum"],
+  "required": [
+    "schema_version", "extension_id", "version", "product_code", "catalog_scope", "readiness",
+    "supported_targets", "supported_delivery_modes", "supported_environments", "required_permissions",
+    "public_api_operations", "published_events", "subscribed_events", "routes", "navigation_items", "slots",
+    "admin_items", "data_namespace", "owned_tables", "consumed_services", "owned_paths", "install_plan",
+    "uninstall_plan", "retention_policy", "content_files", "content_tree_sha256", "manifest_sha256"
+  ],
   "properties": {
     "schema_version": { "$ref": "common.schema.json#/$defs/schemaVersion" },
     "extension_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "version": { "$ref": "common.schema.json#/$defs/semver" },
-    "product_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "product_code": { "$ref": "common.schema.json#/$defs/identifier" },
+    "catalog_scope": { "$ref": "common.schema.json#/$defs/catalogVisibility" },
+    "readiness": { "$ref": "common.schema.json#/$defs/packageReadiness" },
+    "supported_targets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/target" } },
+    "supported_delivery_modes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/deliveryMode" } },
+    "supported_environments": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/environment" } },
+    "required_permissions": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/permissionCode" } },
     "public_api_operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/operationId" } },
     "published_events": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/eventName" } },
     "subscribed_events": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/eventName" } },
-    "slots": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["slot_id", "target", "entry_path"],
-        "properties": {
-          "slot_id": { "$ref": "common.schema.json#/$defs/identifier" },
-          "target": { "$ref": "common.schema.json#/$defs/target" },
-          "entry_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
-        }
-      }
-    },
+    "routes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/route" } },
+    "navigation_items": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/navigationItem" } },
+    "slots": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/slot" } },
+    "admin_items": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/adminItem" } },
+    "data_namespace": { "type": "string", "pattern": "^ext_[a-z][a-z0-9_]{2,62}$" },
+    "owned_tables": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^ext_[a-z][a-z0-9_]{2,62}\\.[a-z][a-z0-9_]{1,62}$" } },
+    "consumed_services": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } },
     "owned_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/safeRelativePath" } },
-    "manifest_checksum": { "$ref": "common.schema.json#/$defs/sha256" }
+    "install_plan": { "$ref": "#/$defs/lifecyclePlan" },
+    "uninstall_plan": { "$ref": "#/$defs/lifecyclePlan" },
+    "retention_policy": { "$ref": "#/$defs/retentionPolicy" },
+    "content_files": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/contentFile" } },
+    "content_tree_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
   },
   "$defs": {
-    "eventName": { "type": "string", "minLength": 5, "maxLength": 160, "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.v[1-9][0-9]*$" }
+    "eventName": { "type": "string", "minLength": 5, "maxLength": 160, "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.v[1-9][0-9]*$" },
+    "urlPath": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^/[a-z0-9][a-z0-9/_-]*$" },
+    "route": {
+      "type": "object", "additionalProperties": false,
+      "required": ["route_id", "target", "path", "entry_path", "required_permission"],
+      "properties": {
+        "route_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "path": { "$ref": "#/$defs/urlPath" },
+        "entry_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "required_permission": { "$ref": "common.schema.json#/$defs/permissionCode" }
+      }
+    },
+    "navigationItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["item_id", "target", "label_key", "route_id", "required_permission"],
+      "properties": {
+        "item_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "label_key": { "$ref": "common.schema.json#/$defs/identifier" },
+        "route_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "required_permission": { "$ref": "common.schema.json#/$defs/permissionCode" }
+      }
+    },
+    "slot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["slot_id", "target", "entry_path"],
+      "properties": {
+        "slot_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target": { "$ref": "common.schema.json#/$defs/target" },
+        "entry_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
+      }
+    },
+    "adminItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["item_id", "label_key", "path", "entry_path", "required_permission"],
+      "properties": {
+        "item_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "label_key": { "$ref": "common.schema.json#/$defs/identifier" },
+        "path": { "$ref": "#/$defs/urlPath" },
+        "entry_path": { "$ref": "common.schema.json#/$defs/safeRelativePath" },
+        "required_permission": { "$ref": "common.schema.json#/$defs/permissionCode" }
+      }
+    },
+    "lifecyclePlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["strategy", "steps"],
+      "properties": {
+        "strategy": { "type": "string", "enum": ["declarative_v1"] },
+        "steps": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/identifier" } }
+      }
+    },
+    "retentionPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "retention_days"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["delete", "retain", "anonymize"] },
+        "retention_days": { "type": "integer", "minimum": 0, "maximum": 3650 }
+      }
+    }
   }
 }

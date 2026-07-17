@@ -17,16 +17,21 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 		"assembly.blueprint.manage",
 		"assembly.execute",
 		"assembly.experimental.use",
+		"assembly.lifecycle.execute",
+		"assembly.lifecycle.plan",
 		"assembly.plan",
 		"assembly.read",
 		"audit.read",
 		"entitlement.manage",
 		"identity.manage",
+		"identity.security.manage",
+		"identity.user.read",
 		"platform.read",
 		"product.application.manage",
 		"product.application.security.manage",
 		"product.manage",
 		"product.read",
+		"product.user-access.manage",
 		"tenant.manage",
 	}
 	definitions := catalog.Definitions()
@@ -40,20 +45,42 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 	if err := catalog.ValidateRequiredPermissions(got); err != nil {
 		t.Fatalf("current catalog does not validate: %v", err)
 	}
-	const wantChecksum = "sha256:1ef5fdbe67b3f2bf323727c7cf0152004643a40b002c6353cd2d21783b56ca5b"
+	const wantChecksum = "sha256:6284f82371bfe67000b7ef7788ddbcb990c7e85bb6033ae38aa36f1728e9e537"
 	if checksum := catalog.Checksum(); checksum != wantChecksum {
 		t.Fatalf("checksum = %q, want %q", checksum, wantChecksum)
+	}
+}
+
+func TestAccountPermissionsSeparateGlobalSecurityFromScopedAdmission(t *testing.T) {
+	catalog := CurrentPermissionCatalog()
+	want := map[string]PermissionRisk{
+		"identity.user.read":         PermissionRiskNormal,
+		"identity.security.manage":   PermissionRiskHigh,
+		"product.user-access.manage": PermissionRiskHigh,
+	}
+	for _, definition := range catalog.Definitions() {
+		if risk, ok := want[definition.Code]; ok {
+			if definition.Risk != risk {
+				t.Errorf("permission %q risk = %q, want %q", definition.Code, definition.Risk, risk)
+			}
+			delete(want, definition.Code)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("account permissions missing from catalog: %v", want)
 	}
 }
 
 func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 	catalog := CurrentPermissionCatalog()
 	want := map[string]PermissionRisk{
-		"assembly.blueprint.manage": PermissionRiskNormal,
-		"assembly.execute":          PermissionRiskHigh,
-		"assembly.experimental.use": PermissionRiskNormal,
-		"assembly.plan":             PermissionRiskNormal,
-		"assembly.read":             PermissionRiskNormal,
+		"assembly.blueprint.manage":  PermissionRiskNormal,
+		"assembly.execute":           PermissionRiskHigh,
+		"assembly.experimental.use":  PermissionRiskNormal,
+		"assembly.lifecycle.execute": PermissionRiskHigh,
+		"assembly.lifecycle.plan":    PermissionRiskNormal,
+		"assembly.plan":              PermissionRiskNormal,
+		"assembly.read":              PermissionRiskNormal,
 	}
 
 	for _, definition := range catalog.Definitions() {
@@ -80,6 +107,8 @@ func TestAssemblyPermissionsHaveExplicitRiskAndBootstrapPolicy(t *testing.T) {
 		"assembly.blueprint.manage",
 		"assembly.execute",
 		"assembly.experimental.use",
+		"assembly.lifecycle.execute",
+		"assembly.lifecycle.plan",
 		"assembly.plan",
 		"assembly.read",
 	}); err != nil {

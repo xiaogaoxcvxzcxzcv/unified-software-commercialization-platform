@@ -38,6 +38,13 @@ artifacts/reviews/G1-07/*
 artifacts/reviews/G1-08.4/*
 !artifacts/reviews/G1-08.4/assembly-recovery.md
 !artifacts/reviews/G1-08.4/quality-gate-full-postgres.json
+!artifacts/reviews/G1-10/
+artifacts/reviews/G1-10/*
+!artifacts/reviews/G1-10/lifecycle-api.md
+!artifacts/reviews/G1-10/quality-gate-report.json
+!artifacts/reviews/G1-10/browser-upgrade-completed.png
+!artifacts/reviews/G1-10/browser-rollback-completed.png
+!artifacts/reviews/G1-10/browser-generated-drift-blocked.png
 !artifacts/smoke/
 artifacts/smoke/*
 !artifacts/smoke/2026-07-15/

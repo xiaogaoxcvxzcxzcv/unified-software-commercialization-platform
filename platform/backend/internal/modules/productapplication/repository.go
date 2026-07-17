@@ -58,12 +58,31 @@ type ResolveQuery struct {
 	Environment Environment
 }
 
+type AuthReturnTargetQuery struct {
+	ProductID     string
+	ApplicationID string
+	Code          string
+}
+
+type StoredAuthReturnTarget struct {
+	ProductID       string
+	ApplicationID   string
+	Platform        Platform
+	Status          Status
+	Code            string
+	URI             string
+	PolicyVersion   int64
+	WebRedirectURIs []string
+	DeepLinks       []DeepLinkRule
+}
+
 type ClaimedOutboxEvent struct {
 	EventID      string
 	AggregateID  string
 	EventType    string
 	Payload      json.RawMessage
 	AttemptCount int
+	LeaseToken   string
 }
 
 type Repository interface {
@@ -74,7 +93,8 @@ type Repository interface {
 	ReplaceRedirects(context.Context, RedirectRecord) (RedirectPolicyVersion, error)
 	SuspendApplication(context.Context, SuspendRecord) (SuspendResult, error)
 	ResolveApplication(context.Context, ResolveQuery) (Application, ClientBinding, error)
+	ResolveAuthReturnTarget(context.Context, AuthReturnTargetQuery) (StoredAuthReturnTarget, error)
 	ClaimOutbox(context.Context, time.Time, int) ([]ClaimedOutboxEvent, error)
-	MarkOutboxPublished(context.Context, string, time.Time) error
-	MarkOutboxFailed(context.Context, string, string, time.Time, bool) error
+	MarkOutboxPublished(context.Context, string, string, time.Time) error
+	MarkOutboxFailed(context.Context, string, string, string, time.Time, bool) error
 }

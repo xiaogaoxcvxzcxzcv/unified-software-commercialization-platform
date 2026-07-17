@@ -118,5 +118,5 @@ func (w *Worker) runOne(ctx context.Context) bool {
 }
 
 func terminalRun(status core.RunStatus) bool {
-	return status == core.RunStatusCompleted || status == core.RunStatusFailed || status == core.RunStatusRolledBack
+	return status == core.RunStatusCompleted || status == core.RunStatusFailed || status == core.RunStatusCancelled || status == core.RunStatusRolledBack
 }

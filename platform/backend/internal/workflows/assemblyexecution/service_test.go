@@ -141,7 +141,7 @@ func TestExecuteRunsProvisionGenerationAndCompletionChain(t *testing.T) {
 	planRaw, err := json.Marshal(map[string]any{
 		"schema_version": "1.0.0", "plan_id": "plan.execution", "plan_checksum": testDigest("plan"),
 		"blueprint_id": "bp_execution", "blueprint_version": 1, "environment": "test",
-		"catalog_snapshot": map[string]any{"revision": "catalog-r1", "checksum": testDigest("catalog")},
+		"catalog_snapshot": map[string]any{"revision": "catalog-r1", "scope": "ordinary", "checksum": testDigest("catalog")},
 		"packages":         []any{map[string]any{"package_id": "package.account", "version": "1.0.0", "checksum": testDigest("package")}},
 		"applications":     []any{map[string]any{"application_id": "application.web", "target": "web", "channel": "official", "environment": "test", "template": map[string]any{"template_id": "standard-web", "version": "1.0.0", "checksum": testDigest("template")}}},
 		"generator":        map[string]any{"generator_id": "platform.generator", "version": "1.0.0", "checksum": testDigest("generator")},

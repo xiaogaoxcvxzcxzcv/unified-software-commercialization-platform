@@ -14,7 +14,7 @@ func TestBuildRequestUsesTrustedRuntimeIdentityAndCurrentSnapshot(t *testing.T) 
 	planRaw, err := json.Marshal(map[string]any{
 		"plan_id": "plan.request-factory", "plan_checksum": rawDigest([]byte("plan")),
 		"blueprint_id": "bp_test-product", "blueprint_version": 1,
-		"catalog_snapshot": map[string]any{"checksum": rawDigest([]byte("catalog"))},
+		"catalog_snapshot": map[string]any{"scope": "ordinary", "checksum": rawDigest([]byte("catalog"))},
 		"generator":        map[string]any{"generator_id": "platform.generator", "version": "1.0.0", "checksum": rawDigest([]byte("generator"))},
 		"expected_outputs": []OutputSpec{output}, "required_secret_refs": []SecretRef{},
 		"packages":     []any{map[string]any{"package_id": "package.account", "version": "1.0.0", "checksum": rawDigest([]byte("package"))}},
@@ -50,5 +50,28 @@ func TestBuildRequestUsesTrustedRuntimeIdentityAndCurrentSnapshot(t *testing.T) 
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Fatal(err)
+	}
+
+	lifecycleInput, previous, err := BuildRequest(target, RequestSpec{
+		WorkspaceRef: "workspace.default", LifecycleOperationID: "operation.request-factory", RunCreatedAt: createdAt.Add(time.Minute),
+		Product:           ArtifactProduct{ProductID: "product.test", OfficialTenantID: "tenant.official", Applications: []ArtifactApplication{{PlanApplicationID: "application.web", ApplicationID: "app.web"}}},
+		Blueprint:         ArtifactBlueprint{BlueprintID: "bp_test-product", Version: 1, Checksum: rawDigest([]byte("blueprint"))},
+		BlueprintDocument: json.RawMessage(`{"schema_version":"1.0.0"}`), PlanDocument: planRaw,
+		PreviousLock:         ProjectLock{AssemblyManifestChecksum: rawDigest([]byte("previous-manifest")), LockChecksum: rawDigest([]byte("previous-lock"))},
+		PreviousManifestPath: "artifacts/assembly/assembly.previous/assembly-manifest.json",
+		PreviousLockPath:     "artifacts/assembly/assembly.previous/generated-project-lock.json",
+	})
+	if err != nil || lifecycleInput.Request.Operation != "upgrade" || lifecycleInput.Request.ArtifactContext.RunID != "" || lifecycleInput.Request.ArtifactContext.LifecycleOperationID != "operation.request-factory" || previous.ManifestSHA256 == "" {
+		t.Fatalf("lifecycle BuildRequest() request=%#v previous=%#v error=%v", lifecycleInput.Request, previous, err)
+	}
+	lifecycleRaw, err := json.Marshal(lifecycleInput.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := artifactTestRegistry(t).Validate("generator-request", lifecycleRaw); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := BuildRequest(target, RequestSpec{WorkspaceRef: "workspace.default", RunID: "run.ambiguous", LifecycleOperationID: "operation.ambiguous", RunCreatedAt: createdAt, BlueprintDocument: json.RawMessage(`{}`), PlanDocument: planRaw}); err == nil {
+		t.Fatal("ambiguous run/lifecycle operation source unexpectedly accepted")
 	}
 }

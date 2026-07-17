@@ -20,12 +20,12 @@ func (s *outboxSourceStub) Claim(context.Context, time.Time, int) ([]auditableOu
 	s.events = nil
 	return result, nil
 }
-func (s *outboxSourceStub) Published(_ context.Context, id string, _ time.Time) error {
-	s.published = append(s.published, id)
+func (s *outboxSourceStub) Published(_ context.Context, event auditableOutboxEvent, _ time.Time) error {
+	s.published = append(s.published, event.EventID)
 	return nil
 }
-func (s *outboxSourceStub) Failed(_ context.Context, id, _ string, _ time.Time, _ bool) error {
-	s.failed = append(s.failed, id)
+func (s *outboxSourceStub) Failed(_ context.Context, event auditableOutboxEvent, _ string, _ time.Time, _ bool) error {
+	s.failed = append(s.failed, event.EventID)
 	return nil
 }
 

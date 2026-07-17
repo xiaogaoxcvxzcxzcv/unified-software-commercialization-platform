@@ -66,11 +66,12 @@ func run(repositoryRoot, templateID, templateVersion, target, output, productNam
 	if err != nil {
 		return err
 	}
-	catalog, err := machinecatalog.LoadExperimentalWithTools(
+	catalog, err := machinecatalog.LoadExperimentalWithToolsAndExtensions(
 		filepath.Join(repositoryRoot, "platform", "experimental", "capability-packages"),
 		filepath.Join(repositoryRoot, "platform", "experimental", "templates"),
 		filepath.Join(repositoryRoot, "platform", "experimental", "tools", "generators"),
 		filepath.Join(repositoryRoot, "platform", "experimental", "tools", "sdks"),
+		filepath.Join(repositoryRoot, "platform", "experimental", "extensions"),
 		contracts, accesscontrol.CurrentPermissionCatalog(), blocks,
 	)
 	if err != nil {
@@ -120,7 +121,7 @@ func run(repositoryRoot, templateID, templateVersion, target, output, productNam
 	plan, err := json.Marshal(map[string]any{
 		"plan_id": "template.preview." + target, "plan_checksum": planChecksum,
 		"blueprint_id": "template.preview", "blueprint_version": 1,
-		"catalog_snapshot": map[string]any{"checksum": resolution.Snapshot.SnapshotSHA256},
+		"catalog_snapshot": map[string]any{"scope": resolution.Snapshot.CatalogScope, "checksum": resolution.Snapshot.SnapshotSHA256},
 		"generator":        tool, "expected_outputs": outputs,
 		"required_secret_refs": []generation.SecretRef{}, "packages": []any{}, "sdks": []any{},
 		"applications": []any{map[string]any{

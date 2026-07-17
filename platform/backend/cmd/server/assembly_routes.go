@@ -13,9 +13,23 @@ import (
 
 type assemblyAdminAdapter struct {
 	service             assemblyCoreService
+	lifecycle           *core.LifecycleService
 	outputTarget        map[string]assemblyhttp.OutputTarget
 	ordinaryCatalog     *machinecatalog.Catalog
 	experimentalCatalog *machinecatalog.Catalog
+}
+
+func (a assemblyAdminAdapter) withLifecycle(service *core.LifecycleService) assemblyAdminAdapter {
+	a.lifecycle = service
+	return a
+}
+
+func (a assemblyAdminAdapter) GetLifecycleSource(ctx context.Context, command assemblyhttp.GetLifecycleSourceCommand) (assemblyhttp.LifecycleArtifactState, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecycleArtifactState{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.GetCurrentSource(ctx, command.AssemblyID)
+	return assemblyLifecycleArtifact(value), mapAssemblyError(err)
 }
 
 type assemblyCoreService interface {
@@ -204,7 +218,7 @@ func (a assemblyAdminAdapter) RetryRun(ctx context.Context, command assemblyhttp
 func (a assemblyAdminAdapter) GetManifest(ctx context.Context, command assemblyhttp.GetManifestCommand) (assemblyhttp.Manifest, error) {
 	value, err := a.service.GetManifest(ctx, command.AssemblyID)
 	return assemblyhttp.Manifest{
-		AssemblyID: value.AssemblyID, ProductID: value.ProductID, RunID: value.RunID, SchemaVersion: value.SchemaVersion,
+		AssemblyID: value.AssemblyID, ProductID: value.ProductID, RunID: value.RunID, LifecycleOperationID: value.LifecycleOperationID, SchemaVersion: value.SchemaVersion,
 		Document: value.Document, DocumentChecksum: value.DocumentSHA256, Checksum: value.ManifestSHA256, CreatedAt: value.CreatedAt,
 	}, mapAssemblyError(err)
 }
@@ -212,10 +226,138 @@ func (a assemblyAdminAdapter) GetManifest(ctx context.Context, command assemblyh
 func (a assemblyAdminAdapter) GetLock(ctx context.Context, command assemblyhttp.GetLockCommand) (assemblyhttp.GeneratedProjectLock, error) {
 	value, err := a.service.GetLock(ctx, command.LockID)
 	return assemblyhttp.GeneratedProjectLock{
-		LockID: value.LockID, ProductID: value.ProductID, RunID: value.RunID, AssemblyID: value.AssemblyID,
+		LockID: value.LockID, ProductID: value.ProductID, RunID: value.RunID, LifecycleOperationID: value.LifecycleOperationID, AssemblyID: value.AssemblyID,
 		SchemaVersion: value.SchemaVersion, Document: value.Document, DocumentChecksum: value.DocumentSHA256,
 		Checksum: value.LockSHA256, CreatedAt: value.CreatedAt,
 	}, mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) CreateUpgradePlan(ctx context.Context, command assemblyhttp.CreateUpgradePlanCommand) (assemblyhttp.LifecyclePlan, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecyclePlan{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.CreateUpgradePlan(ctx, core.CreateUpgradePlanCommand{
+		AssemblyID: command.AssemblyID, ExpectedManifestChecksum: command.ExpectedManifestChecksum, ExpectedLockChecksum: command.ExpectedLockChecksum,
+		Target: coreLifecycleTarget(command.Target), ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
+	})
+	return assemblyLifecyclePlan(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) CreateEjectPlan(ctx context.Context, command assemblyhttp.CreateEjectPlanCommand) (assemblyhttp.LifecyclePlan, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecyclePlan{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.CreateEjectPlan(ctx, core.CreateEjectPlanCommand{
+		AssemblyID: command.AssemblyID, ExpectedManifestChecksum: command.ExpectedManifestChecksum, ExpectedLockChecksum: command.ExpectedLockChecksum,
+		Paths: command.Paths, ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
+	})
+	return assemblyLifecyclePlan(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) GetLifecyclePlan(ctx context.Context, command assemblyhttp.GetLifecyclePlanCommand) (assemblyhttp.LifecyclePlan, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecyclePlan{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.GetPlan(ctx, command.LifecyclePlanID)
+	return assemblyLifecyclePlan(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) ExecuteLifecyclePlan(ctx context.Context, command assemblyhttp.ExecuteLifecyclePlanCommand) (assemblyhttp.LifecycleOperation, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecycleOperation{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.ExecutePlan(ctx, core.ExecuteLifecyclePlanCommand{
+		LifecyclePlanID: command.LifecyclePlanID, ExpectedVersion: command.ExpectedVersion, PlanChecksum: command.PlanChecksum,
+		ConfirmationChecksum: command.ConfirmationChecksum, ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
+	})
+	return assemblyLifecycleOperation(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) GetLifecycleOperation(ctx context.Context, command assemblyhttp.GetLifecycleOperationCommand) (assemblyhttp.LifecycleOperation, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecycleOperation{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.GetOperation(ctx, command.OperationID)
+	return assemblyLifecycleOperation(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) CancelLifecycleOperation(ctx context.Context, command assemblyhttp.CancelLifecycleOperationCommand) (assemblyhttp.LifecycleOperation, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecycleOperation{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.CancelOperation(ctx, core.CancelLifecycleOperationCommand{
+		OperationID: command.OperationID, ExpectedVersion: command.ExpectedVersion, Reason: command.Reason,
+		ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
+	})
+	return assemblyLifecycleOperation(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) RollbackLifecycleOperation(ctx context.Context, command assemblyhttp.RollbackLifecycleOperationCommand) (assemblyhttp.LifecycleOperation, error) {
+	if a.lifecycle == nil {
+		return assemblyhttp.LifecycleOperation{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := a.lifecycle.RollbackOperation(ctx, core.RollbackLifecycleOperationCommand{
+		OperationID: command.OperationID, ExpectedVersion: command.ExpectedVersion, Reason: command.Reason,
+		ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
+	})
+	return assemblyLifecycleOperation(value), mapAssemblyError(err)
+}
+
+func (a assemblyAdminAdapter) CancelRun(ctx context.Context, command assemblyhttp.CancelRunCommand) (assemblyhttp.Run, error) {
+	service, ok := a.service.(interface {
+		CancelRun(context.Context, core.CancelRunCommand) (core.Run, error)
+	})
+	if !ok {
+		return assemblyhttp.Run{}, assemblyhttp.ErrLifecycleUnavailable
+	}
+	value, err := service.CancelRun(ctx, core.CancelRunCommand{RunID: command.RunID, ExpectedVersion: command.ExpectedVersion, Reason: command.Reason, ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID})
+	return assemblyRun(value), mapAssemblyError(err)
+}
+
+func coreLifecycleTarget(value assemblyhttp.LifecycleTargetVersions) core.LifecycleTargetVersions {
+	return core.LifecycleTargetVersions{Packages: coreLifecycleVersionRefs(value.Packages), Templates: coreLifecycleVersionRefs(value.Templates), Generator: core.LifecycleVersionRef{ID: value.Generator.ID, Version: value.Generator.Version}, SDKs: coreLifecycleVersionRefs(value.SDKs)}
+}
+
+func coreLifecycleVersionRefs(values []assemblyhttp.LifecycleVersionRef) []core.LifecycleVersionRef {
+	result := make([]core.LifecycleVersionRef, len(values))
+	for index, value := range values {
+		result[index] = core.LifecycleVersionRef{ID: value.ID, Version: value.Version}
+	}
+	return result
+}
+
+func assemblyLifecyclePlan(value core.LifecyclePlan) assemblyhttp.LifecyclePlan {
+	changes := make([]assemblyhttp.LifecycleChange, len(value.Changes))
+	for index, item := range value.Changes {
+		changes[index] = assemblyhttp.LifecycleChange{Path: item.Path, Action: item.Action, Ownership: item.Ownership, BeforeChecksum: item.BeforeChecksum, AfterChecksum: item.AfterChecksum, SourceID: item.SourceID, SourceVersion: item.SourceVersion}
+	}
+	migrations := make([]assemblyhttp.LifecycleMigration, len(value.Migrations))
+	for index, item := range value.Migrations {
+		migrations[index] = assemblyhttp.LifecycleMigration{MigrationID: item.MigrationID, Kind: item.Kind, Reversibility: item.Reversibility, Summary: item.Summary}
+	}
+	conflicts := make([]assemblyhttp.LifecycleConflict, len(value.Conflicts))
+	for index, item := range value.Conflicts {
+		conflicts[index] = assemblyhttp.LifecycleConflict{ConflictID: item.ConflictID, Code: item.Code, Category: item.Category, Blocking: item.Blocking, Message: item.Message, Paths: item.Paths, Remediation: item.Remediation}
+	}
+	return assemblyhttp.LifecyclePlan{LifecyclePlanID: value.LifecyclePlanID, AssemblyID: value.AssemblyID, ProductID: value.ProductID, Operation: string(value.Operation), Version: value.Version, Source: assemblyLifecycleArtifact(value.Source), TargetSnapshotChecksum: value.TargetSnapshotChecksum, Changes: changes, Migrations: migrations, Conflicts: conflicts, RegressionTests: value.RegressionTests, Rollback: assemblyhttp.LifecycleRollbackPolicy{Strategy: value.Rollback.Strategy, Automatic: value.Rollback.Automatic, PredecessorManifestChecksum: value.Rollback.PredecessorManifestChecksum, PredecessorLockChecksum: value.Rollback.PredecessorLockChecksum}, BlockingConflictCount: value.BlockingConflictCount, Executable: value.Executable, ConfirmationChecksum: value.ConfirmationChecksum, Statements: value.Statements, PlanChecksum: value.PlanChecksum, Document: value.Document, CreatedAt: value.CreatedAt, AuditID: value.AuditID}
+}
+
+func assemblyLifecycleOperation(value core.LifecycleOperation) assemblyhttp.LifecycleOperation {
+	var target *assemblyhttp.LifecycleArtifactState
+	if value.Target != nil {
+		mapped := assemblyLifecycleArtifact(*value.Target)
+		target = &mapped
+	}
+	manifestURL, lockURL := "", ""
+	if target != nil {
+		manifestURL = "/api/v1/admin/assembly-manifests/" + target.ManifestID
+		lockURL = "/api/v1/admin/generated-project-locks/" + target.LockID
+	}
+	return assemblyhttp.LifecycleOperation{OperationID: value.OperationID, RootOperationID: value.RootOperationID, RollbackOfOperationID: value.RollbackOfOperationID, LifecyclePlanID: value.LifecyclePlanID, AssemblyID: value.AssemblyID, ProductID: value.ProductID, Kind: string(value.Kind), Version: value.Version, Status: string(value.Status), CurrentStep: value.CurrentStep, Source: assemblyLifecycleArtifact(value.Source), Target: target, Recovery: assemblyhttp.LifecycleRecovery{Retryable: value.Recovery.Retryable, RollbackAvailable: value.Recovery.RollbackAvailable, CancelAllowed: value.Recovery.CancelAllowed}, Diagnostics: mapRunDiagnostics(value.Diagnostics), Reports: mapRunReports(value.Reports), Document: value.Document, ManifestURL: manifestURL, LockURL: lockURL, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt, AuditID: value.AuditID}
+}
+
+func assemblyLifecycleArtifact(value core.LifecycleArtifactState) assemblyhttp.LifecycleArtifactState {
+	return assemblyhttp.LifecycleArtifactState{ManifestID: value.ManifestID, ManifestChecksum: value.ManifestChecksum, LockID: value.LockID, LockChecksum: value.LockChecksum, CatalogChecksum: value.CatalogChecksum, TargetSnapshotChecksum: value.TargetSnapshotChecksum}
 }
 
 func assemblyBlueprint(value core.Blueprint) assemblyhttp.Blueprint {
@@ -329,6 +471,8 @@ func mapAssemblyError(err error) error {
 		return assemblyhttp.ErrPlanNotConfirmed
 	case errors.Is(err, core.ErrOutputTargetUnavailable):
 		return assemblyhttp.ErrOutputTargetUnavailable
+	case errors.Is(err, core.ErrLifecycleUnavailable):
+		return assemblyhttp.ErrLifecycleUnavailable
 	case errors.Is(err, core.ErrInvalidRunTransition):
 		return assemblyhttp.ErrConflict
 	default:

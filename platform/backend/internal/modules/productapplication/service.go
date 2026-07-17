@@ -140,7 +140,11 @@ func (s *Service) ReplaceRedirects(ctx context.Context, command ReplaceRedirects
 	if s == nil || s.repository == nil || validateProductContext(command.Product) != nil || strings.TrimSpace(command.ApplicationID) == "" || strings.TrimSpace(command.ActorID) == "" || strings.TrimSpace(command.TraceID) == "" {
 		return RedirectPolicyVersion{}, ErrInvalidArgument
 	}
-	policy, err := normalizeRedirectPolicy(command.Product.Environment, command.Policy)
+	application, err := s.repository.GetApplication(ctx, command.Product.ProductID, command.ApplicationID)
+	if err != nil {
+		return RedirectPolicyVersion{}, err
+	}
+	policy, err := normalizeRedirectPolicy(command.Product.Environment, application.Platform, command.Policy)
 	if err != nil {
 		return RedirectPolicyVersion{}, err
 	}
@@ -158,6 +162,25 @@ func (s *Service) ReplaceRedirects(ctx context.Context, command ReplaceRedirects
 	}
 	now := s.now().UTC()
 	return s.repository.ReplaceRedirects(ctx, RedirectRecord{Policy: policy, Version: RedirectPolicyVersion{PolicyID: policyID, ProductID: command.Product.ProductID, ApplicationID: command.ApplicationID, ContentSHA256: "sha256:" + contentSHA, CreatedBy: command.ActorID, CreatedAt: now, AuditID: auditID}, ActorID: command.ActorID, TraceID: command.TraceID, EventID: eventID})
+}
+
+func (s *Service) ResolveAuthReturnTarget(ctx context.Context, product ProductContext, applicationID, code string) (ResolvedAuthReturnTarget, error) {
+	applicationID = strings.TrimSpace(applicationID)
+	if s == nil || s.repository == nil || validateProductContext(product) != nil || applicationID == "" || !stableCodePattern.MatchString(code) {
+		return ResolvedAuthReturnTarget{}, ErrInvalidArgument
+	}
+	stored, err := s.repository.ResolveAuthReturnTarget(ctx, AuthReturnTargetQuery{ProductID: product.ProductID, ApplicationID: applicationID, Code: code})
+	if err != nil {
+		return ResolvedAuthReturnTarget{}, err
+	}
+	if stored.ProductID != product.ProductID || stored.ApplicationID != applicationID || stored.Code != code || stored.Status != StatusActive || stored.PolicyVersion < 1 {
+		return ResolvedAuthReturnTarget{}, ErrContextRejected
+	}
+	uri, kind, err := normalizeAuthReturnTargetURI(product.Environment, stored.Platform, stored.URI, stored.WebRedirectURIs, stored.DeepLinks)
+	if err != nil {
+		return ResolvedAuthReturnTarget{}, ErrContextRejected
+	}
+	return ResolvedAuthReturnTarget{ProductID: stored.ProductID, ApplicationID: stored.ApplicationID, Code: stored.Code, URI: uri, Kind: kind, PolicyVersion: stored.PolicyVersion}, nil
 }
 
 type SuspendCommand struct {
@@ -220,21 +243,21 @@ func (s *Service) ClaimOutbox(ctx context.Context, now time.Time, limit int) ([]
 	return s.repository.ClaimOutbox(ctx, now.UTC(), limit)
 }
 
-func (s *Service) MarkOutboxPublished(ctx context.Context, eventID string, now time.Time) error {
-	if s == nil || s.repository == nil || strings.TrimSpace(eventID) == "" || now.IsZero() {
+func (s *Service) MarkOutboxPublished(ctx context.Context, eventID, leaseToken string, now time.Time) error {
+	if s == nil || s.repository == nil || strings.TrimSpace(eventID) == "" || strings.TrimSpace(leaseToken) == "" || now.IsZero() {
 		return ErrInvalidArgument
 	}
-	return s.repository.MarkOutboxPublished(ctx, eventID, now.UTC())
+	return s.repository.MarkOutboxPublished(ctx, eventID, leaseToken, now.UTC())
 }
 
-func (s *Service) MarkOutboxFailed(ctx context.Context, eventID, summary string, next time.Time, dead bool) error {
-	if s == nil || s.repository == nil || strings.TrimSpace(eventID) == "" || strings.TrimSpace(summary) == "" || next.IsZero() {
+func (s *Service) MarkOutboxFailed(ctx context.Context, eventID, leaseToken, summary string, next time.Time, dead bool) error {
+	if s == nil || s.repository == nil || strings.TrimSpace(eventID) == "" || strings.TrimSpace(leaseToken) == "" || strings.TrimSpace(summary) == "" || next.IsZero() {
 		return ErrInvalidArgument
 	}
 	if len(summary) > 500 {
 		summary = summary[:500]
 	}
-	return s.repository.MarkOutboxFailed(ctx, eventID, summary, next.UTC(), dead)
+	return s.repository.MarkOutboxFailed(ctx, eventID, leaseToken, summary, next.UTC(), dead)
 }
 
 func (s *Service) eventIDs() (string, string, error) {
@@ -294,8 +317,8 @@ func digestString(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func normalizeRedirectPolicy(environment Environment, source RedirectPolicy) (RedirectPolicy, error) {
-	if len(source.WebRedirectURIs) > 100 || len(source.AllowedOrigins) > 100 || len(source.DeepLinks) > 100 {
+func normalizeRedirectPolicy(environment Environment, platform Platform, source RedirectPolicy) (RedirectPolicy, error) {
+	if !validPlatform(platform) || len(source.WebRedirectURIs) > 100 || len(source.AllowedOrigins) > 100 || len(source.DeepLinks) > 100 || len(source.AuthReturnTargets) > 100 {
 		return RedirectPolicy{}, ErrInvalidArgument
 	}
 	result := RedirectPolicy{}
@@ -321,16 +344,85 @@ func normalizeRedirectPolicy(environment Environment, source RedirectPolicy) (Re
 		}
 		result.DeepLinks = append(result.DeepLinks, rule)
 	}
-	result.WebRedirectURIs = uniqueSorted(result.WebRedirectURIs)
-	result.AllowedOrigins = uniqueSorted(result.AllowedOrigins)
+	sort.Strings(result.WebRedirectURIs)
+	if hasDuplicateStrings(result.WebRedirectURIs) {
+		return RedirectPolicy{}, ErrInvalidArgument
+	}
+	sort.Strings(result.AllowedOrigins)
+	if hasDuplicateStrings(result.AllowedOrigins) {
+		return RedirectPolicy{}, ErrInvalidArgument
+	}
 	sort.Slice(result.DeepLinks, func(i, j int) bool {
 		if result.DeepLinks[i].Scheme == result.DeepLinks[j].Scheme {
 			return result.DeepLinks[i].PathPattern < result.DeepLinks[j].PathPattern
 		}
 		return result.DeepLinks[i].Scheme < result.DeepLinks[j].Scheme
 	})
-	result.DeepLinks = uniqueDeepLinks(result.DeepLinks)
+	if hasDuplicateDeepLinks(result.DeepLinks) {
+		return RedirectPolicy{}, ErrInvalidArgument
+	}
+	seenTargetCodes := make(map[string]struct{}, len(source.AuthReturnTargets))
+	for _, sourceTarget := range source.AuthReturnTargets {
+		code := sourceTarget.Code
+		if !stableCodePattern.MatchString(code) {
+			return RedirectPolicy{}, ErrInvalidArgument
+		}
+		if _, exists := seenTargetCodes[code]; exists {
+			return RedirectPolicy{}, ErrInvalidArgument
+		}
+		uri, _, normalizeErr := normalizeAuthReturnTargetURI(environment, platform, sourceTarget.URI, result.WebRedirectURIs, result.DeepLinks)
+		if normalizeErr != nil {
+			return RedirectPolicy{}, normalizeErr
+		}
+		seenTargetCodes[code] = struct{}{}
+		result.AuthReturnTargets = append(result.AuthReturnTargets, AuthReturnTarget{Code: code, URI: uri})
+	}
+	sort.Slice(result.AuthReturnTargets, func(i, j int) bool { return result.AuthReturnTargets[i].Code < result.AuthReturnTargets[j].Code })
 	return result, err
+}
+
+func normalizeAuthReturnTargetURI(environment Environment, platform Platform, raw string, webRedirects []string, deepLinks []DeepLinkRule) (string, AuthReturnTargetKind, error) {
+	if value, err := normalizeWebRedirect(environment, raw); err == nil {
+		if containsString(webRedirects, value) {
+			return value, AuthReturnTargetWebRedirect, nil
+		}
+	}
+	if !platformAllowsDeepLink(platform) {
+		return "", "", ErrInvalidArgument
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || len(raw) < 1 || len(raw) > 2048 || parsed.Scheme == "" || parsed.Opaque != "" || parsed.Host != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || strings.ContainsAny(raw, "*\\\x00") {
+		return "", "", ErrInvalidArgument
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if _, err := normalizeDeepLink(DeepLinkRule{Scheme: scheme, PathPattern: parsed.Path}); err != nil {
+		return "", "", err
+	}
+	matched := false
+	for _, rule := range deepLinks {
+		if rule.Scheme == scheme && rule.PathPattern == parsed.Path {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return "", "", ErrInvalidArgument
+	}
+	return scheme + ":" + parsed.EscapedPath(), AuthReturnTargetDeepLink, nil
+}
+
+func platformAllowsDeepLink(platform Platform) bool {
+	switch platform {
+	case PlatformWindows, PlatformMacOS, PlatformLinux, PlatformAndroid, PlatformIOS:
+		return true
+	default:
+		return false
+	}
+}
+
+func containsString(values []string, target string) bool {
+	index := sort.SearchStrings(values, target)
+	return index < len(values) && values[index] == target
 }
 
 func normalizeWebRedirect(environment Environment, raw string) (string, error) {
@@ -386,7 +478,7 @@ func validateTransportURL(environment Environment, parsed *url.URL) error {
 }
 
 func normalizeDeepLink(source DeepLinkRule) (DeepLinkRule, error) {
-	scheme := strings.ToLower(strings.TrimSpace(source.Scheme))
+	scheme := source.Scheme
 	pathPattern := strings.TrimSpace(source.PathPattern)
 	if !deepLinkSchemePattern.MatchString(scheme) || len(pathPattern) < 1 || len(pathPattern) > 512 || strings.ContainsAny(pathPattern, "*\\\x00") || !strings.HasPrefix(pathPattern, "/") || strings.Contains(pathPattern, "..") {
 		return DeepLinkRule{}, ErrInvalidArgument
@@ -406,23 +498,20 @@ func loopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func uniqueSorted(values []string) []string {
-	sort.Strings(values)
-	result := values[:0]
-	for _, value := range values {
-		if len(result) == 0 || result[len(result)-1] != value {
-			result = append(result, value)
+func hasDuplicateStrings(values []string) bool {
+	for i := 1; i < len(values); i++ {
+		if values[i-1] == values[i] {
+			return true
 		}
 	}
-	return result
+	return false
 }
 
-func uniqueDeepLinks(values []DeepLinkRule) []DeepLinkRule {
-	result := values[:0]
-	for _, value := range values {
-		if len(result) == 0 || result[len(result)-1] != value {
-			result = append(result, value)
+func hasDuplicateDeepLinks(values []DeepLinkRule) bool {
+	for i := 1; i < len(values); i++ {
+		if values[i-1] == values[i] {
+			return true
 		}
 	}
-	return result
+	return false
 }

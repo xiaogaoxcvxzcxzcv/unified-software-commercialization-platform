@@ -25,6 +25,7 @@ type productAdminRouter struct {
 	product            http.Handler
 	application        http.Handler
 	tenant             http.Handler
+	productUserAccess  http.Handler
 	clientRegistration http.Handler
 	tenantAdmin        http.Handler
 }
@@ -34,8 +35,11 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/api/v1/admin/blueprints" || path == "/api/v1/admin/assembly-runs" || path == "/api/v1/admin/assembly-output-targets" || path == "/api/v1/admin/assembly-catalog-options" || path == "/api/v1/admin/experimental/assembly-catalog-options" || strings.HasPrefix(path, "/api/v1/admin/blueprints/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-plans/") || strings.HasPrefix(path, "/api/v1/admin/assembly-runs/") ||
+		strings.HasPrefix(path, "/api/v1/admin/assemblies/") || strings.HasPrefix(path, "/api/v1/admin/assembly-lifecycle-plans/") || strings.HasPrefix(path, "/api/v1/admin/assembly-lifecycle-operations/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-manifests/") || strings.HasPrefix(path, "/api/v1/admin/generated-project-locks/"):
 		h.assembly.ServeHTTP(w, r)
+	case isProductUserAccessRoute(path):
+		h.productUserAccess.ServeHTTP(w, r)
 	case strings.Contains(path, "/applications/") && strings.Contains(path, "/clients"):
 		h.clientRegistration.ServeHTTP(w, r)
 	case strings.Contains(path, "/applications"):
@@ -49,4 +53,13 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	}
+}
+
+func isProductUserAccessRoute(path string) bool {
+	if !strings.HasPrefix(path, "/api/v1/admin/products/") || strings.HasSuffix(path, "/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/products/"), "/")
+	return (len(parts) == 4 && parts[1] == "users" && parts[3] == "access") ||
+		(len(parts) == 6 && parts[1] == "tenants" && parts[3] == "users" && parts[5] == "access")
 }
