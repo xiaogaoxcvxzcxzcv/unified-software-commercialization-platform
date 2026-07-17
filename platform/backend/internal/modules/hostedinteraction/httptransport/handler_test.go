@@ -422,11 +422,35 @@ func TestStrictRouteQueryBodyContentTypeAndStableErrors(t *testing.T) {
 	h.ServeHTTP(w, r)
 	assertProblem(t, w, http.StatusBadRequest, "invalid_request")
 
+	for _, body := range []string{
+		`{"route_id":"hosted.account","channel":"web","return_target_code":"account.complete","state":"state-00000000000000000","nonce":null}`,
+		`{"route_id":"hosted.account","channel":"web","return_target_code":"account.complete","state":"state-00000000000000000","locale":null}`,
+	} {
+		r = request(http.MethodPost, "/api/v1/hosted/interactions", body)
+		user(r)
+		r.Header.Set("Idempotency-Key", "create-null-00000001")
+		w = httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		assertProblem(t, w, http.StatusBadRequest, "invalid_request")
+	}
+	r = request(http.MethodPost, "/api/v1/hosted/interactions/"+testInteractionID+"/exchange", `{"code":"code-000000000000000000000000000","code_verifier":null}`)
+	client(r)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	assertProblem(t, w, http.StatusBadRequest, "invalid_request")
+
 	r = request(http.MethodGet, "/api/v1/hosted/interactions/"+testInteractionID, "")
 	client(r)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	assertProblem(t, w, http.StatusGone, "hosted.interaction_expired")
+
+	h = newTestHandler(t, &serviceStub{error: ErrConflict})
+	r = request(http.MethodGet, "/api/v1/hosted/interactions/"+testInteractionID, "")
+	client(r)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	assertProblem(t, w, http.StatusConflict, "hosted.idempotency_conflict")
 }
 
 func assertSecurityHeaders(t *testing.T, w *httptest.ResponseRecorder) {

@@ -98,7 +98,7 @@ ValidateHostedSession(scope, user_id, session_id)
 
 状态：`created | opened | authenticating | completed | exchanged | cancelled | failed | expired`。
 
-稳定错误：`hosted.invalid_interaction`、`hosted.interaction_expired`、`hosted.invalid_return_target`、`hosted.state_mismatch`、`hosted.pkce_required`、`hosted.invalid_grant`、`hosted.authentication_required`、`hosted.channel_not_supported`、`hosted.session_revoked`、`hosted.csrf_failed`、`hosted.temporarily_unavailable`。
+稳定错误：`hosted.invalid_interaction`、`hosted.interaction_expired`、`hosted.invalid_return_target`、`hosted.state_mismatch`、`hosted.pkce_required`、`hosted.invalid_grant`、`hosted.idempotency_conflict`、`hosted.authentication_required`、`hosted.channel_not_supported`、`hosted.session_revoked`、`hosted.csrf_failed`、`hosted.temporarily_unavailable`。
 
 所有响应使用 `Cache-Control: no-store`；Hosted 页面使用严格 CSP、`frame-ancestors 'none'` 和 `Referrer-Policy: no-referrer`。日志和 Outbox 只包含 interaction ID、可信范围、route、状态、稳定结果码和 trace ID。
 

@@ -180,6 +180,9 @@ for (const responseName of ["IssuedUserSession", "CurrentUserSession", "TokenPai
   const cacheControl = document.components?.responses?.[responseName]?.headers?.["Cache-Control"]?.schema?.const;
   if (cacheControl !== "no-store") errors.push(`${responseName} response must declare Cache-Control: no-store`);
 }
+if (document.components?.responses?.HostedError?.headers?.["Cache-Control"]?.schema?.const !== "no-store") {
+  errors.push("HostedError response must declare Cache-Control: no-store");
+}
 const recoveryRequired = document.components?.schemas?.RecoveryChallenge?.required ?? [];
 if (!recoveryRequired.includes("continuation_id")) errors.push("RecoveryChallenge must always return an opaque continuation_id");
 const registerRequired = document.components?.schemas?.RegisterUserRequest?.required ?? [];
@@ -241,6 +244,20 @@ if (hostedExchangeSecurity.length !== 1 || !Object.hasOwn(hostedExchangeSecurity
 const hostedCompletionProperties = Object.keys(document.components?.schemas?.HostedCompletion?.properties ?? {}).sort();
 if (hostedCompletionProperties.join(",") !== ["expires_at", "interaction_id", "return_url", "status"].sort().join(",")) {
   errors.push("HostedCompletion may expose only interaction_id, status, return_url and expires_at");
+}
+if (document.components?.schemas?.HostedInteractionLaunch?.properties?.status?.const !== "created") {
+  errors.push("HostedInteractionLaunch status must be const created");
+}
+if ((document.components?.schemas?.HostedExchangeResult?.oneOf ?? []).length !== 2) {
+  errors.push("HostedExchangeResult must define exclusive user_session/account_completed oneOf branches");
+}
+for (const path of Object.keys(document.paths).filter((value) => value.startsWith("/api/v1/hosted/"))) {
+  for (const operation of Object.values(document.paths[path] ?? {})) {
+    if (!operation || typeof operation !== "object" || !operation.responses) continue;
+    if (operation.responses.default?.$ref !== "#/components/responses/HostedError") {
+      errors.push(`${path} Hosted operation must use the no-store HostedError response`);
+    }
+  }
 }
 
 function visit(value, location = "#") {

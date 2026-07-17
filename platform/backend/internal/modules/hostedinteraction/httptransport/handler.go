@@ -221,15 +221,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type createRequest struct {
-	RouteID             string  `json:"route_id"`
-	Channel             string  `json:"channel"`
-	ReturnTargetCode    string  `json:"return_target_code"`
-	State               string  `json:"state"`
-	Nonce               *string `json:"nonce"`
-	CodeChallenge       *string `json:"code_challenge"`
-	CodeChallengeMethod *string `json:"code_challenge_method"`
-	Locale              *string `json:"locale"`
-	ThemeVariant        *string `json:"theme_variant"`
+	RouteID             string             `json:"route_id"`
+	Channel             string             `json:"channel"`
+	ReturnTargetCode    string             `json:"return_target_code"`
+	State               string             `json:"state"`
+	Nonce               optionalJSONString `json:"nonce"`
+	CodeChallenge       optionalJSONString `json:"code_challenge"`
+	CodeChallengeMethod optionalJSONString `json:"code_challenge_method"`
+	Locale              optionalJSONString `json:"locale"`
+	ThemeVariant        optionalJSONString `json:"theme_variant"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +258,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, ErrChannelNotSupported)
 		return
 	}
-	value, err := h.service.Create(r.Context(), principal, CreateCommand{RouteID: body.RouteID, Channel: body.Channel, ReturnTargetCode: body.ReturnTargetCode, State: body.State, Nonce: stringValue(body.Nonce), CodeChallenge: stringValue(body.CodeChallenge), CodeChallengeMethod: stringValue(body.CodeChallengeMethod), Locale: body.Locale, ThemeVariant: body.ThemeVariant, IdempotencyKey: key, RequestID: requestid.FromContext(r.Context())})
+	value, err := h.service.Create(r.Context(), principal, CreateCommand{RouteID: body.RouteID, Channel: body.Channel, ReturnTargetCode: body.ReturnTargetCode, State: body.State, Nonce: body.Nonce.Value, CodeChallenge: body.CodeChallenge.Value, CodeChallengeMethod: body.CodeChallengeMethod.Value, Locale: body.Locale.Pointer(), ThemeVariant: body.ThemeVariant.Pointer(), IdempotencyKey: key, RequestID: requestid.FromContext(r.Context())})
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -275,9 +275,9 @@ func validCreate(v createRequest) bool {
 		return false
 	}
 	if v.RouteID == "hosted.auth" {
-		return v.Nonce != nil && bounded(*v.Nonce, 22, 512) && v.CodeChallenge != nil && pkceChallengePattern.MatchString(*v.CodeChallenge) && v.CodeChallengeMethod != nil && *v.CodeChallengeMethod == "S256"
+		return v.Nonce.Set && bounded(v.Nonce.Value, 22, 512) && v.CodeChallenge.Set && pkceChallengePattern.MatchString(v.CodeChallenge.Value) && v.CodeChallengeMethod.Set && v.CodeChallengeMethod.Value == "S256"
 	}
-	return v.Nonce == nil && v.CodeChallenge == nil && v.CodeChallengeMethod == nil
+	return !v.Nonce.Set && !v.CodeChallenge.Set && !v.CodeChallengeMethod.Set
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
@@ -416,8 +416,8 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 type exchangeRequest struct {
-	Code         string  `json:"code"`
-	CodeVerifier *string `json:"code_verifier"`
+	Code         string             `json:"code"`
+	CodeVerifier optionalJSONString `json:"code_verifier"`
 }
 
 func (h *Handler) exchange(w http.ResponseWriter, r *http.Request, id string) {
@@ -433,11 +433,11 @@ func (h *Handler) exchange(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	var body exchangeRequest
-	if !decodeStrictJSON(w, r, &body) || !bounded(body.Code, 32, 512) || (body.CodeVerifier != nil && !pkceVerifierPattern.MatchString(*body.CodeVerifier)) {
+	if !decodeStrictJSON(w, r, &body) || !bounded(body.Code, 32, 512) || (body.CodeVerifier.Set && !pkceVerifierPattern.MatchString(body.CodeVerifier.Value)) {
 		h.writeInvalid(w, r)
 		return
 	}
-	value, err := h.service.Exchange(r.Context(), p, id, ExchangeCommand{Code: body.Code, CodeVerifier: stringValue(body.CodeVerifier), RequestID: requestid.FromContext(r.Context())})
+	value, err := h.service.Exchange(r.Context(), p, id, ExchangeCommand{Code: body.Code, CodeVerifier: body.CodeVerifier.Value, RequestID: requestid.FromContext(r.Context())})
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -597,7 +597,9 @@ func opaque(v string, min, max int) bool {
 func bounded(v string, min, max int) bool {
 	return utf8.ValidString(v) && len(v) >= min && len(v) <= max
 }
-func validOptional(v *string, min, max int) bool { return v == nil || bounded(*v, min, max) }
+func validOptional(v optionalJSONString, min, max int) bool {
+	return !v.Set || bounded(v.Value, min, max)
+}
 func oneOf(v string, values ...string) bool {
 	for _, x := range values {
 		if v == x {
@@ -630,11 +632,28 @@ func decodeRisk(raw json.RawMessage) (map[string]any, bool) {
 	return v, true
 }
 
-func stringValue(v *string) string {
-	if v == nil {
-		return ""
+type optionalJSONString struct {
+	Set   bool
+	Value string
+}
+
+func (v *optionalJSONString) UnmarshalJSON(raw []byte) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return errors.New("optional string cannot be null")
 	}
-	return *v
+	if err := json.Unmarshal(raw, &v.Value); err != nil {
+		return err
+	}
+	v.Set = true
+	return nil
+}
+
+func (v optionalJSONString) Pointer() *string {
+	if !v.Set {
+		return nil
+	}
+	value := v.Value
+	return &value
 }
 
 func (h *Handler) validLaunch(value InteractionLaunch, route string) bool {
@@ -885,7 +904,7 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, ErrCSRFFailed):
 		status, code, detail, retryable = http.StatusForbidden, "hosted.csrf_failed", "hosted request verification failed", false
 	case errors.Is(err, ErrConflict):
-		status, code, detail, retryable = http.StatusConflict, "hosted.invalid_interaction", "hosted interaction conflicts with current state", false
+		status, code, detail, retryable = http.StatusConflict, "hosted.idempotency_conflict", "hosted request conflicts with the original idempotent request", false
 	}
 	httpx.ErrorWithOptions(w, r, status, code, detail, httpx.ErrorOptions{Retryable: retryable})
 }

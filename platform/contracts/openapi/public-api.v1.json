@@ -875,7 +875,7 @@
         "security": [{ "ClientSessionBearer": [] }, { "UserBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateHostedInteractionRequest" } } } },
-        "responses": { "201": { "$ref": "#/components/responses/HostedInteractionLaunch" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "201": { "$ref": "#/components/responses/HostedInteractionLaunch" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/hosted/interactions/{interaction_id}": {
@@ -884,7 +884,7 @@
         "tags": ["HostedInteraction"], "operationId": "getHostedInteraction", "summary": "Recover a redacted hosted interaction projection",
         "security": [{ "ClientSessionBearer": [] }, { "UserBearer": [] }, { "HostedSessionCookie": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
-        "responses": { "200": { "$ref": "#/components/responses/HostedInteraction" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HostedInteraction" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/hosted/interactions/{interaction_id}/browser-session": {
@@ -893,7 +893,7 @@
         "tags": ["HostedInteraction"], "operationId": "openHostedBrowserSession", "summary": "Open or rotate the short-lived hosted browser session",
         "security": [], "x-idempotency-exemption": "Each valid interaction launch intentionally rotates the active browser session and revokes the old cookie.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
-        "responses": { "200": { "$ref": "#/components/responses/HostedBrowserSession" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HostedBrowserSession" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/hosted/interactions/{interaction_id}/auth/password": {
@@ -903,7 +903,7 @@
         "security": [{ "HostedSessionCookie": [] }], "x-idempotency-exemption": "Credential attempts are rate-limited security events and never create two grants for one interaction.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/HostedCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedPasswordRequest" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/HostedCompletion" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HostedCompletion" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/hosted/interactions/{interaction_id}/account/complete": {
@@ -913,7 +913,7 @@
         "security": [{ "HostedSessionCookie": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/HostedCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompleteHostedAccountRequest" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/HostedCompletion" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HostedCompletion" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/hosted/interactions/{interaction_id}/cancel": {
@@ -922,7 +922,7 @@
         "tags": ["HostedInteraction"], "operationId": "cancelHostedInteraction", "summary": "Cancel a non-terminal hosted interaction",
         "security": [{ "HostedSessionCookie": [] }], "x-idempotency-exemption": "Cancellation is a terminal idempotent state transition for the authenticated browser session.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/HostedCsrfToken" }],
-        "responses": { "200": { "$ref": "#/components/responses/HostedInteraction" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HostedInteraction" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/hosted/interactions/{interaction_id}/exchange": {
@@ -932,7 +932,7 @@
         "security": [{ "ClientSessionBearer": [] }], "x-idempotency-exemption": "The short-lived completion code is the single-use grant; replay is rejected by the lease-backed grant state machine.",
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HostedExchangeRequest" } } } },
-        "responses": { "200": { "$ref": "#/components/responses/HostedExchange" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/HostedExchange" }, "default": { "$ref": "#/components/responses/HostedError" } }
       }
     },
     "/api/v1/admin/access/role-bindings/{binding_id}": {
@@ -1003,6 +1003,7 @@
     },
     "responses": {
       "Error": { "description": "Stable safe error", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "HostedError": { "description": "Stable safe HostedInteraction error", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "NoContent": { "description": "Completed", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "X-Audit-Id": { "description": "Audit event identifier when applicable.", "schema": { "type": "string" } } } },
       "HealthLive": { "description": "Process is serving HTTP", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLive" } } } },
       "HealthReady": { "description": "Dependency readiness; status code is 503 when any required dependency is unavailable", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthReady" } } } },
@@ -1202,14 +1203,14 @@
       "HostedChannel": { "type": "string", "enum": ["web", "h5", "desktop", "app"] },
       "HostedInteractionStatus": { "type": "string", "enum": ["created", "opened", "authenticating", "completed", "exchanged", "cancelled", "failed", "expired"] },
       "CreateHostedInteractionRequest": { "type": "object", "required": ["route_id", "channel", "return_target_code", "state"], "properties": { "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "channel": { "$ref": "#/components/schemas/HostedChannel" }, "return_target_code": { "$ref": "#/components/schemas/StableCode" }, "state": { "type": "string", "minLength": 22, "maxLength": 512, "writeOnly": true }, "nonce": { "type": "string", "minLength": 22, "maxLength": 512, "writeOnly": true }, "code_challenge": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "writeOnly": true }, "code_challenge_method": { "type": "string", "const": "S256" }, "locale": { "type": "string", "minLength": 2, "maxLength": 32 }, "theme_variant": { "type": "string", "minLength": 1, "maxLength": 64 } }, "additionalProperties": false },
-      "HostedInteractionLaunch": { "type": "object", "required": ["interaction_id", "interaction_url", "route_id", "status", "expires_at"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "interaction_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+/ui/v1/(auth|account)\\?interaction_id=hint_[A-Za-z0-9_-]{24,160}$" }, "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "status": { "$ref": "#/components/schemas/HostedInteractionStatus" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
+      "HostedInteractionLaunch": { "type": "object", "required": ["interaction_id", "interaction_url", "route_id", "status", "expires_at"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "interaction_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+/ui/v1/(auth|account)\\?interaction_id=hint_[A-Za-z0-9_-]{24,160}$" }, "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "status": { "type": "string", "const": "created" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "HostedInteraction": { "type": "object", "required": ["interaction_id", "route_id", "channel", "status", "allowed_actions", "created_at", "expires_at"], "properties": { "interaction_id": { "$ref": "#/components/parameters/HostedInteractionId/schema" }, "route_id": { "$ref": "#/components/schemas/HostedRouteId" }, "channel": { "$ref": "#/components/schemas/HostedChannel" }, "status": { "$ref": "#/components/schemas/HostedInteractionStatus" }, "allowed_actions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "enum": ["open", "authenticate", "complete", "cancel", "exchange", "restart"] } }, "result_kind": { "type": ["string", "null"], "enum": ["authorization_code", "account_completed", "cancelled", "failed", null] }, "failure_code": { "type": ["string", "null"], "maxLength": 128 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "opened_at": { "type": ["string", "null"], "format": "date-time" }, "completed_at": { "type": ["string", "null"], "format": "date-time" } }, "additionalProperties": false },
       "HostedBrowserSession": { "type": "object", "required": ["interaction", "csrf_token", "browser_session_expires_at"], "properties": { "interaction": { "$ref": "#/components/schemas/HostedInteraction" }, "csrf_token": { "type": "string", "minLength": 32, "maxLength": 256, "writeOnly": true }, "browser_session_expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "HostedPasswordRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 3, "maxLength": 320, "writeOnly": true }, "credential": { "type": "string", "minLength": 8, "maxLength": 1024, "writeOnly": true }, "risk_summary": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": ["string", "number", "boolean", "null"] } } }, "additionalProperties": false },
       "CompleteHostedAccountRequest": { "type": "object", "required": ["result"], "properties": { "result": { "type": "string", "enum": ["closed", "self_service_completed"] } }, "additionalProperties": false },
       "HostedCompletion": { "type": "object", "required": ["interaction_id", "status", "return_url", "expires_at"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "status": { "type": "string", "const": "completed" }, "return_url": { "type": "string", "format": "uri", "description": "Server-built registered return target with only code, state and interaction_id." }, "expires_at": { "$ref": "#/components/schemas/Timestamp" } }, "additionalProperties": false },
       "HostedExchangeRequest": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "minLength": 32, "maxLength": 512, "writeOnly": true }, "code_verifier": { "type": "string", "minLength": 43, "maxLength": 128, "pattern": "^[A-Za-z0-9._~-]+$", "writeOnly": true } }, "additionalProperties": false },
-      "HostedExchangeResult": { "type": "object", "required": ["interaction_id", "result_type"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "result_type": { "type": "string", "enum": ["user_session", "account_completed"] }, "user_session": { "$ref": "#/components/schemas/UserSession" }, "account_result": { "type": "object", "required": ["result"], "properties": { "result": { "type": "string", "enum": ["closed", "self_service_completed"] } }, "additionalProperties": false } }, "additionalProperties": false },
+      "HostedExchangeResult": { "type": "object", "required": ["interaction_id", "result_type"], "properties": { "interaction_id": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" }, "result_type": { "type": "string", "enum": ["user_session", "account_completed"] }, "user_session": { "$ref": "#/components/schemas/UserSession" }, "account_result": { "type": "object", "required": ["result"], "properties": { "result": { "type": "string", "enum": ["closed", "self_service_completed"] } }, "additionalProperties": false } }, "oneOf": [{ "properties": { "result_type": { "const": "user_session" } }, "required": ["user_session"], "not": { "required": ["account_result"] } }, { "properties": { "result_type": { "const": "account_completed" } }, "required": ["account_result"], "not": { "required": ["user_session"] } }], "additionalProperties": false },
       "RefreshRequest": { "type": "object", "required": ["refresh_token", "client_request_id"], "properties": { "refresh_token": { "type": "string", "minLength": 16, "writeOnly": true }, "client_request_id": { "type": "string", "minLength": 16, "maxLength": 128 } }, "additionalProperties": false },
       "AdminControlledClientProof": { "type": "object", "required": ["client_id", "credential_id", "proof_type", "proof"], "properties": { "client_id": { "$ref": "#/components/schemas/Identifier" }, "credential_id": { "$ref": "#/components/schemas/Identifier" }, "proof_type": { "type": "string", "const": "shared_secret_v1" }, "proof": { "type": "string", "minLength": 43, "maxLength": 512, "writeOnly": true, "description": "At least 256 bits of random secret material, delivered once and never returned or logged." } }, "additionalProperties": false },
       "AdminLoginRequest": { "type": "object", "required": ["identifier", "credential"], "properties": { "identifier": { "type": "string", "minLength": 1, "maxLength": 320 }, "credential": { "type": "string", "minLength": 1, "writeOnly": true }, "transport": { "type": "string", "enum": ["cookie", "bearer"], "default": "cookie", "description": "Browsers use cookie. Bearer is only a request intent and also requires controlled_client." }, "controlled_client": { "$ref": "#/components/schemas/AdminControlledClientProof" }, "risk_summary": { "type": "object", "additionalProperties": true } }, "allOf": [{ "if": { "required": ["transport"], "properties": { "transport": { "const": "bearer" } } }, "then": { "required": ["controlled_client"] }, "else": { "properties": { "controlled_client": false } } }], "additionalProperties": false },
