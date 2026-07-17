@@ -236,13 +236,19 @@ func (a endUserHTTPAdapter) resolveAuthorized(ctx context.Context, claimed ident
 	if err != nil {
 		return identity.EndUserIssuedSession{}, mapEndUserHTTPError(err)
 	}
-	if claimed.UserID != current.Session.UserID || claimed.SessionID != current.Session.SessionID || claimed.ProductID != current.Session.ProductID || claimed.ApplicationID != current.Session.ApplicationID || claimed.TenantID != optionalTenant(current.Session.TenantID) {
+	if !matchesEndUserSessionContext(claimed, current.Session) {
 		return identity.EndUserIssuedSession{}, identityhttp.ErrInvalidBearer
 	}
 	if err := a.requireAdmission(ctx, current.Session); err != nil {
 		return identity.EndUserIssuedSession{}, err
 	}
 	return current, nil
+}
+
+func matchesEndUserSessionContext(claimed identityhttp.UserSessionContext, current identity.EndUserSession) bool {
+	return claimed.UserID == current.UserID && claimed.SessionID == current.SessionID &&
+		claimed.ProductID == current.ProductID && claimed.ApplicationID == current.ApplicationID &&
+		claimed.TenantID == optionalTenant(current.TenantID) && claimed.Environment == current.Environment
 }
 
 func (a endUserHTTPAdapter) requireAdmission(ctx context.Context, session identity.EndUserSession) error {
@@ -318,11 +324,11 @@ func scopeFromClient(value identityhttp.ClientSessionContext) identity.EndUserSe
 		tenant := value.TenantID
 		tenantID = &tenant
 	}
-	return identity.EndUserSessionScope{ProductID: value.ProductID, ApplicationID: value.ApplicationID, TenantID: tenantID}
+	return identity.EndUserSessionScope{ProductID: value.ProductID, ApplicationID: value.ApplicationID, TenantID: tenantID, Environment: value.Environment}
 }
 
 func mapUserSessionContext(session identity.EndUserSession) identityhttp.UserSessionContext {
-	return identityhttp.UserSessionContext{UserID: session.UserID, SessionID: session.SessionID, ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: optionalTenant(session.TenantID), AccountStatus: session.AccountStatus, AuthTime: session.AuthTime}
+	return identityhttp.UserSessionContext{UserID: session.UserID, SessionID: session.SessionID, ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: optionalTenant(session.TenantID), Environment: session.Environment, AccountStatus: session.AccountStatus, AuthTime: session.AuthTime}
 }
 
 func mapIssuedUserSession(value identity.EndUserIssuedSession) identityhttp.IssuedUserSession {
@@ -349,7 +355,7 @@ func mapEndUserProfilePatchValue(value identityhttp.OptionalString) identity.End
 }
 
 func endUserScopeFromSession(session identity.EndUserSession) identity.EndUserSessionScope {
-	return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID}
+	return identity.EndUserSessionScope{ProductID: session.ProductID, ApplicationID: session.ApplicationID, TenantID: session.TenantID, Environment: session.Environment}
 }
 
 func optionalTenant(value *string) string {

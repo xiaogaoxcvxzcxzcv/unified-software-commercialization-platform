@@ -325,11 +325,19 @@ func main() {
 			RefreshRecoveryWindow: cfg.UserAuth.RefreshRecoveryWindow, RecoveryTTL: cfg.UserAuth.RecoveryTTL,
 			RecoveryMaxAttempts: cfg.UserAuth.RecoveryMaximumAttempts, LoginWindow: cfg.UserAuth.LoginWindow,
 			LoginMaximumAttempts: cfg.UserAuth.LoginMaximumAttempts, LoginBlockDuration: cfg.UserAuth.LoginBlockDuration,
-			RecentAuthTTL: cfg.UserAuth.RecentAuthTTL,
+			RecentAuthTTL: cfg.UserAuth.RecentAuthTTL, HostedAuthProofTTL: cfg.HostedInteraction.AuthProofTTL,
 		}, nil, identity.WithEndUserAdmissionPort(endUserAdmissionAdapter{access: accountAccessWorkflow}),
 	)
 	if err != nil {
 		logger.Error("end-user identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	hostedRuntime, err := newHostedInteractionRuntime(cfg.HostedInteraction, db.Pool(), productService, applicationService, endUserService, hasher)
+	cfg.HostedInteraction.StateKey = ""
+	cfg.HostedInteraction.DigestKey = ""
+	if err != nil {
+		logger.Error("hosted interaction initialization failed", "error", err)
+		db.Close()
 		os.Exit(1)
 	}
 	endUserAdapter := endUserHTTPAdapter{users: endUserService, products: productService, clientHasher: hasher, access: accountAccessWorkflow}
@@ -366,6 +374,11 @@ func main() {
 	}
 	if err := modules.Register("/api/v1/account/", endUserHandler); err != nil {
 		logger.Error("end-user account route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/hosted/", hostedRuntime.handler); err != nil {
+		logger.Error("hosted interaction route registration failed", "error", err)
+		db.Close()
 		os.Exit(1)
 	}
 	auditQueryService := audit.NewQueryService(auditRepository, auditAuthorizerAdapter{access: accessService})

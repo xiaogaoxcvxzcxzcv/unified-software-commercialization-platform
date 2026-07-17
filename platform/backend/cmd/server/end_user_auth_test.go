@@ -97,7 +97,7 @@ func TestEndUserHTTPErrorMapsProductAccessDenials(t *testing.T) {
 }
 
 func TestMapEndUserRegisterCommandPreservesVerificationBinding(t *testing.T) {
-	client := identityhttp.ClientSessionContext{ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a"}
+	client := identityhttp.ClientSessionContext{ProductID: "product-a", ApplicationID: "application-a", TenantID: "tenant-a", Environment: "test"}
 	command := identityhttp.RegisterUserCommand{
 		Identifier: "person@example.com", Credential: "credential-value",
 		VerificationContinuationID: "verification-continuation-123456", VerificationProof: "verification-proof-123456",
@@ -105,9 +105,22 @@ func TestMapEndUserRegisterCommandPreservesVerificationBinding(t *testing.T) {
 	}
 
 	mapped := mapEndUserRegisterCommand(client, command)
-	if mapped.Scope.ProductID != client.ProductID || mapped.Scope.ApplicationID != client.ApplicationID || mapped.Scope.TenantID == nil || *mapped.Scope.TenantID != client.TenantID ||
+	if mapped.Scope.ProductID != client.ProductID || mapped.Scope.ApplicationID != client.ApplicationID || mapped.Scope.TenantID == nil || *mapped.Scope.TenantID != client.TenantID || mapped.Scope.Environment != client.Environment ||
 		mapped.VerificationContinuationID != command.VerificationContinuationID || mapped.VerificationProof != command.VerificationProof ||
 		mapped.IdempotencyKey != command.IdempotencyKey || mapped.TraceID != command.RequestID {
 		t.Fatalf("registration command binding lost: %+v", mapped)
+	}
+}
+
+func TestEndUserSessionContextRequiresExactEnvironment(t *testing.T) {
+	tenantID := "tenant-a"
+	current := identity.EndUserSession{UserID: "user-a", SessionID: "session-a", ProductID: "product-a", ApplicationID: "application-a", TenantID: &tenantID, Environment: "production"}
+	claimed := identityhttp.UserSessionContext{UserID: current.UserID, SessionID: current.SessionID, ProductID: current.ProductID, ApplicationID: current.ApplicationID, TenantID: tenantID, Environment: current.Environment}
+	if !matchesEndUserSessionContext(claimed, current) {
+		t.Fatal("exact user session context was rejected")
+	}
+	claimed.Environment = "test"
+	if matchesEndUserSessionContext(claimed, current) {
+		t.Fatal("cross-environment user session context was accepted")
 	}
 }

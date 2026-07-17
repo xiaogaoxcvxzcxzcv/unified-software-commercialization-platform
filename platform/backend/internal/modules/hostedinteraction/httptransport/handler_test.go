@@ -35,6 +35,9 @@ func (authStub) ResolveHostedSession(_ context.Context, interactionID, token str
 	if token == "hosted-database-error-000000000000000000000000000" {
 		return HostedPrincipal{}, errors.New("database unavailable")
 	}
+	if token == "hosted-expired-000000000000000000000000000000" {
+		return HostedPrincipal{}, ErrInteractionExpired
+	}
 	if interactionID != testInteractionID || token != "hosted-cookie-0000000000000000000000000000000000" {
 		return HostedPrincipal{}, ErrSessionRevoked
 	}
@@ -345,6 +348,27 @@ func TestAuthenticationDependencyErrorsRemainRetryable(t *testing.T) {
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	assertProblem(t, w, http.StatusServiceUnavailable, "hosted.temporarily_unavailable")
+}
+
+func TestExpiredHostedSessionRemainsGoneThroughHTTPAuthentication(t *testing.T) {
+	h := newTestHandler(t, &serviceStub{})
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/hosted/interactions/" + testInteractionID},
+		{http.MethodPost, "/api/v1/hosted/interactions/" + testInteractionID + "/cancel"},
+	} {
+		r := request(test.method, test.path, "")
+		r.AddCookie(&http.Cookie{Name: HostedSessionCookieName, Value: "hosted-expired-000000000000000000000000000000"})
+		if test.method == http.MethodPost {
+			r.Header.Set("Origin", "https://hosted.example")
+			r.Header.Set("X-CSRF-Token", "csrf-token-0000000000000000000000000000")
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		assertProblem(t, w, http.StatusGone, "hosted.interaction_expired")
+	}
 }
 
 func TestUnsafeServiceOutputsFailClosed(t *testing.T) {

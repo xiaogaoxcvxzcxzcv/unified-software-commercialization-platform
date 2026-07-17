@@ -488,7 +488,9 @@ func (h *Handler) requireAccess(w http.ResponseWriter, r *http.Request, interact
 	}
 	p, err := h.auth.ResolveHostedSession(r.Context(), interactionID, cookie)
 	if err != nil {
-		if errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrAuthenticationRequired) {
+		if errors.Is(err, ErrInteractionExpired) {
+			h.writeError(w, r, ErrInteractionExpired)
+		} else if errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrAuthenticationRequired) {
 			h.writeError(w, r, ErrSessionRevoked)
 		} else {
 			h.writeError(w, r, ErrTemporarilyUnavailable)
@@ -514,7 +516,9 @@ func (h *Handler) requireHostedWrite(w http.ResponseWriter, r *http.Request, id 
 	}
 	p, err := h.auth.ResolveHostedSession(r.Context(), id, cookie)
 	if err != nil {
-		if errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrAuthenticationRequired) {
+		if errors.Is(err, ErrInteractionExpired) {
+			h.writeError(w, r, ErrInteractionExpired)
+		} else if errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrAuthenticationRequired) {
 			h.writeError(w, r, ErrSessionRevoked)
 		} else {
 			h.writeError(w, r, ErrTemporarilyUnavailable)

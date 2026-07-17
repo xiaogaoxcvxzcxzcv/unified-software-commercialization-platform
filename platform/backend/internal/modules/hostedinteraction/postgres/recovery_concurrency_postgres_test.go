@@ -155,6 +155,9 @@ func TestCompletionGrantExpiryEndsInteraction(t *testing.T) {
 	if err != nil || browserExpired.Status != hostedinteraction.StatusExpired {
 		t.Fatalf("browser expired interaction=(%+v,%v)", browserExpired, err)
 	}
+	if _, _, err = repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: browserValue.InteractionID, SessionID: testID("hbs_", 7204), TokenDigest: digestOf("grant-expiry-second-browser"), TTL: time.Minute, Event: event("evt_grant_expiry_second_reopen", browserValue.InteractionID, "hosted.interaction_opened.v1")}); !errors.Is(err, hostedinteraction.ErrInteractionExpired) {
+		t.Fatalf("already expired second reopen error=%v", err)
+	}
 }
 
 func TestConcurrentRotateCompleteNoDeadlockTwentyRounds(t *testing.T) {

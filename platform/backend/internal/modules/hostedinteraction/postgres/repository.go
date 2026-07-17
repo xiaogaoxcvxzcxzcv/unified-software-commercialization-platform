@@ -145,6 +145,12 @@ func (r *Repository) OpenBrowserSession(ctx context.Context, record hostedintera
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return hostedinteraction.Interaction{}, time.Time{}, err
 	}
+	if terminal(value.Status) {
+		if value.Status == hostedinteraction.StatusExpired {
+			return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrInteractionExpired
+		}
+		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrInvalidArgument
+	}
 	due, err := interactionDue(ctx, tx, value, now)
 	if err != nil {
 		return hostedinteraction.Interaction{}, time.Time{}, err
@@ -170,9 +176,6 @@ func (r *Repository) OpenBrowserSession(ctx context.Context, record hostedintera
 			return hostedinteraction.Interaction{}, time.Time{}, resetErr
 		}
 		value.Status = hostedinteraction.StatusOpened
-	}
-	if terminal(value.Status) {
-		return hostedinteraction.Interaction{}, time.Time{}, hostedinteraction.ErrInvalidArgument
 	}
 	if _, err = tx.Exec(ctx, `UPDATE hosted_interaction.browser_sessions SET status='revoked',revoked_at=$2,revoke_reason='rotated' WHERE interaction_id=$1 AND status='active'`, record.InteractionID, now); err != nil {
 		return hostedinteraction.Interaction{}, time.Time{}, err
