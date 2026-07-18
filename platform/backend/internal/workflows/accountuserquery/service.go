@@ -132,17 +132,28 @@ type ListQuery struct {
 }
 
 type UserSummary struct {
-	UserID             string                          `json:"user_id"`
-	UserVersion        int64                           `json:"user_version"`
-	AccountStatus      string                          `json:"account_status"`
-	DisplayName        *string                         `json:"display_name"`
-	Identifiers        []MaskedIdentifier              `json:"identifiers"`
-	CreatedAt          time.Time                       `json:"created_at"`
-	MemberSince        *time.Time                      `json:"member_since"`
-	LastSeenAt         *time.Time                      `json:"last_seen_at"`
-	ActiveSessionCount int                             `json:"active_session_count"`
-	TotalSessionCount  int                             `json:"total_session_count"`
-	Access             *productuseraccess.ScopedAccess `json:"access"`
+	UserID             string                  `json:"user_id"`
+	UserVersion        int64                   `json:"user_version"`
+	AccountStatus      string                  `json:"account_status"`
+	DisplayName        *string                 `json:"display_name"`
+	Identifiers        []MaskedIdentifier      `json:"identifiers"`
+	CreatedAt          time.Time               `json:"created_at"`
+	MemberSince        *time.Time              `json:"member_since"`
+	LastSeenAt         *time.Time              `json:"last_seen_at"`
+	ActiveSessionCount int                     `json:"active_session_count"`
+	TotalSessionCount  int                     `json:"total_session_count"`
+	Access             *ScopedAccessProjection `json:"access"`
+}
+
+// ScopedAccessProjection is the Account public projection. Product User
+// Access ownership fields remain inside that module and are not serialized.
+type ScopedAccessProjection struct {
+	ScopeType       productuseraccess.ScopeType `json:"scope_type"`
+	ScopeID         string                      `json:"scope_id"`
+	Status          productuseraccess.Status    `json:"status"`
+	Explicit        bool                        `json:"explicit"`
+	AccessVersion   int64                       `json:"version"`
+	StatusChangedAt *time.Time                  `json:"status_changed_at,omitempty"`
 }
 
 type UserDetail struct {
@@ -363,7 +374,11 @@ func (s *Service) mapIdentityError(scope Scope, err error) error {
 
 func mapUser(user IdentityUser, access *productuseraccess.ScopedAccess) UserSummary {
 	identifiers := append([]MaskedIdentifier(nil), user.Identifiers...)
-	return UserSummary{UserID: user.UserID, UserVersion: user.UserVersion, AccountStatus: user.AccountStatus, DisplayName: user.DisplayName, Identifiers: identifiers, CreatedAt: user.CreatedAt, MemberSince: user.MemberSince, LastSeenAt: user.LastSeenAt, ActiveSessionCount: user.ActiveSessionCount, TotalSessionCount: user.TotalSessionCount, Access: access}
+	var projection *ScopedAccessProjection
+	if access != nil {
+		projection = &ScopedAccessProjection{ScopeType: access.ScopeType, ScopeID: access.ScopeID, Status: access.Status, Explicit: access.Explicit, AccessVersion: access.AccessVersion, StatusChangedAt: access.StatusChangedAt}
+	}
+	return UserSummary{UserID: user.UserID, UserVersion: user.UserVersion, AccountStatus: user.AccountStatus, DisplayName: user.DisplayName, Identifiers: identifiers, CreatedAt: user.CreatedAt, MemberSince: user.MemberSince, LastSeenAt: user.LastSeenAt, ActiveSessionCount: user.ActiveSessionCount, TotalSessionCount: user.TotalSessionCount, Access: projection}
 }
 
 type cursorPayload struct {

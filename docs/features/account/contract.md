@@ -104,3 +104,12 @@
 - 稳定错误至少包括 `account_admin.invalid_filter`、`account_admin.invalid_cursor`、`account_admin.scoped_user_not_found`、`account_admin.capability_not_enabled`、`admin_auth.reauthentication_required`、`PRODUCT_USER_ACCESS_CONFLICT` 和 Identity 全局版本冲突。依赖瞬时失败必须可重试，不能清除管理会话。
 
 本补充冻结的是 G2A-05 实现边界，不改变 `package.account@1.0.0` 的 `contracted` 生命周期；管理 Blocks 完成也不能单独晋级完整能力包。
+
+### G2A-05 本地正向验收数据边界
+
+- 公开普通/实验目录当前都不得暴露 `package.account`；浏览器正向验收不能通过修改目录状态、直接写 CapabilitySet 或执行不完整 Generator 绕过该失败关闭。
+- 允许新增仅面向本机测试 PostgreSQL 的 acceptance utility。它必须同时校验数据库主机为 loopback、数据库名为 `platform_test_control`、显式确认参数和固定 acceptance 命名前缀；任一条件不满足立即退出且不写数据。
+- 所有持久对象必须通过正式 application service 创建：Product + official Tenant 使用 Product Provisioning，Application 使用 Product Application，CapabilitySet 使用已持久、确认并绑定同 Product 的 Assembly Plan + Product ReplaceCapabilitySet，最终用户和 Session 使用 Identity Register。禁止直接 SQL、Repository 越层调用或预建 Product User Access fact。
+- 该工具只允许注入两个 test-only Port：产生 `catalog_snapshot.scope=experimental` 且所有文档显式标注 acceptance 的 Planner，以及只验证本地验收注册命令的 RegistrationProof。不得把二者接入正式 server composition root。
+- 工具不执行 Generator、不写普通/实验 runtime catalog、不改变 `package.account=contracted`，也不证明软件可装配、能力包 verified candidate 或 available。所有 Product/Blueprint/Plan/Run/Application/User 标识和名称必须带 `g2a05-acceptance` 或 `[ACCEPTANCE FIXTURE]`。
+- 验收密码只能来自 `.runtime/G2A-05/`，不得写入源码、Git、日志或证据；工具输出只包含脱敏对象 ID。固定幂等键允许在未修改夹具用户前安全重跑；若浏览器验收已改变该用户状态，应重置本地控制库或重新建立专用夹具后再运行。

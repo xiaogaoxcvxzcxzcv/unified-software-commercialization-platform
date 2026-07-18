@@ -400,9 +400,9 @@ func (r *Repository) ReplaceCapabilitySet(ctx context.Context, record product.Re
 		return result, product.ErrCapabilityVersionConflict
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO product.product_capability_sets
-		(capability_set_id, product_id, version, source_plan_id, catalog_revision, catalog_snapshot_sha256, content_sha256, created_by, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, record.Set.CapabilitySetID, record.Set.ProductID, record.Set.Version, record.Set.SourcePlanID,
-		record.Set.CatalogRevision, record.Set.CatalogSnapshotSHA256, record.Set.ContentSHA256, record.Set.CreatedBy, record.Set.CreatedAt)
+		(capability_set_id, product_id, version, source_plan_id, catalog_revision, catalog_snapshot_sha256, content_sha256, created_by, created_at, audit_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, record.Set.CapabilitySetID, record.Set.ProductID, record.Set.Version, record.Set.SourcePlanID,
+		record.Set.CatalogRevision, record.Set.CatalogSnapshotSHA256, record.Set.ContentSHA256, record.Set.CreatedBy, record.Set.CreatedAt, record.Set.AuditID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return result, product.ErrCapabilityVersionConflict
@@ -428,10 +428,10 @@ func (r *Repository) ReplaceCapabilitySet(ctx context.Context, record product.Re
 func (r *Repository) CurrentCapabilitySet(ctx context.Context, productID string) (product.CapabilitySet, error) {
 	var result product.CapabilitySet
 	err := r.pool.QueryRow(ctx, `SELECT capability_set_id, product_id, version, source_plan_id, catalog_revision,
-		catalog_snapshot_sha256, content_sha256, created_by, created_at
+		catalog_snapshot_sha256, content_sha256, created_by, created_at, audit_id
 		FROM product.product_capability_sets WHERE product_id=$1 ORDER BY version DESC LIMIT 1`, productID).
 		Scan(&result.CapabilitySetID, &result.ProductID, &result.Version, &result.SourcePlanID, &result.CatalogRevision,
-			&result.CatalogSnapshotSHA256, &result.ContentSHA256, &result.CreatedBy, &result.CreatedAt)
+			&result.CatalogSnapshotSHA256, &result.ContentSHA256, &result.CreatedBy, &result.CreatedAt, &result.AuditID)
 	if err != nil {
 		return result, mapNotFound(err)
 	}
