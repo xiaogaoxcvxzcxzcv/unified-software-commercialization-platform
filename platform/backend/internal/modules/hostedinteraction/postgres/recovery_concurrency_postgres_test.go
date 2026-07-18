@@ -25,13 +25,13 @@ func TestAuthenticationLeaseCrashTakeoverAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	leaseOne, leaseTwo := digestOf("auth-lease-one"), digestOf("auth-lease-two")
-	if _, _, err := repository.BeginAuthentication(ctx, value.InteractionID, browserDigest, leaseOne, 40*time.Millisecond); err != nil {
+	if _, _, err := repository.BeginAuthentication(ctx, value.InteractionID, browserDigest, leaseOne, 2*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := repository.BeginAuthentication(ctx, value.InteractionID, browserDigest, leaseTwo, time.Minute); !errors.Is(err, hostedinteraction.ErrTemporarilyUnavailable) {
 		t.Fatalf("active auth lease error=%v", err)
 	}
-	time.Sleep(65 * time.Millisecond)
+	time.Sleep(2100 * time.Millisecond)
 	claimed, _, err := repository.BeginAuthentication(ctx, value.InteractionID, browserDigest, leaseTwo, time.Minute)
 	if err != nil || claimed.Status != hostedinteraction.StatusAuthenticating {
 		t.Fatalf("stale auth takeover=(%+v,%v)", claimed, err)
@@ -56,13 +56,13 @@ func TestAuthenticationLeaseCrashTakeoverAndReopen(t *testing.T) {
 	if _, _, err = repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: reopenValue.InteractionID, SessionID: testID("hbs_", 7003), TokenDigest: reopenOld, TTL: time.Minute, Event: event("evt_reopen_auth_open", reopenValue.InteractionID, "hosted.interaction_opened.v1")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = repository.BeginAuthentication(ctx, reopenValue.InteractionID, reopenOld, digestOf("reopen-auth-lease"), 40*time.Millisecond); err != nil {
+	if _, _, err = repository.BeginAuthentication(ctx, reopenValue.InteractionID, reopenOld, digestOf("reopen-auth-lease"), 2*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err = repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: reopenValue.InteractionID, SessionID: testID("hbs_", 7004), TokenDigest: digestOf("too-early-browser"), TTL: time.Minute, Event: event("evt_reopen_too_early", reopenValue.InteractionID, "hosted.interaction_opened.v1")}); !errors.Is(err, hostedinteraction.ErrTemporarilyUnavailable) {
 		t.Fatalf("active authenticating reopen error=%v", err)
 	}
-	time.Sleep(65 * time.Millisecond)
+	time.Sleep(2100 * time.Millisecond)
 	reopened, _, err := repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: reopenValue.InteractionID, SessionID: testID("hbs_", 7005), TokenDigest: digestOf("reopened-browser"), TTL: time.Minute, Event: event("evt_reopen_after_crash", reopenValue.InteractionID, "hosted.interaction_opened.v1")})
 	if err != nil || reopened.Status != hostedinteraction.StatusOpened || len(reopened.AuthenticationLeaseDigest) != 0 {
 		t.Fatalf("expired auth reopen=(%+v,%v)", reopened, err)
