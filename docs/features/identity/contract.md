@@ -249,11 +249,18 @@ status: active | revoked
 - unlink 必须确认目标属于当前 User，且解绑后仍有至少一个 active 密码或外部登录凭据；成功后按策略撤销相关 Session 并写 Identity Outbox。
 - unlink 的“至少一种登录方式”检查必须先获取同一 User 的数据库串行锁，再锁定并统计 active 密码与外部身份；并发解绑不得分别通过检查后移除最后两种登录方式。
 - 注册验证 challenge 与密码恢复 proof 由 Identity 持有摘要和单次状态，明文 proof 只经 Notification `SecurityDeliveryPort` 的加密投递；Provider 未配置时请求失败关闭且不留下可用 challenge。
-- G2A-04 的 Provider callback 是服务端 JSON POST 交换边界；浏览器 GET 回跳、interaction 恢复和一次性交互 code 属于 G2A-04.1。
+- G2A-04 的 Provider callback 是服务端 JSON POST 交换边界；G2A-04.1 已由独立 HostedInteraction 模块实现浏览器回跳、interaction 恢复和一次性交互 code。Identity 只通过公开服务签发/兑换与可信 Product/Application/Tenant/Environment 及会话绑定的 proof/grant，不拥有 HostedInteraction 数据。
 - 所有 external flow 都必须绑定发起它的可信 Client Session；不得用空 browser/client binding 创建降级 flow。Provider authorization URL 必须是无 userinfo/fragment 的 HTTPS URL。
 - Provider code 交换前必须把 flow 从 `pending` 原子 claim 为带短租约的 `processing`；并发请求不得重复调用 Provider。进程在交换窗口崩溃后只能安全终止该 flow，不能猜测 code 未消费并重放。
 - 注册 proof 以 `(consumer idempotency key digest, complete register request digest)` 记录消费方；用户创建的后续瞬时失败允许同一请求恢复，任何其他请求仍视为重放。
 - OIDC/微信 Session 必须记录具体 `external_identity_id`；解绑只撤销该身份建立的 Session，不得按认证方法误撤销其他 Provider Application 的会话。
+
+## G2A-04.1 HostedInteraction 组合边界
+
+- Hosted auth 只能消费与可信 Product/Application/Tenant/Environment 精确匹配的 Identity proof/grant；Hosted account 只能使用 `ValidateHostedSession` 验证的现有用户会话。
+- grant 兑换创建的最终用户 Session 必须保留完整可信范围；幂等恢复前重新校验既有 Session 未撤销、未过期且账号仍为 `active`。
+- Identity 不读取 HostedInteraction 表或 Repository；两模块只通过公开应用服务组合。浏览器会话、interaction、完成码、PKCE 和恢复状态均由 HostedInteraction 拥有。
+- 该后端边界已通过本地真实 PostgreSQL、HTTP 组合流程与 Full 18/18 门禁，最终托管 CI 仍待确认；Hosted UI、SDK、配置、源码和装配不属于本关交付。
 
 ## G2A-03 用户认证 API 冻结补充
 

@@ -11,7 +11,9 @@ Account 是面向最终用户的完整能力包编排，不是新的数据所有
 
 ## 当前状态
 
-G2A-01 只达到 `contracted`：契约、依赖、错误和验收已冻结，正式实现、迁移、页面、SDK、HostedInteraction 和真实装配尚未完成。该包不进入 ordinary 或 experimental runtime catalog，不能从创建入口选择。
+`package.account` 仍处于 `contracted`。G2A-03/G2A-04 已交付最终用户认证账号 API、范围准入、外部身份与安全通知服务端能力；G2A-04.1 已交付 `hosted.auth` / `hosted.account` 真实后端，并通过本地真实 PostgreSQL、HTTP 组合流程与 Full 18/18 门禁，最终托管 CI 仍待确认。
+
+管理后台、Hosted UI/用户 Feature Block、SDK、能力配置、生成源码、目标端装配、升级/回滚和旧产品回归仍未完成。因此九个交付面尚未封口，该包不进入 ordinary 或 experimental runtime catalog，不能从创建入口选择，更不得标记为 `available`。
 
 ## 后续实现归位
 
@@ -20,6 +22,6 @@ G2A-01 只达到 `contracted`：契约、依赖、错误和验收已冻结，正
 - 用户前台：`platform/client-ui/`
 - 管理后台：`platform/admin/`
 - SDK：`platform/sdk/`
-- HostedInteraction：按 G2A-04.1 的独立 ADR 和契约归位
+- HostedInteraction：`platform/backend/internal/modules/hostedinteraction`，按 ADR-0018 与独立契约归位
 
 不得在 Account 编排层建立第二套 User、Session、Product Access 或 Entitlement 表。
