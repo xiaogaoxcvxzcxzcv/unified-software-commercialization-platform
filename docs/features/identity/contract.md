@@ -260,7 +260,7 @@ status: active | revoked
 - Hosted auth 只能消费与可信 Product/Application/Tenant/Environment 精确匹配的 Identity proof/grant；Hosted account 只能使用 `ValidateHostedSession` 验证的现有用户会话。
 - grant 兑换创建的最终用户 Session 必须保留完整可信范围；幂等恢复前重新校验既有 Session 未撤销、未过期且账号仍为 `active`。
 - Identity 不读取 HostedInteraction 表或 Repository；两模块只通过公开应用服务组合。浏览器会话、interaction、完成码、PKCE 和恢复状态均由 HostedInteraction 拥有。
-- 该后端边界已通过本地真实 PostgreSQL、HTTP 组合流程与 Full 18/18 门禁，最终托管 CI 仍待确认；Hosted UI、SDK、配置、源码和装配不属于本关交付。
+- 该后端边界已在 G2A-04.1 `verified`：修复提交 `eb89c1d`、机器报告提交 `35b38d6`、真实 PostgreSQL 确定性并发 `-count=3`、HTTP 组合流程、本地 Full 18/18、push run `29626935922` 与 PR run `29626937426` 均通过。历史失败 `29626127011` 与 P3 真实 runtime 负向回归缺口保留在总评；Hosted UI、SDK、配置、源码和装配不属于本关交付。
 
 ## G2A-03 用户认证 API 冻结补充
 

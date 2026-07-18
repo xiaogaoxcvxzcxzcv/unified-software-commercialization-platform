@@ -11,7 +11,7 @@ Account 是面向最终用户的完整能力包编排，不是新的数据所有
 
 ## 当前状态
 
-`package.account` 仍处于 `contracted`。G2A-03/G2A-04 已交付最终用户认证账号 API、范围准入、外部身份与安全通知服务端能力；G2A-04.1 已交付 `hosted.auth` / `hosted.account` 真实后端，并通过本地真实 PostgreSQL、HTTP 组合流程与 Full 18/18 门禁，最终托管 CI 仍待确认。
+`package.account` 仍处于 `contracted`。G2A-03/G2A-04 已交付最终用户认证账号 API、范围准入、外部身份与安全通知服务端能力；G2A-04.1 的 `hosted.auth` / `hosted.account` 真实后端已 `verified`。修复提交 `eb89c1d`、机器报告提交 `35b38d6`、真实 PostgreSQL 确定性并发 `-count=3`、HTTP 组合流程、本地 Full 18/18、push run `29626935922` 与 PR run `29626937426` 均通过；历史失败 `29626127011` 与 P3 真实 runtime 负向回归缺口保留在总评。
 
 管理后台、Hosted UI/用户 Feature Block、SDK、能力配置、生成源码、目标端装配、升级/回滚和旧产品回归仍未完成。因此九个交付面尚未封口，该包不进入 ordinary 或 experimental runtime catalog，不能从创建入口选择，更不得标记为 `available`。
 

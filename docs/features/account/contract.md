@@ -74,4 +74,4 @@
 - 外部 Provider 配置由部署/装配配置注入 Registry，必须绑定可信 Product/Application/environment；Identity 不从请求体选择配置。
 - 注册验证与找回只通过 Notification security Port 投递；Identity 与 Account 不建立第二套通知 outbox。
 - Provider 未配置时入口能力投影为 disabled，调用返回稳定不可用错误；不得返回固定验证码、日志验证码或演示授权 URL。
-- HostedInteraction 真实后端已在 G2A-04.1 实现并通过本地真实 PostgreSQL、HTTP 组合流程与 Full 18/18 门禁，最终托管 CI 仍待确认。管理 Blocks、Hosted UI/用户 Blocks、SDK、能力配置、生成源码与装配回归仍留在 G2A-05 至 G2A-08/G2C；这些交付面未完成前不得把 `package.account` 晋级为 verified/available。
+- HostedInteraction 真实后端已在 G2A-04.1 `verified`：修复提交 `eb89c1d`、机器报告提交 `35b38d6`、真实 PostgreSQL 确定性并发 `-count=3`、HTTP 组合流程、本地 Full 18/18、push run `29626935922` 与 PR run `29626937426` 均通过；历史失败 `29626127011` 和 P3 真实 runtime 负向回归缺口保留在总评。管理 Blocks、Hosted UI/用户 Blocks、SDK、能力配置、生成源码与装配回归仍留在 G2A-05 至 G2A-08/G2C；这些交付面未完成前不得把 `package.account` 晋级为 verified/available。
