@@ -25,9 +25,9 @@
 | 完整能力包目录 | package.account contracted | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 已完成用户认证/账号 API、准入管理与组合裁决；G2A-04 已完成外部身份与安全通知后端基础；G2A-04.1 HostedInteraction 登录/账号后端已实现且本地 Full 18/18 通过，尚待托管 CI 与证据封口；普通与实验能力包目录仍为空 | G2A-04.1 托管 CI/证据封口、G2A-05 至 G2A-08 其余交付面；当前没有 verified/available 包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 装配验收软件 | planned | G2 黄金链和 A/B/C 创建、隔离、晋级、回归标准已确定；它们不承担真实正文开发 | 可运行验收软件仓库、软件本地 AI 交接、最小扩展边界夹具、account/entitlement 装配与回归证据 |
-| 管理后台 | auth/G1-08.1-G1-08.4 verified + G1-10 candidate | 生命周期 Plan/Operation、重新认证回跳、幂等冲突显式处理、工件验证和有界轮询已实现；133 项 Vitest、生产构建和真实浏览器闭环通过 | G1-10 托管 CI；其余业务 API Client、业务页面 E2E、平板视觉 QA |
+| 管理后台 | auth/G1-08.1-G1-08.4/G1-10 verified | 生命周期 Plan/Operation、重新认证回跳、幂等冲突显式处理、工件验证和有界轮询已实现；133 项 Vitest、生产构建、真实浏览器闭环及 G1-10 托管 CI 通过 | 其余业务 API Client、业务页面 E2E、平板视觉 QA |
 | Go 后端 | G1 + G2A-04 verified；G2A-04.1 implemented | Assembly 发布闭包，以及 Identity 最终用户、认证/账号 API、外部身份、注册/恢复安全投递和 Product User Access 已通过真实 PostgreSQL、本地 Full 与托管 push/PR CI；HostedInteraction 登录/账号后端、Identity proof/grant 会话绑定和真实运行时 HTTP + PostgreSQL 流已实现，commit `8421568` 本地 Full 18/18 通过 | G2A-04.1 托管 CI 与证据封口；后续 Account/Entitlement 完整能力包和生产部署验证 |
-| OpenAPI | implemented + G1-08.1/G1-08.3 verified | OpenAPI 3.1 公共契约，覆盖管理员认证、Product/Application/Tenant/CapabilitySet 只读投影、可信 Client Session、Access Control、Audit，以及 Blueprint/Plan/Run/Manifest/Generated Project Lock 和脱敏输出目标管理 API；含无依赖结构校验器，创建 Client 与产品工作区 Client 已按版本化契约实现 | 第三方 schema lint、其余业务生成 Client；公开 upgrade/eject/rollback 管理 API |
+| OpenAPI | implemented + G1-08.1/G1-08.3/G1-10 verified | OpenAPI 3.1 公共契约，覆盖管理员认证、Product/Application/Tenant/CapabilitySet 只读投影、可信 Client Session、Access Control、Audit，以及 Blueprint/Plan/Run/Manifest/Generated Project Lock、脱敏输出目标和 upgrade/eject/rollback 生命周期管理 API；含无依赖结构校验器，创建 Client、产品工作区 Client 与 lifecycle Client 已按版本化契约实现 | 第三方 schema lint、其余业务生成 Client |
 | Client UI / Hosted UI | G1-06 foundation + G1-07 template verified | `@capability-platform/client-ui` v0.1.0 基座已验证；`standard-a` 已完成 Web/desktop WebView 生成、custom 路由、响应式 Shell、主题、离线安装、构建、浏览器视觉与键盘验收；真实 HostedInteraction 登录/账号后端已实现，待托管 CI 与证据封口 | 业务 Feature Block、小程序/原生适配、Hosted UI 页面和浏览器/跨端 E2E |
 | SDK | G1-06 verified foundation | `@capability-platform/client-sdk` v0.1.0 已实现可信 Client/Product/Application/Tenant Context、内存 token、受保护 HTTP、分类错误、超时/取消/受限重试和未知枚举降级；8 条测试、构建与发布清单检查通过 | 业务模块专用方法、离线缓存策略、真实生成软件接入和旧版本兼容回归 |
 | 部署 | planned | 模块化单体与 Docker Compose 方向；主计划已增加“本机 -> 托管 CI -> 云端测试 -> 正式生产”的四级验证和 G7 自动化优先生产终验 | 云端测试/生产环境模板、部署自动化、域名/TLS、Secret Manager/KMS、监控告警、容量压测、ST-012/ST-040 至 ST-042、正式发布与观察期 |
@@ -59,7 +59,7 @@
 
 ## 最近验证（2026-07-18）
 
-- G2A-04.1：`implemented`，尚未 `verified`。ADR-0018、`000018` 至 `000022`、7 条 Hosted 路由、Identity proof/grant 会话绑定，以及真实运行时 auth/account HTTP + PostgreSQL 链已实现；commit `8421568` 的本地真实 PostgreSQL Full 18/18 通过。最终托管 CI 和正式证据仍待完成，当前唯一关口保持 G2A-04.1，G2A-05 不得提前开始。
+- G2A-04.1：`implemented`，尚未 `verified`。ADR-0018、`000018` 至 `000022`、7 条 Hosted 路由、Identity proof/grant 会话绑定，以及真实运行时 auth/account HTTP + PostgreSQL 链已实现；commit `8421568` 的本地真实 PostgreSQL Full 18/18 通过。HEAD `3db7177` 的 push run `29626125949` 已通过，但 PR run `29626127011` 因并发恢复测试的 80/90ms grant/interaction TTL 在首次 `ClaimGrant` 前过期而失败；短 TTL 修复后的 Hosted 真实 PostgreSQL 专项测试 `-count=3` 已通过，新的 Full 与 push/PR CI 尚待复验。当前唯一关口保持 G2A-04.1，G2A-05 不得提前开始。
 
 - G2A-04：`verified`。两轮对抗审查和最终数据库审查的问题已修复；本地真实 PostgreSQL、OpenAPI 91/97、Full 18/18、SDK 8/8、Client UI 14/14、Standard-A 双目标各 7/7、Admin 133/133，以及修复后的 GitHub push run `29586445175` / PR #13 run `29586447148` 均通过。首次 PR run `29585568077` 暴露并否定短 TTL 缓存时钟测试，修复和复验历史已保留。证据见 `artifacts/reviews/G2A-04/external-identity-security-notification.md`；下一唯一关口为 G2A-04.1。
 

@@ -252,9 +252,16 @@ func TestConcurrentClaimConsumeAndExpireNoDeadlockTwentyRounds(t *testing.T) {
 		}
 	}
 
+	type expiringGrantCase struct {
+		interactionID string
+		grantID       string
+		leaseDigest   []byte
+		eventID       string
+	}
+	expiringCases := make([]expiringGrantCase, 0, 20)
 	for i := 0; i < 20; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		value := accountInteraction(testID("hint_", 12000+i), 90*time.Millisecond)
+		value := accountInteraction(testID("hint_", 12000+i), 5*time.Minute)
 		value.StateDigest = digestOf(fmt.Sprintf("expire-state-%d", i))
 		createUnique(t, ctx, repository, value, 80+i)
 		browserDigest := digestOf(fmt.Sprintf("expire-browser-%d", i))
@@ -263,29 +270,49 @@ func TestConcurrentClaimConsumeAndExpireNoDeadlockTwentyRounds(t *testing.T) {
 			t.Fatal(err)
 		}
 		complete := accountCompleteRecord(value.InteractionID, browserDigest, 12000+i)
-		complete.GrantTTL = 80 * time.Millisecond
+		complete.GrantTTL = 10 * time.Second
 		_, grant, _, err := repository.Complete(ctx, complete)
 		if err != nil {
 			cancel()
 			t.Fatal(err)
 		}
 		leaseDigest := digestOf(fmt.Sprintf("expire-lease-%d", i))
-		if _, err = repository.ClaimGrant(ctx, value.InteractionID, value.Scope, complete.CodeDigest, nil, 70*time.Millisecond, "lease", leaseDigest); err != nil {
+		if _, err = repository.ClaimGrant(ctx, value.InteractionID, value.Scope, complete.CodeDigest, nil, 10*time.Second, "lease", leaseDigest); err != nil {
 			cancel()
 			t.Fatal(err)
 		}
-		time.Sleep(110 * time.Millisecond)
-		start := make(chan struct{})
-		consumeResult, expireResult := make(chan error, 1), make(chan error, 1)
+		expiringCases = append(expiringCases, expiringGrantCase{
+			interactionID: value.InteractionID,
+			grantID:       grant.GrantID,
+			leaseDigest:   leaseDigest,
+			eventID:       fmt.Sprintf("evt_expire_consume_%d", i),
+		})
+		cancel()
+	}
+
+	time.Sleep(12 * time.Second)
+	start := make(chan struct{})
+	consumeResults, expireResults := make(chan error, len(expiringCases)), make(chan error, len(expiringCases))
+	for _, item := range expiringCases {
+		item := item
 		go func() {
 			<-start
-			_, err := repository.ConsumeGrant(ctx, grant.GrantID, leaseDigest, event(fmt.Sprintf("evt_expire_consume_%d", i), value.InteractionID, "hosted.interaction_exchanged.v1"))
-			consumeResult <- err
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, err := repository.ConsumeGrant(ctx, item.grantID, item.leaseDigest, event(item.eventID, item.interactionID, "hosted.interaction_exchanged.v1"))
+			consumeResults <- err
 		}()
-		go func() { <-start; _, err := repository.ExpireDue(ctx, 100); expireResult <- err }()
-		close(start)
-		consumeErr, expireErr := <-consumeResult, <-expireResult
-		cancel()
+		go func() {
+			<-start
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, err := repository.ExpireDue(ctx, 100)
+			expireResults <- err
+		}()
+	}
+	close(start)
+	for i := range expiringCases {
+		consumeErr, expireErr := <-consumeResults, <-expireResults
 		if expireErr != nil {
 			t.Fatalf("round %d expire error=%v", i, expireErr)
 		}
