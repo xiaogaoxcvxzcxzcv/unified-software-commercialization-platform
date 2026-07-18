@@ -20,6 +20,7 @@ const (
 
 var (
 	ErrForbidden     = errors.New("audit query forbidden")
+	ErrEventNotFound = errors.New("audit event not found")
 	ErrInvalidCursor = errors.New("invalid audit query cursor")
 	ErrInvalidLimit  = errors.New("invalid audit query limit")
 	ErrInvalidScope  = errors.New("invalid audit query scope")
@@ -93,6 +94,10 @@ type QueryRepository interface {
 	Query(context.Context, RepositoryQuery) ([]Event, error)
 }
 
+type EventRepository interface {
+	GetByID(context.Context, string) (Event, bool, error)
+}
+
 type SearchCommand struct {
 	AdminUserID string
 	SessionID   string
@@ -129,6 +134,12 @@ type Page struct {
 type QueryService struct {
 	repository QueryRepository
 	authorizer Authorizer
+}
+
+type GetEventCommand struct {
+	AdminUserID string
+	SessionID   string
+	AuditID     string
 }
 
 func NewQueryService(repository QueryRepository, authorizer Authorizer) *QueryService {
@@ -197,6 +208,56 @@ func (s *QueryService) SearchAuditEvents(ctx context.Context, command SearchComm
 		}
 	}
 	return page, nil
+}
+
+func (s *QueryService) GetAuditEvent(ctx context.Context, command GetEventCommand) (RedactedEvent, error) {
+	if s.repository == nil || s.authorizer == nil {
+		return RedactedEvent{}, errors.New("audit query service is not configured")
+	}
+	if command.AdminUserID == "" || command.SessionID == "" || strings.TrimSpace(command.AuditID) == "" {
+		return RedactedEvent{}, ErrEventNotFound
+	}
+	repository, ok := s.repository.(EventRepository)
+	if !ok {
+		return RedactedEvent{}, errors.New("audit event repository is not configured")
+	}
+	event, found, err := repository.GetByID(ctx, strings.TrimSpace(command.AuditID))
+	if err != nil {
+		return RedactedEvent{}, err
+	}
+	if !found {
+		return RedactedEvent{}, ErrEventNotFound
+	}
+	scope, err := eventScope(event)
+	if err != nil {
+		return RedactedEvent{}, ErrEventNotFound
+	}
+	decision, err := s.authorizer.AuthorizeAdmin(ctx, AuthorizationCommand{
+		AdminUserID: command.AdminUserID,
+		SessionID:   command.SessionID,
+		Permission:  AuditReadPermission,
+		TargetScope: scope,
+	})
+	if err != nil {
+		return RedactedEvent{}, err
+	}
+	if !decision.Allowed {
+		return RedactedEvent{}, ErrEventNotFound
+	}
+	return redactEvent(event), nil
+}
+
+func eventScope(event Event) (Scope, error) {
+	switch event.ScopeType {
+	case "platform":
+		return Scope{Type: "platform"}, nil
+	case "product":
+		return normalizeScope(Scope{Type: "product", ID: event.ScopeID, ProductID: event.ProductID})
+	case "tenant":
+		return normalizeScope(Scope{Type: "tenant", ID: event.ScopeID, ProductID: event.ProductID, TenantID: event.TenantID})
+	default:
+		return Scope{}, ErrInvalidScope
+	}
 }
 
 func normalizeScope(scope Scope) (Scope, error) {

@@ -89,11 +89,11 @@ describe("真实单款软件工作区", () => {
     expect(screen.queryByRole("button", { name: "用户管理" })).not.toBeInTheDocument();
   });
 
-  it("已启用但尚未交付的能力页不加载演示 Client", async () => {
+  it("已启用 Account 但无读取权限时不加载演示 Client", async () => {
     const listUsers = vi.spyOn(adminClient, "listUsers");
     renderApp("/products/prod-video/users");
 
-    expect(await screen.findByText("管理页面尚未交付")).toBeInTheDocument();
+    expect(await screen.findByText("缺少 identity.user.read 权限，无法读取当前范围用户。")).toBeInTheDocument();
     expect(listUsers).not.toHaveBeenCalled();
   });
 

@@ -26,6 +26,8 @@ type productAdminRouter struct {
 	application        http.Handler
 	tenant             http.Handler
 	productUserAccess  http.Handler
+	accountUserQuery   http.Handler
+	accountUserAdmin   http.Handler
 	clientRegistration http.Handler
 	tenantAdmin        http.Handler
 }
@@ -38,6 +40,10 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(path, "/api/v1/admin/assemblies/") || strings.HasPrefix(path, "/api/v1/admin/assembly-lifecycle-plans/") || strings.HasPrefix(path, "/api/v1/admin/assembly-lifecycle-operations/") ||
 		strings.HasPrefix(path, "/api/v1/admin/assembly-manifests/") || strings.HasPrefix(path, "/api/v1/admin/generated-project-locks/"):
 		h.assembly.ServeHTTP(w, r)
+	case isAccountUserAdminRoute(path) && h.accountUserAdmin != nil:
+		h.accountUserAdmin.ServeHTTP(w, r)
+	case isAccountUserQueryRoute(path) && h.accountUserQuery != nil:
+		h.accountUserQuery.ServeHTTP(w, r)
 	case isProductUserAccessRoute(path):
 		h.productUserAccess.ServeHTTP(w, r)
 	case strings.Contains(path, "/applications/") && strings.Contains(path, "/clients"):
@@ -53,6 +59,45 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	}
+}
+
+func isAccountUserQueryRoute(path string) bool {
+	if path == "/api/v1/admin/users" {
+		return true
+	}
+	if strings.HasPrefix(path, "/api/v1/admin/users/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/users/"), "/")
+		return len(parts) == 1 || (len(parts) == 2 && parts[1] == "sessions")
+	}
+	if !strings.HasPrefix(path, "/api/v1/admin/products/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/products/"), "/")
+	if len(parts) >= 2 && parts[1] == "users" {
+		return len(parts) == 2 || (len(parts) == 3) || (len(parts) == 4 && parts[3] == "sessions")
+	}
+	return len(parts) >= 4 && parts[1] == "tenants" && len(parts) >= 4 && parts[3] == "users" && (len(parts) == 4 || len(parts) == 5 || (len(parts) == 6 && parts[5] == "sessions"))
+}
+
+func isAccountUserAdminRoute(path string) bool {
+	if strings.HasPrefix(path, "/api/v1/admin/users/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/users/"), "/")
+		return (len(parts) == 2 && parts[1] == "security-status") || (len(parts) == 3 && parts[1] == "sessions" && parts[2] == "revoke")
+	}
+	if !strings.HasPrefix(path, "/api/v1/admin/products/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/products/"), "/")
+	if len(parts) == 4 && parts[1] == "users" && parts[3] == "access" {
+		return true
+	}
+	if len(parts) == 5 && parts[1] == "users" && parts[3] == "sessions" && parts[4] == "revoke" {
+		return true
+	}
+	if len(parts) == 6 && parts[1] == "tenants" && parts[3] == "users" && parts[5] == "access" {
+		return true
+	}
+	return len(parts) == 7 && parts[1] == "tenants" && parts[3] == "users" && parts[5] == "sessions" && parts[6] == "revoke"
 }
 
 func isProductUserAccessRoute(path string) bool {

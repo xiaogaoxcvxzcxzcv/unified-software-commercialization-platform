@@ -543,32 +543,125 @@
     },
     "/api/v1/admin/users": {
       "get": {
-        "tags": ["Identity"], "operationId": "listUsers", "summary": "List redacted users within the administrator's authorized scope",
+        "tags": ["Identity"], "operationId": "listUsers", "summary": "List redacted global users for a platform administrator",
         "description": "This global collection requires platform scope. Product and tenant administrators must use their scoped workspace collection.",
         "x-required-permission": "identity.user.read", "x-required-scope": "platform",
         "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/UserQuery" }, { "$ref": "#/components/parameters/AccountStatusFilter" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
         "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/users/{user_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+      "get": {
+        "tags": ["Identity"], "operationId": "getGlobalUser", "summary": "Read a redacted global user security detail",
+        "x-required-permission": "identity.user.read", "x-required-scope": "platform",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserDetail" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/sessions": {
+      "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+      "get": {
+        "tags": ["Identity"], "operationId": "listGlobalUserSessions", "summary": "List redacted final-user sessions across all scopes",
+        "x-required-permission": "identity.user.read", "x-required-scope": "platform",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "responses": { "200": { "$ref": "#/components/responses/AdminUserSessionPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/sessions/revoke": {
+      "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+      "post": {
+        "tags": ["Identity"], "operationId": "revokeGlobalUserSessions", "summary": "Revoke selected or all active final-user sessions",
+        "x-required-permission": "identity.security.manage", "x-required-scope": "platform", "x-recent-auth-required": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeAdminUserSessionsRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserSessionRevocation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/products/{product_id}/users": {
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }],
       "get": {
         "tags": ["Account"], "operationId": "listProductUsers", "summary": "List redacted users admitted to the authorized product workspace",
-        "x-required-permission": "identity.user.read", "x-required-scope": "product",
+        "x-required-permission": "identity.user.read", "x-required-scope": "product", "x-required-capability-package": "package.account",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/UserQuery" }, { "$ref": "#/components/parameters/AccountStatusFilter" }, { "$ref": "#/components/parameters/AccessStatusFilter" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/users/{user_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/UserId" }],
+      "get": {
+        "tags": ["Account"], "operationId": "getProductUser", "summary": "Read a redacted user detail in the authorized product workspace",
+        "x-required-permission": "identity.user.read", "x-required-scope": "product", "x-required-capability-package": "package.account",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserDetail" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/users/{user_id}/sessions": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/UserId" }],
+      "get": {
+        "tags": ["Account"], "operationId": "listProductUserSessions", "summary": "List redacted sessions in the authorized product scope",
+        "x-required-permission": "identity.user.read", "x-required-scope": "product", "x-required-capability-package": "package.account",
         "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
-        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/AdminUserSessionPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/users/{user_id}/sessions/revoke": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/UserId" }],
+      "post": {
+        "tags": ["Account"], "operationId": "revokeProductUserSessions", "summary": "Revoke selected or all active sessions in the authorized product scope",
+        "x-required-permission": "product.user-access.manage", "x-required-scope": "product", "x-required-capability-package": "package.account", "x-recent-auth-required": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeAdminUserSessionsRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserSessionRevocation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/users": {
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }],
       "get": {
         "tags": ["Account"], "operationId": "listTenantUsers", "summary": "List redacted users admitted to the authorized tenant workspace",
-        "x-required-permission": "identity.user.read", "x-required-scope": "tenant",
+        "x-required-permission": "identity.user.read", "x-required-scope": "tenant", "x-required-capability-package": "package.account",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/UserQuery" }, { "$ref": "#/components/parameters/AccountStatusFilter" }, { "$ref": "#/components/parameters/AccessStatusFilter" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/UserId" }],
+      "get": {
+        "tags": ["Account"], "operationId": "getTenantUser", "summary": "Read a redacted user detail in the authorized tenant workspace",
+        "x-required-permission": "identity.user.read", "x-required-scope": "tenant", "x-required-capability-package": "package.account",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/UserDetail" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/sessions": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/UserId" }],
+      "get": {
+        "tags": ["Account"], "operationId": "listTenantUserSessions", "summary": "List redacted sessions in the authorized tenant scope",
+        "x-required-permission": "identity.user.read", "x-required-scope": "tenant", "x-required-capability-package": "package.account",
         "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }],
-        "responses": { "200": { "$ref": "#/components/responses/UserPage" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "$ref": "#/components/responses/AdminUserSessionPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/products/{product_id}/tenants/{tenant_id}/users/{user_id}/sessions/revoke": {
+      "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/UserId" }],
+      "post": {
+        "tags": ["Account"], "operationId": "revokeTenantUserSessions", "summary": "Revoke selected or all active sessions in the authorized tenant scope",
+        "x-required-permission": "product.user-access.manage", "x-required-scope": "tenant", "x-required-capability-package": "package.account", "x-recent-auth-required": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeAdminUserSessionsRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/UserSessionRevocation" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/api/v1/admin/users/{user_id}/security-status": {
@@ -586,7 +679,7 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "name": "user_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }],
       "put": {
         "tags": ["ProductUserAccess"], "operationId": "setProductUserAccessStatus", "summary": "Change product admission without changing global identity or entitlement",
-        "x-required-permission": "product.user-access.manage", "x-required-scope": "product", "x-recent-auth-required": true,
+        "x-required-permission": "product.user-access.manage", "x-required-scope": "product", "x-required-capability-package": "package.account", "x-recent-auth-required": true,
         "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetProductUserAccessStatusRequest" } } } },
@@ -597,7 +690,7 @@
       "parameters": [{ "$ref": "#/components/parameters/ProductId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "user_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }],
       "put": {
         "tags": ["ProductUserAccess"], "operationId": "setTenantUserAccessStatus", "summary": "Change tenant admission without changing product admission, global identity, or entitlement",
-        "x-required-permission": "product.user-access.manage", "x-required-scope": "tenant", "x-recent-auth-required": true,
+        "x-required-permission": "product.user-access.manage", "x-required-scope": "tenant", "x-required-capability-package": "package.account", "x-recent-auth-required": true,
         "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
         "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetProductUserAccessStatusRequest" } } } },
@@ -949,8 +1042,19 @@
       "get": {
         "tags": ["Audit"], "operationId": "listAuditEvents", "summary": "Search redacted audit events inside the authorized scope",
         "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "occurred_from", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "occurred_to", "in": "query", "schema": { "type": "string", "format": "date-time" } }, { "name": "actor_id", "in": "query", "schema": { "$ref": "#/components/schemas/Identifier" } }, { "name": "action", "in": "query", "schema": { "type": "string", "maxLength": 128 } }, { "name": "result", "in": "query", "schema": { "type": "string" } }, { "name": "trace_id", "in": "query", "schema": { "type": "string", "maxLength": 128 } }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/Cursor" }, { "name": "limit", "in": "query", "description": "Bounded page size implemented by the audit query service.", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }, { "name": "trace_id", "in": "query", "schema": { "type": "string", "maxLength": 256 } }],
         "responses": { "200": { "$ref": "#/components/responses/AuditPage" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/admin/audit/events/{audit_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/AuditId" }],
+      "get": {
+        "tags": ["Audit"], "operationId": "getAuditEvent", "summary": "Read one redacted audit event after authorizing its recorded scope",
+        "description": "A missing event and an event outside the administrator's current audit.read scope return the same not-found envelope. Callers may retry briefly while a business outbox is delivering the event.",
+        "x-required-permission": "audit.read", "x-scope-derived-from-resource": true,
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": { "200": { "$ref": "#/components/responses/AuditEvent" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     }
   },
@@ -972,8 +1076,13 @@
       "HostedInteractionId": { "name": "interaction_id", "in": "path", "required": true, "description": "Opaque high-entropy HostedInteraction identifier; never selects Product/Application/Tenant by itself.", "schema": { "type": "string", "pattern": "^hint_[A-Za-z0-9_-]{24,160}$" } },
       "Cursor": { "name": "cursor", "in": "query", "schema": { "type": "string", "maxLength": 512 } },
       "PageSize": { "name": "page_size", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+      "UserQuery": { "name": "query", "in": "query", "description": "User ID or display-name prefix, or an exact normalized email/phone identifier. Identifier values are never used for fuzzy matching.", "schema": { "type": "string", "minLength": 1, "maxLength": 320 } },
+      "AccountStatusFilter": { "name": "account_status", "in": "query", "schema": { "type": "string", "enum": ["active", "locked", "disabled"] } },
+      "AccessStatusFilter": { "name": "access_status", "in": "query", "schema": { "type": "string", "enum": ["active", "suspended"] } },
       "ProductId": { "name": "product_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
       "TenantId": { "name": "tenant_id", "in": "path", "required": true, "description": "Target resource only; access is independently authorized from the admin session.", "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "UserId": { "name": "user_id", "in": "path", "required": true, "description": "Target resource only; scoped routes independently verify historical membership in the authorized workspace.", "schema": { "$ref": "#/components/schemas/Identifier" } },
+      "AuditId": { "name": "audit_id", "in": "path", "required": true, "description": "Stable audit event identifier; authorization is derived from the event's recorded scope.", "schema": { "$ref": "#/components/schemas/Identifier" } },
       "ApplicationId": { "name": "application_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "ClientId": { "name": "client_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
       "CredentialId": { "name": "credential_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } },
@@ -1040,6 +1149,9 @@
       "UserSessionPage": { "description": "Redacted sessions owned by the current user", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSessionPage" } } } },
       "ProductUserAccessDecision": { "description": "Trusted global, product, tenant, then entitlement access decision", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductUserAccessDecision" } } } },
       "UserPage": { "description": "Scoped redacted user page", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserPage" } } } },
+      "UserDetail": { "description": "Redacted global or scoped administrator user detail", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminUserDetail" } } } },
+      "AdminUserSessionPage": { "description": "Redacted administrator view of final-user sessions", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminUserSessionPage" } } } },
+      "UserSessionRevocation": { "description": "Audited idempotent final-user session revocation", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSessionRevocation" } } } },
       "UserAccessMutation": { "description": "Audited identity or scoped admission mutation", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserAccessMutation" } } } },
       "TokenPair": { "description": "Rotated token pair", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPair" } } } },
       "AdminSession": { "description": "Administrator identity, current server authorization snapshot and session expiry. Cookie transport sets both management cookies; bearer transport returns token_pair. Responses must use Cache-Control: no-store.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" }, "Set-Cookie": { "description": "Cookie transport may emit separate access and rotating refresh Set-Cookie headers with the attributes fixed by the Identity contract.", "schema": { "type": "string" } }, "Cache-Control": { "description": "Always no-store.", "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminSession" } } } },
@@ -1072,7 +1184,8 @@
       "AiModelRoute": { "description": "Immutable route version", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiModelRoute" } } } },
       "UsagePrice": { "description": "Immutable usage price version", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsagePrice" } } } },
       "UsagePage": { "description": "Scoped usage records", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsagePage" } } } },
-      "AuditPage": { "description": "Redacted audit events", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditPage" } } } }
+      "AuditPage": { "description": "Redacted audit events", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditPage" } } } },
+      "AuditEvent": { "description": "One redacted audit event", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditEvent" } } } }
     },
     "schemas": {
       "Identifier": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
@@ -1185,8 +1298,16 @@
       "UserSessionPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/UserSessionSummary" } } }, "additionalProperties": false },
       "ProductUserAccessDecision": { "type": "object", "required": ["allowed", "decision_stage", "reason_code"], "properties": { "allowed": { "type": "boolean" }, "decision_stage": { "type": "string", "enum": ["identity", "product", "tenant", "entitlement", "allowed"] }, "reason_code": { "type": ["string", "null"], "enum": [null, "IDENTITY_ACCOUNT_DISABLED", "PRODUCT_USER_ACCESS_SUSPENDED", "TENANT_USER_ACCESS_SUSPENDED", "ENTITLEMENT_REQUIRED", "ENTITLEMENT_EXPIRED"] } }, "additionalProperties": false },
       "UserSummary": { "type": "object", "required": ["user_id", "account_status"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "account_status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "display_name": { "type": ["string", "null"] }, "product_id": { "type": ["string", "null"] }, "tenant_id": { "type": ["string", "null"] }, "access_version": { "type": ["integer", "null"], "minimum": 1 }, "product_access_status": { "type": ["string", "null"], "enum": [null, "active", "suspended"] }, "tenant_access_status": { "type": ["string", "null"], "enum": [null, "active", "suspended"] } }, "additionalProperties": false },
-      "UserPage": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/UserSummary" } }, "next_cursor": { "type": ["string", "null"] } }, "additionalProperties": false },
-      "SetGlobalUserSecurityStatusRequest": { "type": "object", "required": ["expected_version", "status", "reason_code", "recent_auth_proof"], "properties": { "expected_version": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "reason_code": { "$ref": "#/components/schemas/StableCode" }, "operator_note": { "type": "string", "maxLength": 500, "pattern": "^[^\\r\\n\\t]*$" }, "recent_auth_proof": { "type": "string", "minLength": 16, "writeOnly": true } }, "additionalProperties": false },
+      "MaskedUserIdentifier": { "type": "object", "required": ["type", "masked_value", "verified"], "properties": { "type": { "type": "string", "enum": ["email", "phone"] }, "masked_value": { "type": "string", "minLength": 1, "maxLength": 320 }, "verified": { "type": "boolean" } }, "additionalProperties": false },
+      "ScopedUserAccess": { "type": "object", "required": ["scope_type", "scope_id", "status", "explicit", "version"], "properties": { "scope_type": { "type": "string", "enum": ["product", "tenant"] }, "scope_id": { "$ref": "#/components/schemas/Identifier" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "explicit": { "type": "boolean" }, "version": { "type": "integer", "minimum": 0 }, "status_changed_at": { "type": ["string", "null"], "format": "date-time" } }, "additionalProperties": false },
+      "AdminUserSummary": { "type": "object", "required": ["user_id", "user_version", "account_status", "display_name", "identifiers", "created_at", "member_since", "last_seen_at", "active_session_count", "total_session_count", "access"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "user_version": { "type": "integer", "minimum": 1 }, "account_status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "display_name": { "type": ["string", "null"], "maxLength": 128 }, "identifiers": { "type": "array", "items": { "$ref": "#/components/schemas/MaskedUserIdentifier" } }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "member_since": { "type": ["string", "null"], "format": "date-time", "description": "Null only for the platform-global collection." }, "last_seen_at": { "type": ["string", "null"], "format": "date-time" }, "active_session_count": { "type": "integer", "minimum": 0 }, "total_session_count": { "type": "integer", "minimum": 0 }, "access": { "oneOf": [{ "$ref": "#/components/schemas/ScopedUserAccess" }, { "type": "null" }] } }, "additionalProperties": false },
+      "AdminUserDetail": { "type": "object", "required": ["user", "profile"], "properties": { "user": { "$ref": "#/components/schemas/AdminUserSummary" }, "profile": { "$ref": "#/components/schemas/UserProfile" } }, "additionalProperties": false },
+      "UserPage": { "type": "object", "required": ["items", "next_cursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/AdminUserSummary" } }, "next_cursor": { "type": ["string", "null"] } }, "additionalProperties": false },
+      "AdminUserSessionSummary": { "type": "object", "required": ["session_id", "product_id", "application_id", "tenant_id", "environment", "authentication_method", "created_at", "last_seen_at", "expires_at", "revoked_at"], "properties": { "session_id": { "$ref": "#/components/schemas/Identifier" }, "product_id": { "$ref": "#/components/schemas/Identifier" }, "application_id": { "$ref": "#/components/schemas/Identifier" }, "tenant_id": { "oneOf": [{ "$ref": "#/components/schemas/Identifier" }, { "type": "null" }] }, "environment": { "oneOf": [{ "$ref": "#/components/schemas/Environment" }, { "type": "null" }] }, "authentication_method": { "type": "string", "enum": ["password", "oidc", "wechat", "recovery"] }, "device_label": { "type": ["string", "null"], "maxLength": 120 }, "created_at": { "$ref": "#/components/schemas/Timestamp" }, "last_seen_at": { "$ref": "#/components/schemas/Timestamp" }, "expires_at": { "$ref": "#/components/schemas/Timestamp" }, "revoked_at": { "type": ["string", "null"], "format": "date-time" } }, "additionalProperties": false },
+      "AdminUserSessionPage": { "type": "object", "required": ["items", "next_cursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/AdminUserSessionSummary" } }, "next_cursor": { "type": ["string", "null"] } }, "additionalProperties": false },
+      "RevokeAdminUserSessionsRequest": { "type": "object", "required": ["reason_code"], "properties": { "session_ids": { "type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/components/schemas/Identifier" } }, "all_active": { "type": "boolean", "const": true }, "reason_code": { "$ref": "#/components/schemas/StableCode" } }, "oneOf": [{ "required": ["session_ids"], "not": { "required": ["all_active"] } }, { "required": ["all_active"], "not": { "required": ["session_ids"] } }], "additionalProperties": false },
+      "UserSessionRevocation": { "type": "object", "required": ["user_id", "scope_type", "revoked_count", "audit_id"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "scope_type": { "type": "string", "enum": ["platform", "product", "tenant"] }, "scope_id": { "type": ["string", "null"] }, "revoked_count": { "type": "integer", "minimum": 0 }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
+      "SetGlobalUserSecurityStatusRequest": { "type": "object", "required": ["expected_version", "status", "reason_code"], "properties": { "expected_version": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["active", "locked", "disabled"] }, "reason_code": { "$ref": "#/components/schemas/StableCode" }, "operator_note": { "type": "string", "maxLength": 500, "pattern": "^[^\\r\\n\\t]*$" } }, "additionalProperties": false },
       "SetProductUserAccessStatusRequest": { "type": "object", "required": ["expected_version", "status", "reason_code"], "properties": { "expected_version": { "type": "integer", "minimum": 0, "description": "Use 0 when no explicit scoped access fact exists." }, "status": { "type": "string", "enum": ["active", "suspended"] }, "reason_code": { "$ref": "#/components/schemas/StableCode" }, "operator_note": { "type": "string", "maxLength": 500, "pattern": "^[^\\r\\n\\t]*$" } }, "additionalProperties": false },
       "UserAccessMutation": { "type": "object", "required": ["user_id", "scope_type", "status", "version", "audit_id"], "properties": { "user_id": { "$ref": "#/components/schemas/Identifier" }, "scope_type": { "type": "string", "enum": ["platform", "product", "tenant"] }, "scope_id": { "type": ["string", "null"] }, "status": { "type": "string", "enum": ["active", "locked", "disabled", "suspended"] }, "version": { "type": "integer", "minimum": 1 }, "audit_id": { "$ref": "#/components/schemas/Identifier" } }, "additionalProperties": false },
       "StartExternalLoginRequest": { "type": "object", "required": ["mode", "return_target_code"], "properties": { "mode": { "type": "string", "enum": ["redirect", "qr", "native"] }, "return_target_code": { "$ref": "#/components/schemas/StableCode" } }, "additionalProperties": false },

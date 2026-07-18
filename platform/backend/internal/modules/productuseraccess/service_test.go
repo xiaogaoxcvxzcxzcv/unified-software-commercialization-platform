@@ -13,6 +13,7 @@ type repositoryStub struct {
 	users     []string
 	claimed   []ClaimedOutboxEvent
 	failed    string
+	facts     []AccessFact
 }
 
 func (r *repositoryStub) EvaluateScopedAdmission(context.Context, string, string, string) (Admission, error) {
@@ -28,6 +29,9 @@ func (r *repositoryStub) SetTenantAccessStatus(_ context.Context, record ChangeR
 }
 func (r *repositoryStub) ListScopedUserIDs(context.Context, string, string) ([]string, error) {
 	return r.users, nil
+}
+func (r *repositoryStub) GetScopedAccessBatch(context.Context, string, string, []string) ([]AccessFact, error) {
+	return r.facts, nil
 }
 func (r *repositoryStub) ClaimOutbox(context.Context, time.Time, int) ([]ClaimedOutboxEvent, error) {
 	return r.claimed, nil
@@ -113,6 +117,26 @@ func TestServiceValidatesAdmissionAndListContexts(t *testing.T) {
 	}
 	if _, err := service.ListScopedUserIDs(context.Background(), ListScopedUserIDsQuery{Product: ProductContext{ProductID: "product-a"}, Tenant: wrong}); !errors.Is(err, ErrScopeMismatch) {
 		t.Fatalf("list scope error=%v", err)
+	}
+}
+
+func TestServiceProjectsScopedAccessBatchWithoutCreatingDefaults(t *testing.T) {
+	repository := &repositoryStub{facts: []AccessFact{{ScopeType: ScopeTenant, ProductID: "product-a", TenantID: "tenant-a", UserID: "user-b", Status: StatusSuspended, AccessVersion: 3, StatusChangedAt: fixedNow()}}}
+	service := NewService(repository, &sequenceIDs{}, []byte("0123456789abcdef0123456789abcdef"), fixedNow)
+	result, err := service.GetScopedAccessBatch(context.Background(), GetScopedAccessBatchQuery{
+		Product: ProductContext{ProductID: "product-a"}, Tenant: &TenantContext{ProductID: "product-a", TenantID: "tenant-a"}, UserIDs: []string{"user-a", "user-b"},
+	})
+	if err != nil || len(result) != 2 {
+		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	if result[0].UserID != "user-a" || result[0].Status != StatusActive || result[0].Explicit || result[0].AccessVersion != 0 || result[0].StatusChangedAt != nil {
+		t.Fatalf("missing fact projection=%+v", result[0])
+	}
+	if result[1].UserID != "user-b" || result[1].Status != StatusSuspended || !result[1].Explicit || result[1].AccessVersion != 3 || result[1].StatusChangedAt == nil || *result[1].StatusChangedAt != fixedNow() {
+		t.Fatalf("explicit fact projection=%+v", result[1])
+	}
+	if _, err := service.GetScopedAccessBatch(context.Background(), GetScopedAccessBatchQuery{Product: ProductContext{ProductID: "product-a"}, UserIDs: []string{"user-a", "user-a"}}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("duplicate user error=%v", err)
 	}
 }
 

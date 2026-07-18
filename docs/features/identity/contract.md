@@ -262,6 +262,15 @@ status: active | revoked
 - Identity 不读取 HostedInteraction 表或 Repository；两模块只通过公开应用服务组合。浏览器会话、interaction、完成码、PKCE 和恢复状态均由 HostedInteraction 拥有。
 - 该后端边界已在 G2A-04.1 `verified`：修复提交 `eb89c1d`、机器报告提交 `35b38d6`、真实 PostgreSQL 确定性并发 `-count=3`、HTTP 组合流程、本地 Full 18/18、push run `29626935922` 与 PR run `29626937426` 均通过。历史失败 `29626127011` 与 P3 真实 runtime 负向回归缺口保留在总评；Hosted UI、SDK、配置、源码和装配不属于本关交付。
 
+## G2A-05 管理查询与安全操作边界
+
+- Identity 新增公开管理查询 Port，只读取 `identity.users`、identifiers、profiles 与最终用户 sessions。平台查询枚举 Global User；Product/Tenant 查询从历史 Session 的可信 `product_id + optional tenant_id` 枚举成员，不能查询 Product、Tenant、Product User Access、Capability 或 Audit 表。
+- 管理列表使用稳定 keyset 分页。`query` 只允许 user_id/display name 前缀或规范化邮箱/手机号精确匹配；identifier 规范化与 digest 复用 Identity 的版本化规则和服务端 pepper，响应只返回 masked value，绝不返回 normalized value 或 digest。
+- 管理详情与批量查询返回 `user_version`、`account_status`、脱敏 identifiers、profile、`member_since`、`last_seen_at`、active/total session counts。范围成员验证必须使用同一公开 Port；跨范围与不存在采用同形未找到结果。
+- Global User 使用 `000014` 已建立的单调 `user_version`。平台级 `SetGlobalUserSecurityStatus` 要求服务端 Guard 已验证 `identity.security.manage + platform scope + recent auth`，以 `expected_version` 乐观并发；状态更新、全局 Session 撤销和 Identity Outbox 必须同一事务。请求体不接受客户端 recent-auth proof。
+- 管理员代管的最终用户 Session 查询/撤销只返回脱敏的设备、创建、最近活动、过期与撤销时间；它不把管理员自己的管理 Session 混入列表。Identity 根据组合层传入的可信 platform/product/tenant 范围限制最终用户 Session 查询和撤销；Product/Tenant 范围操作不得影响其他范围。重复撤销返回首次幂等结果和相同 audit_id。全局账号状态变更另行按安全策略撤销该用户的管理 Session。
+- 所有管理查询和写响应使用 `Cache-Control: no-store`，不得记录 identifier 原文、token、Session token digest、设备敏感原文或 operator note。
+
 ## G2A-03 用户认证 API 冻结补充
 
 - 注册、登录和找回启动只从已验证的 `ClientSessionBearer` 取得 Product/Application/Tenant 范围；请求体中的任何范围 ID 均不可信且不接受。

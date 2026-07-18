@@ -17,6 +17,14 @@
 - 错误：无权限、时间范围过大、导出限制
 - 安全：代理管理员不能查看官方或其他代理事件；普通管理员看不到密钥内容
 
+### G2A-05 精确事件读取
+
+- API：`GET /api/v1/admin/audit/events/{audit_id}`。
+- 查询服务先按 `audit_id` 读取脱敏事件，再使用事件自身的 platform/product/tenant scope 实时执行 `audit.read` 授权；不得从管理员“任一 scope”猜测查询范围。
+- 不存在与无权查看返回同形 `audit.event_not_found`，避免通过 audit_id 探测其他 Product/Tenant 活动。
+- 业务写返回的 audit_id 可能仍在所属模块 Outbox 中等待投递；管理前端使用有界重试处理短暂 404，超限后保留 audit_id 和可重试状态，不得改用 trace_id 或全量列表猜测目标事件。
+- 列表 API 的 v1 查询参数以 OpenAPI 为准，服务端不得静默忽略已声明筛选；不支持的筛选返回 `audit.invalid_filter`。cursor 必须绑定授权 scope 与筛选条件。
+
 ## 管理端认证安全事件
 
 Identity 通过 AuditPort 追加以下动作，`target_id` 使用不可逆账号/会话摘要，不写登录标识原文、密码、Cookie、token、CSRF token 或完整网络地址：

@@ -20,8 +20,8 @@
 | tenant.admin-binding | 代理管理员绑定 | tenant | side_panel | 产品、租户、用户与角色 | 绑定结果、审计编号 | not_ready | 待实现 | tenant contract | TenantService | 代理租户详情 |
 | identity.admin-login | 管理后台登录表单 | identity | inline | 登录标识、凭据、风险摘要 | 管理会话、授权快照、通用错误 | not_ready | `admin-web/src/pages/LoginPage.tsx`、`app/AuthContext.tsx`（正式前端已实现；真实 PostgreSQL/Cookie E2E 未验证） | identity contract | AdminIdentityService | 管理后台登录 |
 | identity.admin-session-menu | 管理员会话与账号菜单 | identity | inline | 当前管理会话 | 脱敏管理员、有效范围、刷新/退出结果 | not_ready | `admin-web/src/components/Shell.tsx`、`app/AuthContext.tsx`（正式前端已接认证；完整 E2E 未验证） | identity + access-control contracts | AdminSessionService | 后台启动、右上角账号、退出 |
-| identity.user-table | 用户列表与筛选 | identity | inline | 产品上下文、筛选 | 用户分页 | not_ready | `admin-web/src/pages/UsersPage.tsx`（演示 Client） | identity contract | IdentityService | 用户管理 |
-| identity.user-detail | 用户详情 | identity | navigate | 产品、租户、用户 | 账号状态与关联摘要 | not_ready | 待实现 | identity contract | IdentityService | 用户管理、权益管理 |
+| identity.user-table | 用户列表与筛选 | identity | inline | 可信 platform/product/tenant scope、`query`、账号/准入状态、cursor | 脱敏用户分页、全局版本、范围准入投影、会话计数 | not_ready | `admin-web/src/pages/UsersPage.tsx`（旧演示实现未挂生产路由） | account + identity + product-user-access contracts / public API v1 | AccountUserQueryWorkflow | 用户管理 |
+| identity.user-detail | 用户详情 | identity | navigate | 可信 scope、user_id | 脱敏账号/资料/范围准入/会话摘要及高风险操作结果 | not_ready | 待实现 | account + identity + product-user-access + audit contracts / public API v1 | AccountUserAdminWorkflow | 用户管理、权益管理 |
 | entitlement.table | 权益列表与筛选 | entitlement | inline | 产品、租户、筛选 | 权益分页 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（演示 Client） | entitlement contract | EntitlementService | 权益管理 |
 | entitlement.grant-panel | 权益授予面板 | entitlement | side_panel | 用户、产品、权益模板 | 权益与审计编号 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（演示 Client） | entitlement contract | EntitlementService | 用户详情、权益管理 |
 | entitlement.history | 权益流水 | entitlement | inline | 用户、产品 | 权益变更记录 | not_ready | 待实现 | entitlement contract | EntitlementService | 用户详情 |

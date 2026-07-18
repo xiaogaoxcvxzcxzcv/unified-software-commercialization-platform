@@ -148,6 +148,14 @@ func TestRepositoryTenantScopePrecedenceAndLists(t *testing.T) {
 	if err != nil || len(tenantUsers) != 1 || tenantUsers[0] != "user-a" {
 		t.Fatalf("tenant users=%v error=%v", tenantUsers, err)
 	}
+	batch, err := service.GetScopedAccessBatch(ctx, productuseraccess.GetScopedAccessBatchQuery{Product: product, Tenant: &tenant, UserIDs: []string{"user-b", "user-a"}})
+	if err != nil || len(batch) != 2 || batch[0].UserID != "user-b" || batch[0].Status != productuseraccess.StatusActive || batch[0].Explicit || batch[0].AccessVersion != 0 || batch[1].UserID != "user-a" || batch[1].Status != productuseraccess.StatusSuspended || !batch[1].Explicit || batch[1].AccessVersion != 1 {
+		t.Fatalf("tenant batch=%+v error=%v", batch, err)
+	}
+	var tenantFacts int
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM product_user_access.tenant_access WHERE product_id=$1 AND tenant_id=$2`, product.ProductID, tenant.TenantID).Scan(&tenantFacts); err != nil || tenantFacts != 1 {
+		t.Fatalf("batch read created default facts count=%d error=%v", tenantFacts, err)
+	}
 }
 
 func TestRepositoryConcurrentExpectedVersionAndOutboxFailureRollback(t *testing.T) {

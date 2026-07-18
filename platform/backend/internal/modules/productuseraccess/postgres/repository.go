@@ -328,6 +328,36 @@ func (r *Repository) ListScopedUserIDs(ctx context.Context, productID, tenantID 
 	return result, nil
 }
 
+func (r *Repository) GetScopedAccessBatch(ctx context.Context, productID, tenantID string, userIDs []string) ([]productuseraccess.AccessFact, error) {
+	if r == nil || r.pool == nil || len(userIDs) == 0 {
+		return nil, productuseraccess.ErrInvalidArgument
+	}
+	query := `SELECT user_id,status,access_version,reason_code,status_changed_at FROM product_user_access.product_access WHERE product_id=$1 AND user_id=ANY($2::text[]) ORDER BY user_id`
+	args := []any{productID, userIDs}
+	scopeType := productuseraccess.ScopeProduct
+	if tenantID != "" {
+		query = `SELECT user_id,status,access_version,reason_code,status_changed_at FROM product_user_access.tenant_access WHERE product_id=$1 AND tenant_id=$2 AND user_id=ANY($3::text[]) ORDER BY user_id`
+		args, scopeType = []any{productID, tenantID, userIDs}, productuseraccess.ScopeTenant
+	}
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]productuseraccess.AccessFact, 0, len(userIDs))
+	for rows.Next() {
+		item := productuseraccess.AccessFact{ScopeType: scopeType, ProductID: productID, TenantID: tenantID}
+		if err := rows.Scan(&item.UserID, &item.Status, &item.AccessVersion, &item.ReasonCode, &item.StatusChangedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func scopeID(record productuseraccess.ChangeRecord) string {
 	if record.ScopeType == productuseraccess.ScopeTenant {
 		return record.TenantID

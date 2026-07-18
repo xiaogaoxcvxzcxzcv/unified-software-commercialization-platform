@@ -57,6 +57,27 @@ type AccessFact struct {
 	StatusChangedAt time.Time `json:"status_changed_at"`
 }
 
+// ScopedAccess is the management projection for one trusted candidate user.
+// Missing facts are represented as active, non-explicit version zero values by
+// the service and are never inserted as a side effect of a read.
+type ScopedAccess struct {
+	ScopeType       ScopeType  `json:"scope_type"`
+	ScopeID         string     `json:"scope_id"`
+	ProductID       string     `json:"product_id"`
+	TenantID        string     `json:"tenant_id,omitempty"`
+	UserID          string     `json:"user_id"`
+	Status          Status     `json:"status"`
+	Explicit        bool       `json:"explicit"`
+	AccessVersion   int64      `json:"version"`
+	StatusChangedAt *time.Time `json:"status_changed_at,omitempty"`
+}
+
+type GetScopedAccessBatchQuery struct {
+	Product ProductContext
+	Tenant  *TenantContext
+	UserIDs []string
+}
+
 type StatusChangeResult struct {
 	ScopeType     ScopeType `json:"scope_type"`
 	ProductID     string    `json:"product_id"`

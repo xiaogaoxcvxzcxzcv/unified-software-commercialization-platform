@@ -44,6 +44,10 @@ import (
 	"platform.local/capability-platform/backend/internal/platform/securevalue"
 	platformserver "platform.local/capability-platform/backend/internal/platform/server"
 	"platform.local/capability-platform/backend/internal/workflows/accountaccess"
+	"platform.local/capability-platform/backend/internal/workflows/accountuseradmin"
+	accountuseradminhttp "platform.local/capability-platform/backend/internal/workflows/accountuseradmin/httptransport"
+	"platform.local/capability-platform/backend/internal/workflows/accountuserquery"
+	accountuserqueryhttp "platform.local/capability-platform/backend/internal/workflows/accountuserquery/httptransport"
 	"platform.local/capability-platform/backend/internal/workflows/assemblyexecution"
 	"platform.local/capability-platform/backend/internal/workflows/assemblylifecycle"
 	"platform.local/capability-platform/backend/internal/workflows/clientcontext"
@@ -93,6 +97,18 @@ func (a auditAdminContextAdapter) ResolveAdminContext(ctx context.Context, reque
 		return audit.AdminContext{}, err
 	}
 	return audit.AdminContext{AdminUserID: session.Admin.AdminUserID, SessionID: session.SessionID, TargetScope: scope}, nil
+}
+
+func (a auditAdminContextAdapter) ResolveAdminIdentity(ctx context.Context, request *http.Request) (audit.AdminContext, error) {
+	token, ok := identityhttp.AdminAccessToken(request)
+	if !ok {
+		return audit.AdminContext{}, audithttp.ErrAdminContextUnavailable
+	}
+	session, err := a.identity.CurrentAdminSession(ctx, token)
+	if err != nil {
+		return audit.AdminContext{}, err
+	}
+	return audit.AdminContext{AdminUserID: session.Admin.AdminUserID, SessionID: session.SessionID}, nil
 }
 
 type auditAuthorizerAdapter struct {
@@ -276,6 +292,11 @@ func main() {
 		logger.Error("administrator identity service initialization failed", "error", err)
 		os.Exit(1)
 	}
+	adminEndUserService, err := identity.NewAdminEndUserService(identityRepository, identity.StrictIdentifierNormalizer{}, userHasher, accountIDGenerator{}, nil)
+	if err != nil {
+		logger.Error("administrator end-user service initialization failed", "error", err)
+		os.Exit(1)
+	}
 	proofVerifier := product.NewVersionedProofVerifier(hasher)
 	productService := product.NewService(productpostgres.New(db.Pool()), assemblyService, proofVerifier, securevalue.ID, func() (string, string, error) {
 		token, err := securevalue.Token("client_session_")
@@ -306,6 +327,10 @@ func main() {
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
 	productUserAccessService := productuseraccess.NewService(productuseraccesspostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), nil)
 	accountAccessWorkflow := accountaccess.New(productUserAccessService)
+	accountIdentityAdapter := accountIdentityQueryAdapter{service: adminEndUserService}
+	accountCapabilityChecker := accountCapabilityAdapter{service: productService}
+	accountUserQueryService := accountuserquery.New(accountIdentityAdapter, productUserAccessService, accountCapabilityChecker, []byte(cfg.AdminAuth.TokenPepper))
+	accountUserAdminService := accountuseradmin.New(accountIdentityMutationAdapter{service: adminEndUserService}, productUserAccessService, accountMembershipAdapter{service: adminEndUserService}, accountCapabilityChecker)
 	var registrationVerificationService *identity.RegistrationVerificationService
 	if notificationRuntime.delivery != nil {
 		registrationVerificationService, err = identity.NewRegistrationVerificationService(
@@ -359,6 +384,8 @@ func main() {
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
 	productUserAccessHandler := productuseraccesshttp.New(productUserAccessService, adminGuard)
+	accountUserQueryHandler := accountuserqueryhttp.New(accountUserQueryService, adminGuard)
+	accountUserAdminHandler := accountuseradminhttp.New(accountUserAdminService, adminGuard)
 	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
@@ -387,7 +414,7 @@ func main() {
 		logger.Error("audit route registration failed", "error", err)
 		os.Exit(1)
 	}
-	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, productUserAccess: productUserAccessHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
+	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, productUserAccess: productUserAccessHandler, accountUserQuery: accountUserQueryHandler, accountUserAdmin: accountUserAdminHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
 		logger.Error("product administration route registration failed", "error", err)
 		os.Exit(1)
 	}

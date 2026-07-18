@@ -6,6 +6,7 @@
 - `SetProductAccessStatus(command)`：要求 `product.user-access.manage` 和匹配 product scope，幂等更新 `active|suspended`。
 - `SetTenantAccessStatus(command)`：要求同一权限和匹配 tenant scope，TenantContext 必须属于 ProductContext。
 - `ListScopedUserIDs(query)`：只在授权 Product/Tenant scope 返回存在显式访问覆盖事实的 user IDs，不声称枚举默认 active 用户。Account User Query Workflow 必须从 Identity 公开查询取得候选用户，再批量叠加本模块覆盖状态。
+- `GetScopedAccessBatch(query)`：只为组合层已验证的候选 user IDs 批量返回目标 Product/Tenant 显式覆盖；缺失事实由服务层投影为 `active + explicit=false + version=0`，不得把缺失行写入数据库。
 - Account Access Decision Workflow 与 Account User Query Workflow 属于跨模块组合层，不归本模块拥有，也不访问任何模块表。
 
 ## 不变量
@@ -49,3 +50,9 @@ Identity 公开消费者按 event_id 幂等处理 `product-user-access.session-r
 - 每次新状态命令生成稳定 `audit_id`，与状态 Outbox 在同一事务保存；幂等恢复返回首次的同一 `audit_id`。`StatusChangeResult` 必须把该编号返回 HTTP，但不得返回 operator note。
 - 首次幂等记录必须持久化 `audit_id`，Repository 重放从该记录恢复，不得只在进程内重新计算。真实状态变化的状态事件同时作为 Audit intent；同状态新命令不伪造状态变化，而是在同一事务写 `product-user-access.command-audited.v1`。只有 durable intent 已写入时才允许向 HTTP 返回该 `audit_id`。
 - 状态事件只携带脱敏 actor/audit/trace 引用和既有允许字段；不得携带管理员凭据、原始 identifier、token 或 operator note。
+
+## G2A-05 管理组合补充
+
+- 直接状态写 HTTP 不得再把路径中的 raw `user_id` 当作已验证成员。Account User Admin Workflow 必须先调用 Identity 公开 Port 验证目标属于可信 Product/Tenant scope，再调用本模块状态写服务；失败不得创建访问事实、幂等记录或 Outbox。
+- 列表状态筛选由 Account User Query Workflow 对 Identity 候选批量叠加本模块覆盖完成。本模块不得通过 Identity 表、Session 表或跨 schema join 扩大候选集合。
+- Product/Tenant Account 管理入口必须在组合层验证可信 Product CapabilitySet 启用了 `package.account`。本模块不读取 Assembly/Product Capability 表，也不根据客户端 capability 声明放行。

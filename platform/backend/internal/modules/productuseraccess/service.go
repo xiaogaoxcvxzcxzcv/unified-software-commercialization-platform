@@ -123,6 +123,59 @@ func (s *Service) ListScopedUserIDs(ctx context.Context, query ListScopedUserIDs
 	return s.repository.ListScopedUserIDs(ctx, query.Product.ProductID, tenantID)
 }
 
+func (s *Service) GetScopedAccessBatch(ctx context.Context, query GetScopedAccessBatchQuery) ([]ScopedAccess, error) {
+	if s == nil || s.repository == nil || !validID(query.Product.ProductID) || len(query.UserIDs) == 0 || len(query.UserIDs) > 200 {
+		return nil, ErrInvalidArgument
+	}
+	tenantID := ""
+	scopeType, scopeID := ScopeProduct, query.Product.ProductID
+	if query.Tenant != nil {
+		if !validID(query.Tenant.TenantID) || query.Tenant.ProductID != query.Product.ProductID {
+			return nil, ErrScopeMismatch
+		}
+		tenantID, scopeType, scopeID = query.Tenant.TenantID, ScopeTenant, query.Tenant.TenantID
+	}
+	seen := make(map[string]struct{}, len(query.UserIDs))
+	userIDs := make([]string, 0, len(query.UserIDs))
+	for _, userID := range query.UserIDs {
+		if !validID(userID) {
+			return nil, ErrInvalidArgument
+		}
+		if _, duplicate := seen[userID]; duplicate {
+			return nil, ErrInvalidArgument
+		}
+		seen[userID] = struct{}{}
+		userIDs = append(userIDs, userID)
+	}
+	facts, err := s.repository.GetScopedAccessBatch(ctx, query.Product.ProductID, tenantID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	byUser := make(map[string]AccessFact, len(facts))
+	for _, fact := range facts {
+		if fact.ProductID != query.Product.ProductID || fact.TenantID != tenantID || fact.ScopeType != scopeType {
+			return nil, ErrScopeMismatch
+		}
+		if _, requested := seen[fact.UserID]; !requested || (fact.Status != StatusActive && fact.Status != StatusSuspended) || fact.AccessVersion < 1 {
+			return nil, ErrInvalidArgument
+		}
+		if _, duplicate := byUser[fact.UserID]; duplicate {
+			return nil, ErrInvalidArgument
+		}
+		byUser[fact.UserID] = fact
+	}
+	result := make([]ScopedAccess, 0, len(userIDs))
+	for _, userID := range userIDs {
+		item := ScopedAccess{ScopeType: scopeType, ScopeID: scopeID, ProductID: query.Product.ProductID, TenantID: tenantID, UserID: userID, Status: StatusActive}
+		if fact, ok := byUser[userID]; ok {
+			changedAt := fact.StatusChangedAt
+			item.Status, item.Explicit, item.AccessVersion, item.StatusChangedAt = fact.Status, true, fact.AccessVersion, &changedAt
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
 func (s *Service) ClaimOutbox(ctx context.Context, limit int) ([]ClaimedOutboxEvent, error) {
 	if s == nil || s.repository == nil || limit < 1 || limit > 200 {
 		return nil, ErrInvalidArgument

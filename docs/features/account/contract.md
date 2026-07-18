@@ -51,6 +51,7 @@
 
 - `package.account@1.0.0` 当前生命周期为 `contracted`，`availability=[]`。
 - `000014` 建立 Identity 最终用户域；`000015` 建立 Product User Access；`000016` 至 `000022` 依次补齐用户认证、外部身份/安全通知、HostedInteraction 及其可信环境、租约和 actor session 形状。
+- `000023` 只增加 G2A-05 管理查询所需的 Identity 范围成员、活动排序和 Product User Access 状态索引；不建立跨模块读模型或第二套用户事实。
 - G2A-02 前不得提前创建相同含义的表；数据库只通过迁移变更。
 - 已发布 API/SDK 后保持向后兼容，字段废弃必须经过兼容窗口。
 
@@ -75,3 +76,31 @@
 - 注册验证与找回只通过 Notification security Port 投递；Identity 与 Account 不建立第二套通知 outbox。
 - Provider 未配置时入口能力投影为 disabled，调用返回稳定不可用错误；不得返回固定验证码、日志验证码或演示授权 URL。
 - HostedInteraction 真实后端已在 G2A-04.1 `verified`：修复提交 `eb89c1d`、机器报告提交 `35b38d6`、真实 PostgreSQL 确定性并发 `-count=3`、HTTP 组合流程、本地 Full 18/18、push run `29626935922` 与 PR run `29626937426` 均通过；历史失败 `29626127011` 和 P3 真实 runtime 负向回归缺口保留在总评。管理 Blocks、Hosted UI/用户 Blocks、SDK、能力配置、生成源码与装配回归仍留在 G2A-05 至 G2A-08/G2C；这些交付面未完成前不得把 `package.account` 晋级为 verified/available。
+
+## G2A-05 统一后台 Account Blocks 冻结补充
+
+### 范围用户读模型
+
+- 平台集合由 Identity 枚举 Global User；Product/Tenant 集合由 Identity 仅从本模块拥有的历史最终用户 Session 范围枚举真实成员，已撤销或已过期 Session 仍保留成员关系，避免停用后用户从管理列表消失。Product User Access 的显式覆盖事实本身不能创建成员关系。
+- Identity 公开管理查询 Port 返回 Global User 安全状态及版本、脱敏 identifier、profile、首次成员时间、最近活动时间和会话摘要；它不读取 Product User Access、Product、Tenant、Audit 或 Capability 表。
+- Product User Access 公开批量读 Port 只为候选 user IDs 返回目标 Product/Tenant 的显式覆盖；缺失事实投影为 `status=active, explicit=false, version=0`。它不读取 Identity 表。
+- 无持久表的 Account User Query Workflow 组合两个公开 Port。服务端 `query` 支持 user_id 或 display name 前缀，以及邮箱/手机号的规范化精确匹配；不得用 identifier 原文或 digest 做模糊扫描。`account_status` 和 `access_status` 过滤在组合层执行，opaque cursor 必须绑定 scope、规范化筛选条件和稳定排序位置；变更 scope 或筛选条件后旧 cursor 无效。
+- 列表和详情只接受 `adminrequest.Guard` 解析的可信 platform/product/tenant scope。Product/Tenant 详情必须先验证 Identity 范围成员关系；不存在与跨范围目标统一返回 `account_admin.scoped_user_not_found`，不得泄露其他范围用户是否存在。
+
+### 管理写操作
+
+- Product/Tenant 停用与恢复先验证范围成员关系，再调用 Product User Access 公开服务；禁止为未属于目标范围的 user_id 创建 orphan access fact。
+- Product/Tenant 管理员可使用 `product.user-access.manage` 撤销目标范围内指定用户的活动 Session；Identity 只按工作流传入的可信范围撤销，不扩大到其他 Product/Tenant。重复撤销同一范围为稳定幂等结果。
+- 全局 `active|locked|disabled` 变更和全局 Session 撤销仅允许 `identity.security.manage + platform scope`。Identity 在一个事务内校验 `expected_version`、更新 Global User 单调版本、按策略撤销全局 Session 并写安全 Outbox；Product 管理员不得看到或直调该操作。
+- 所有高风险写使用服务端 Admin Session 的 `auth_time` 判断近期认证，Cookie 写同时要求精确 Origin 与 CSRF。请求体不得提交或替代 `recent_auth_proof`。
+- 所有写要求 `Idempotency-Key`，返回首次稳定 `audit_id`。成功 UI 必须可跳转到该精确审计事件；Audit 事件尚在 Outbox 投递时显示有界 pending/retry，不得改用模糊 trace 查询冒充定位。
+
+### 路由、能力启用与错误
+
+- 管理集合：`GET /api/v1/admin/users`、`GET /api/v1/admin/products/{product_id}/users`、`GET /api/v1/admin/products/{product_id}/tenants/{tenant_id}/users`。
+- 管理详情：上述三个集合分别追加 `/{user_id}`；Product/Tenant 详情返回 scoped access 投影和该范围 Session 摘要，平台详情返回 Global User 安全投影。
+- 管理会话：详情下 `GET /sessions`，以及 `POST /sessions/revoke`；请求明确 `session_ids` 或 `all_active=true`，两者互斥，写入原因码并使用幂等键。
+- Product/Tenant Account 路由除 permission/scope 外还必须验证可信 Product CapabilitySet 已启用 `package.account`。未启用时菜单隐藏、旧书签不发业务请求、服务端直调返回 `account_admin.capability_not_enabled`；历史数据不得删除。
+- 稳定错误至少包括 `account_admin.invalid_filter`、`account_admin.invalid_cursor`、`account_admin.scoped_user_not_found`、`account_admin.capability_not_enabled`、`admin_auth.reauthentication_required`、`PRODUCT_USER_ACCESS_CONFLICT` 和 Identity 全局版本冲突。依赖瞬时失败必须可重试，不能清除管理会话。
+
+本补充冻结的是 G2A-05 实现边界，不改变 `package.account@1.0.0` 的 `contracted` 生命周期；管理 Blocks 完成也不能单独晋级完整能力包。
