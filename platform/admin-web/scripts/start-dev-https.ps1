@@ -141,12 +141,60 @@ function Assert-PrivateFileACL {
     }
 }
 
-function Set-PrivateFileACL {
+function Assert-SingleHardLink {
     param([string]$Path)
+    $fsutil = Join-Path $env:SystemRoot 'System32\fsutil.exe'
+    $fsutilItem = Get-Item -LiteralPath $fsutil -Force -ErrorAction Stop
+    if ($fsutilItem.PSIsContainer -or ($fsutilItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Windows hard-link validator must be a plain system executable.'
+    }
+    $links = @(& $fsutilItem.FullName hardlink list $Path 2>$null | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($LASTEXITCODE -ne 0 -or $links.Count -ne 1) {
+        throw 'Admin development TLS material must have exactly one hard link.'
+    }
+}
+
+function Initialize-NewPrivateFileOwner {
+    param([string]$Path)
+    $lexicalPath = [IO.Path]::GetFullPath($Path)
+    $parent = [IO.Path]::GetDirectoryName($lexicalPath)
+    if (-not $parent.Equals([IO.Path]::GetFullPath($TLSRoot), [StringComparison]::OrdinalIgnoreCase) -or
+        ($lexicalPath -ne [IO.Path]::GetFullPath($PFXPath) -and
+         $lexicalPath -ne [IO.Path]::GetFullPath($PasswordPath))) {
+        throw 'Admin development TLS owner initialization target is not an exact controlled file.'
+    }
+    Assert-NoReparseChain -Path $parent -Boundary $WorkspaceRoot
+    $item = Get-Item -LiteralPath $lexicalPath -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or $item -isnot [IO.FileInfo] -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Admin development TLS owner initialization target must be a plain regular file.'
+    }
+    $resolvedPath = (Resolve-Path -LiteralPath $lexicalPath -ErrorAction Stop).Path
+    if (-not $resolvedPath.Equals($lexicalPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Admin development TLS owner initialization target resolved to a different path.'
+    }
+    Assert-SingleHardLink -Path $resolvedPath
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $ownerAcl = Get-Acl -LiteralPath $resolvedPath -ErrorAction Stop
+    $ownerAcl.SetOwner($identity.User)
+    $item.SetAccessControl($ownerAcl)
+    Assert-SingleHardLink -Path $resolvedPath
+    if (-not (Test-FileOwnedByCurrentUser -Path $resolvedPath)) {
+        throw 'Admin development TLS file owner initialization failed.'
+    }
+}
+
+function Set-PrivateFileACL {
+    param(
+        [string]$Path,
+        [switch]$AllowNewFileOwnerInitialization
+    )
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $systemSID = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
     if (-not (Test-FileOwnedByCurrentUser -Path $Path)) {
-        throw 'Admin development TLS file is not owned by the current Windows user.'
+        if (-not $AllowNewFileOwnerInitialization) {
+            throw 'Admin development TLS file is not owned by the current Windows user.'
+        }
+        Initialize-NewPrivateFileOwner -Path $Path
     }
     $acl = New-Object Security.AccessControl.FileSecurity
     $acl.SetAccessRuleProtection($true, $false)
@@ -427,9 +475,21 @@ function New-TLSMaterial {
         $random.GetBytes($randomBytes)
         $passphrase = [Convert]::ToBase64String($randomBytes)
         $passwordBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($passphrase)
-        [IO.File]::WriteAllBytes($PasswordTarget, $passwordBytes)
+        $passwordStream = [IO.File]::Open(
+            $PasswordTarget,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        try {
+            $passwordStream.Write($passwordBytes, 0, $passwordBytes.Length)
+            $passwordStream.Flush()
+        }
+        finally {
+            $passwordStream.Dispose()
+        }
         $createdPassword = $true
-        Set-PrivateFileACL -Path $PasswordTarget
+        Set-PrivateFileACL -Path $PasswordTarget -AllowNewFileOwnerInitialization
 
         $securePassword = ConvertTo-SecureString -String $passphrase -AsPlainText -Force
         $certificate = New-SelfSignedCertificate `
@@ -445,9 +505,9 @@ function New-TLSMaterial {
                 '2.5.29.37={text}1.3.6.1.5.5.7.3.1'
             ) `
             -ErrorAction Stop
-        Export-PfxCertificate -Cert $certificate -FilePath $PFXTarget -Password $securePassword -ErrorAction Stop | Out-Null
+        Export-PfxCertificate -Cert $certificate -FilePath $PFXTarget -Password $securePassword -NoClobber -ErrorAction Stop | Out-Null
         $createdPFX = $true
-        Set-PrivateFileACL -Path $PFXTarget
+        Set-PrivateFileACL -Path $PFXTarget -AllowNewFileOwnerInitialization
     }
     catch {
         if ($createdPFX) { Remove-Item -LiteralPath $PFXTarget -Force -ErrorAction SilentlyContinue }
