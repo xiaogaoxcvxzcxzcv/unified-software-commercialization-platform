@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { build, createServer as createViteServer, loadConfigFromFile, preview, type HttpServer } from "vite";
 import { createServer as createHTTPServer, type Server } from "node:http";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { controlledBackendTarget } from "../vite.config";
@@ -86,7 +86,7 @@ describe("hosted Vite backend boundary", () => {
       await expectSecureHTML(devOrigin, true);
       await expectProxy(devOrigin, "dev", backend.requests);
       await expectSecureProxyResponses(devOrigin, "dev", backend.observedRequests);
-      const devEvidence = await runBrowser(browser!, hostedURLs(devOrigin), createTemporaryRoot("hosted-browser-dev-"));
+      const devEvidence = await runBrowser(browser!, hostedURLs(devOrigin), createBrowserProfile("hosted-browser-dev-"));
       expectStyledRuntime(devEvidence);
       expect(backend.requests.some((path) => path.includes("hint_auth_") && path.endsWith("/auth/bootstrap"))).toBe(true);
       expect(backend.requests.some((path) => path.includes("hint_account_") && path.endsWith("/account/bootstrap"))).toBe(true);
@@ -117,7 +117,7 @@ describe("hosted Vite backend boundary", () => {
       await expectSecureHTML(previewOrigin, false);
       await expectProxy(previewOrigin, "preview", backend.requests);
       await expectSecureProxyResponses(previewOrigin, "preview", backend.observedRequests);
-      expectStyledRuntime(await runBrowser(browser!, hostedURLs(previewOrigin), createTemporaryRoot("hosted-browser-preview-")));
+      expectStyledRuntime(await runBrowser(browser!, hostedURLs(previewOrigin), createBrowserProfile("hosted-browser-preview-")));
     } finally {
       await vite.close();
       if (previewServer) await closeServer(previewServer.httpServer);
@@ -125,8 +125,27 @@ describe("hosted Vite backend boundary", () => {
     }
   }, 180_000);
 
+  it("creates isolated private browser runtime paths within the POSIX socket budget", () => {
+    const first = createBrowserProfile("hosted-browser-first-");
+    const second = createBrowserProfile("hosted-browser-second-");
+    try {
+      expect(first).not.toBe(second);
+      if (process.platform === "win32") {
+        expect(first.startsWith(tmpdir())).toBe(true);
+        expect(browserEnvironment(first)).toBe(process.env);
+      } else {
+        expect(first).toMatch(/^\/tmp\/hbr-[^/]+$/);
+        expect(Buffer.byteLength(join(first, "com.google.Chrome.XXXXXX", "SingletonSocket"), "utf8")).toBeLessThan(108);
+        expect(browserEnvironment(first)).toMatchObject({ TMPDIR: first, TMP: first, TEMP: first });
+      }
+    } finally {
+      releaseTemporaryRoot(first);
+      releaseTemporaryRoot(second);
+    }
+  });
+
   it("fails immediately when the browser cannot start and removes its profile", async () => {
-    const profile = createTemporaryRoot("hosted-browser-startup-failure-");
+    const profile = createBrowserProfile("hosted-browser-startup-failure-");
     const missingBrowser = join(profile, "missing-browser");
     await expect(runBrowser(missingBrowser, ["http://127.0.0.1:1/ui/v1/auth?interaction_id=hint_auth_abcdefghijklmnopqrstuvwx"], profile, 1_000))
       .rejects.toThrow("browser startup failed before DevTools socket");
@@ -137,7 +156,7 @@ describe("hosted Vite backend boundary", () => {
   it("restores the browser PID baseline and removes its profile after a failed probe", async () => {
     const browser = findBrowser();
     expect(browser, "G2A-06 Hosted runtime smoke requires a system Chrome/Chromium or Edge executable in CI; install one before running npm test").toBeDefined();
-    const profile = createTemporaryRoot("hosted-browser-failure-");
+    const profile = createBrowserProfile("hosted-browser-failure-");
     await expect(runBrowser(browser!, ["http://127.0.0.1:1/ui/v1/auth?interaction_id=hint_auth_abcdefghijklmnopqrstuvwx"], profile, 1_000)).rejects.toThrow("browser page evidence timed out");
     expect(profileBrowserProcessIDs(profile)).toEqual([]);
     expect(existsSync(profile)).toBe(false);
@@ -361,6 +380,25 @@ function createTemporaryRoot(prefix: string): string {
   return root;
 }
 
+function createBrowserProfile(prefix: string): string {
+  const root = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", process.platform === "win32" ? prefix : "hbr-"));
+  temporaryRoots.push(root);
+  if (process.platform !== "win32") {
+    const metadata = lstatSync(root);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0) {
+      releaseTemporaryRoot(root);
+      throw new Error("Hosted browser profile must be a private regular directory");
+    }
+  }
+  return root;
+}
+
+function browserEnvironment(profile: string): NodeJS.ProcessEnv {
+  return process.platform === "win32"
+    ? process.env
+    : { ...process.env, TMPDIR: profile, TMP: profile, TEMP: profile };
+}
+
 function findBrowser(): string | undefined {
   const candidates = process.platform === "win32"
     ? [
@@ -417,7 +455,11 @@ async function runBrowser(browser: string, urls: readonly string[], profile: str
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
     "about:blank",
-  ], { windowsHide: true, detached: process.platform !== "win32" });
+  ], {
+    windowsHide: true,
+    detached: process.platform !== "win32",
+    env: browserEnvironment(profile),
+  });
   let stderr = "";
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
   const exit = new Promise<number | null>((resolveExit) => {
