@@ -203,9 +203,30 @@ function Assert-PrivateDirectoryACL {
 }
 
 function Set-PrivateDirectoryACL {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [switch]$AllowEmptyDirectoryOwnerInitialization
+    )
     if (-not (Test-FileOwnedByCurrentUser -Path $Path)) {
-        throw 'Admin development TLS user directory is not owned by the current Windows user.'
+        if (-not $AllowEmptyDirectoryOwnerInitialization) {
+            throw 'Admin development TLS user directory is not owned by the current Windows user.'
+        }
+        # Hosted Windows runners can materialize an empty workspace directory under
+        # an inherited Administrators owner. Only take ownership of the exact,
+        # SID-scoped directory while it is empty; existing TLS material is never
+        # silently adopted from another owner.
+        $children = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop)
+        if ($children.Count -ne 0) {
+            throw 'Admin development TLS user directory is not owned by the current Windows user.'
+        }
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        $ownerAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $ownerAcl.SetOwner($identity.User)
+        $item.SetAccessControl($ownerAcl)
+        if (-not (Test-FileOwnedByCurrentUser -Path $Path)) {
+            throw 'Admin development TLS user directory owner initialization failed.'
+        }
     }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $systemSID = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
@@ -449,7 +470,7 @@ function Ensure-TLSMaterial {
     Ensure-ControlledDirectory -Path $RuntimeRoot -Parent $WorkspaceRoot -Boundary $WorkspaceRoot
     Ensure-ControlledDirectory -Path $TLSBaseRoot -Parent $RuntimeRoot -Boundary $WorkspaceRoot
     Ensure-ControlledDirectory -Path $TLSRoot -Parent $TLSBaseRoot -Boundary $WorkspaceRoot
-    Set-PrivateDirectoryACL -Path $TLSRoot
+    Set-PrivateDirectoryACL -Path $TLSRoot -AllowEmptyDirectoryOwnerInitialization
 
     $pfxExists = Test-Path -LiteralPath $PFXPath -PathType Leaf
     $passwordExists = Test-Path -LiteralPath $PasswordPath -PathType Leaf

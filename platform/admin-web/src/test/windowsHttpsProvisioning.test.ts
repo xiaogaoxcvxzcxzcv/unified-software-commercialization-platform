@@ -198,7 +198,11 @@ function createSandbox(options: { createTLSDirectory?: boolean; includeHostedScr
   const tlsRoot = join(tlsBaseRoot, `user-${normalizedSID}`);
   mkdirSync(scripts, { recursive: true });
   mkdirSync(join(root, ".runtime"), { recursive: true });
-  if (options.createTLSDirectory !== false) mkdirSync(tlsBaseRoot, { recursive: true });
+  if (options.createTLSDirectory !== false) {
+    mkdirSync(tlsBaseRoot, { recursive: true });
+    mkdirSync(tlsRoot, { recursive: true });
+    setCurrentOwner(tlsRoot);
+  }
   const scriptPath = join(scripts, "start-dev-https.ps1");
   copyFileSync(sourceScript, scriptPath);
   let hostedScriptPath: string | undefined;
@@ -215,6 +219,21 @@ function createSandbox(options: { createTLSDirectory?: boolean; includeHostedScr
     pfxPath: join(tlsRoot, "admin-web.pfx"),
     passwordPath: join(tlsRoot, "admin-web-pfx-password.txt"),
   };
+}
+
+function setCurrentOwner(path: string) {
+  const sidResult = spawnSync("powershell.exe", ["-NoProfile", "-Command", "[Security.Principal.WindowsIdentity]::GetCurrent().User.Value"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  expect(sidResult.status, `${sidResult.stdout}${sidResult.stderr}`).toBe(0);
+  const sid = sidResult.stdout.trim();
+  expect(sid).toMatch(/^S-1-/);
+  const result = spawnSync("icacls.exe", [path, "/setowner", `*${sid}`, "/C"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
 }
 
 function runScript(sandbox: ReturnType<typeof createSandbox>, args: string[], environment: Record<string, string> = {}) {
