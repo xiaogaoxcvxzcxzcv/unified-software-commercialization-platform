@@ -12,12 +12,12 @@
 
 ## 当前状态
 
-- 当前阶段：F0、G1、G2A-01 至 G2A-05 已退出；`package.account` 仍为 contracted。G2A-06 用户前台 Account Blocks 已通过本地真实 PostgreSQL、HTTPS 浏览器、多视口、响应头和 Full 20/20 验收，当前唯一关口仍为 `in_progress`，等待当前提交的托管 required check 后裁决；G2A-07 保持 `planned`。真实工具/能力包版本尚未发布，普通创建入口继续真实空状态并失败关闭。
+- 当前阶段：F0、G1、G2A-01 至 G2A-06 已退出；`package.account` 仍为 contracted。G2A-06 用户前台 Account Blocks 已通过本地真实 PostgreSQL、HTTPS 浏览器、多视口、响应头、Full 20/20 与托管 required check；下一唯一关口是仍为 `planned`、尚未开始的 G2A-07。真实工具/能力包版本尚未发布，普通创建入口继续真实空状态并失败关闭。
 - 正式代码目录：`platform/`。
-- HostedInteraction 是独立短期编排模块：拥有 interaction、浏览器会话、恢复投影和完成 grant；只通过公开服务调用 Identity、Product Application 及后续业务模块，不拥有用户、回跳白名单、订单、支付或权益事实。G2A-04.1 已完成后端边界的本地与托管验证；G2A-06 Hosted UI 交付面已通过本地真实浏览器与 Full 20/20，等待当前提交的托管 required check。两者都不得误报为完整 Account 包已完成。
+- HostedInteraction 是独立短期编排模块：拥有 interaction、浏览器会话、恢复投影和完成 grant；只通过公开服务调用 Identity、Product Application 及后续业务模块，不拥有用户、回跳白名单、订单、支付或权益事实。G2A-04.1 已完成后端边界验证；G2A-06 Hosted UI 交付面已通过本地真实浏览器、Full 20/20 与托管 required check。两者都不得误报为完整 Account 包已完成。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
 - 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建/恢复 Client、`/create` 五步向导、真实 Product 工作区和 `/assemblies` 连接真实后端，未标记 ready 的业务页面仍不得混同为生产数据源。
-- Assembly 后端执行/恢复闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选、创建向导、单款软件工作区和 lifecycle API 已实现；lifecycle 已通过本地与托管 CI 验证。Account 管理端两个 Block 已 verified，用户端六个 Block 已完成本地验证；Account SDK 专用方法、配置、Generated Source、包内九面和首个装配验收软件尚未实现，当前仍不能声称“勾选能力即可得到完整前后台”。
+- Assembly 后端执行/恢复闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选、创建向导、单款软件工作区和 lifecycle API 已实现；lifecycle 已通过本地与托管 CI 验证。Account 管理端两个 Block 与用户端六个 Block 已 verified；Account SDK 专用方法、配置、Generated Source、包内九面和首个装配验收软件尚未实现，当前仍不能声称“勾选能力即可得到完整前后台”。
 - product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
 - 后端、OpenAPI、SDK、Hosted UI 和真实 Provider 接入以代码、自动化测试及冒烟记录为完成依据，不能以菜单或文档存在代替实现。
 - 产品范围和优先级以 `docs/product-scope.md` 为准。

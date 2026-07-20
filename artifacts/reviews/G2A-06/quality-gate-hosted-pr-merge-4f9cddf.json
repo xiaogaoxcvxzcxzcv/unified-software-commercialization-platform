@@ -1,0 +1,146 @@
+{
+  "schema_version": 2,
+  "generated_at_utc": "2026-07-20T10:12:39.4592776Z",
+  "mode": "Full",
+  "require_postgres": true,
+  "git_commit": "4f9cddf00e29861b9b46d4c245e16ce346cfaca2",
+  "reproducible_commit": true,
+  "worktree": {
+    "status_available": true,
+    "clean": true,
+    "tracked_modified_count": 0,
+    "staged_change_count": 0,
+    "unstaged_change_count": 0,
+    "untracked_count": 0,
+    "diff": {
+      "available": true,
+      "files_changed": 0,
+      "insertions": 0,
+      "deletions": 0,
+      "binary_files": 0
+    }
+  },
+  "passed": true,
+  "steps": [
+    {
+      "name": "Git whitespace check",
+      "status": "passed",
+      "duration_ms": 147,
+      "message": ""
+    },
+    {
+      "name": "Strict UTF-8",
+      "status": "passed",
+      "duration_ms": 7082,
+      "message": ""
+    },
+    {
+      "name": "Migration naming and pairing",
+      "status": "passed",
+      "duration_ms": 31,
+      "message": ""
+    },
+    {
+      "name": "Local documentation links",
+      "status": "passed",
+      "duration_ms": 5313,
+      "message": ""
+    },
+    {
+      "name": "Secret pattern scan",
+      "status": "passed",
+      "duration_ms": 5429,
+      "message": ""
+    },
+    {
+      "name": "OpenAPI contract",
+      "status": "passed",
+      "duration_ms": 52,
+      "message": ""
+    },
+    {
+      "name": "PostgreSQL test environment",
+      "status": "passed",
+      "duration_ms": 2,
+      "message": ""
+    },
+    {
+      "name": "Machine contract schemas",
+      "status": "passed",
+      "duration_ms": 520,
+      "message": ""
+    },
+    {
+      "name": "Machine capability and template catalogs",
+      "status": "passed",
+      "duration_ms": 2565,
+      "message": ""
+    },
+    {
+      "name": "Go test",
+      "status": "passed",
+      "duration_ms": 64489,
+      "message": ""
+    },
+    {
+      "name": "Go vet",
+      "status": "passed",
+      "duration_ms": 2297,
+      "message": ""
+    },
+    {
+      "name": "Client SDK tests",
+      "status": "passed",
+      "duration_ms": 1161,
+      "message": ""
+    },
+    {
+      "name": "Client SDK build",
+      "status": "passed",
+      "duration_ms": 1002,
+      "message": ""
+    },
+    {
+      "name": "Client UI tests",
+      "status": "passed",
+      "duration_ms": 5741,
+      "message": ""
+    },
+    {
+      "name": "Client UI build",
+      "status": "passed",
+      "duration_ms": 2161,
+      "message": ""
+    },
+    {
+      "name": "Standard-A template smoke",
+      "status": "passed",
+      "duration_ms": 54952,
+      "message": ""
+    },
+    {
+      "name": "Admin Vitest",
+      "status": "passed",
+      "duration_ms": 15427,
+      "message": ""
+    },
+    {
+      "name": "Admin production build",
+      "status": "passed",
+      "duration_ms": 10652,
+      "message": ""
+    },
+    {
+      "name": "Hosted Web Vitest",
+      "status": "passed",
+      "duration_ms": 26375,
+      "message": ""
+    },
+    {
+      "name": "Hosted Web production build",
+      "status": "passed",
+      "duration_ms": 7479,
+      "message": ""
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 # G2A-06 Hosted Account Blocks 验收
 
-日期：2026-07-19
+日期：2026-07-20
 
-状态：本地验收通过，等待当前提交的托管 required check 后裁决 `verified`。
+状态：G2A-06 于提交 `000e895f470ef32feea78443bb0839dddac7109e` 验证通过。PR #14 仍为 draft，未合并或发布。
 
 ## 验收范围
 
@@ -44,16 +44,26 @@
 | account bootstrap | 200 | no-store | 无 | 无 |
 | account complete | 200 | no-store | 无 | 无 |
 
-自动化同时覆盖 dev/preview 的精确 Origin HTML、无 Origin GET、精确 Origin POST 和 403 拒绝响应，并验证 method、path、Origin、状态和 JSON body 均未被代理改写。安全复审 P0=0、P1=0；非阻塞 P2 是极早期测试资源初始化失败时可进一步加固清理顺序，不影响生产运行时或本次真实浏览器结果。
+自动化同时覆盖 dev/preview 的精确 Origin HTML、无 Origin GET、精确 Origin POST 和 403 拒绝响应，并验证 method、path、Origin、状态和 JSON body 均未被代理改写。最终安全与跨平台复审为 P0=0、P1=0、P2=0；浏览器启动失败、页面探针失败、进程树、PID 基线、私有 profile 和临时目录清理均有自动化覆盖。
 
 ## 自动化
 
-- Full `-RequirePostgres`：20/20 步通过，报告为 `quality-gate-full-postgres-g2a06-final.json`。
+- 本地基线提交 `72933b45cdbfc71fcf906857f03025874fa9aa66` 的 clean Full `-RequirePostgres`：20/20 个门禁步骤通过，原始报告为 `quality-gate-full-postgres-g2a06-final.json`。
 - OpenAPI：118 paths、124 operations、124 unique operationIds。
-- Client SDK：8/8；Client UI：123/123；Admin：158/158；Hosted Web：52/52。
+- Client SDK：8/8；Client UI：123/123；Admin：158/158。
+- Hosted Web 总计 54 项：Linux Full 为 46 passed + 8 个 Windows-only platform-skipped；独立 Windows TLS 作业 8/8 passed。
 - Standard-A：Web 与 desktop WebView 均为 7/7，并完成生产构建。
 - Admin 与 Hosted 生产构建通过；Hosted 构建转换 6198 modules。
 - Full 门禁使用详细 Go 输出确认真实 PostgreSQL 测试已执行，未出现缺失数据库的 skip marker。
+
+## 托管门禁证据
+
+- main 保护为 `strict:true`，唯一 required context 是 `quality-gate`；`windows-tls` 是质量门禁的前置平台作业，不冒充 branch protection context。
+- [push run 29733848060](https://github.com/xiaogaoxcvxzcxzcv/unified-software-commercialization-platform/actions/runs/29733848060) 的 `windows-tls` 与 `quality-gate` 均为 `success`。原始 clean Full 20/20 报告精确引用分支 HEAD `000e895f470ef32feea78443bb0839dddac7109e`，见 `quality-gate-hosted-push-000e895.json`。
+- [PR run 29733850624](https://github.com/xiaogaoxcvxzcxzcv/unified-software-commercialization-platform/actions/runs/29733850624) 的 `windows-tls` 与 `quality-gate` 均为 `success`。原始 clean Full 20/20 报告引用 GitHub 合并态提交 `4f9cddf00e29861b9b46d4c245e16ce346cfaca2`，见 `quality-gate-hosted-pr-merge-4f9cddf.json`。
+- 两条 Linux Full 的 `vite-config.test.ts` 均为 16/16；两条 Windows 前置作业均通过 Admin 与 Hosted TLS 专项。
+- 历史失败先后暴露 Windows TLS owner、浏览器启动诊断和 Linux Chrome Unix socket 路径过长问题；修复没有跳过真实浏览器、降低安全断言或修改 required context。
+- CI 证据支持当前 runner/browser 组合，不宣称形成长期多版本 Chrome 矩阵；依赖漏洞评估属于独立供应链工作，不在本关结论内。
 
 ## 裁决边界
 
