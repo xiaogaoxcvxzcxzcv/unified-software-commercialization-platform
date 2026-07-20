@@ -123,13 +123,22 @@ describe("hosted Vite backend boundary", () => {
       if (previewServer) await closeServer(previewServer.httpServer);
       await closeServer(backend.server);
     }
-  }, 90_000);
+  }, 180_000);
+
+  it("fails immediately when the browser cannot start and removes its profile", async () => {
+    const profile = createTemporaryRoot("hosted-browser-startup-failure-");
+    const missingBrowser = join(profile, "missing-browser");
+    await expect(runBrowser(missingBrowser, ["http://127.0.0.1:1/ui/v1/auth?interaction_id=hint_auth_abcdefghijklmnopqrstuvwx"], profile, 1_000))
+      .rejects.toThrow("browser startup failed before DevTools socket");
+    expect(profileBrowserProcessIDs(profile)).toEqual([]);
+    expect(existsSync(profile)).toBe(false);
+  }, 10_000);
 
   it("restores the browser PID baseline and removes its profile after a failed probe", async () => {
     const browser = findBrowser();
     expect(browser, "G2A-06 Hosted runtime smoke requires a system Chrome/Chromium or Edge executable in CI; install one before running npm test").toBeDefined();
     const profile = createTemporaryRoot("hosted-browser-failure-");
-    await expect(runBrowser(browser!, ["http://127.0.0.1:1/ui/v1/auth?interaction_id=hint_auth_abcdefghijklmnopqrstuvwx"], profile, 1_000)).rejects.toThrow("browser runtime smoke timed out");
+    await expect(runBrowser(browser!, ["http://127.0.0.1:1/ui/v1/auth?interaction_id=hint_auth_abcdefghijklmnopqrstuvwx"], profile, 1_000)).rejects.toThrow("browser page evidence timed out");
     expect(profileBrowserProcessIDs(profile)).toEqual([]);
     expect(existsSync(profile)).toBe(false);
   }, 30_000);
@@ -366,6 +375,31 @@ function findBrowser(): string | undefined {
   });
 }
 
+function readBrowserSocket(profile: string, stderr: string): string | undefined {
+  const activePortPath = join(profile, "DevToolsActivePort");
+  if (existsSync(activePortPath)) {
+    const [portValue, socketPath] = readFileSync(activePortPath, "utf8").trim().split(/\r?\n/);
+    const port = Number(portValue);
+    if (Number.isInteger(port) && port > 0 && port <= 65_535 && /^\/devtools\/browser\/[A-Za-z0-9-]+$/.test(socketPath ?? "")) {
+      return `ws://127.0.0.1:${port}${socketPath}`;
+    }
+  }
+  return /DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[A-Za-z0-9-]+)/.exec(stderr)?.[1];
+}
+
+function browserStartupFailure(browser: string, profile: string, reason: string, stderr: string): Error {
+  const browserName = browser.split(/[\\/]/).at(-1) ?? "browser";
+  let detail = stderr.slice(-1_000);
+  for (const [value, replacement] of [[profile, "<profile>"], [process.cwd(), "<cwd>"], [tmpdir(), "<tmp>"]] as const) {
+    for (const variant of new Set([value, value.replaceAll("\\", "/"), value.replaceAll("/", "\\")])) {
+      const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      detail = detail.replace(new RegExp(escaped, "gi"), replacement);
+    }
+  }
+  detail = detail.replace(/\s+/g, " ").trim();
+  return new Error(`browser startup failed before DevTools socket (${browserName}; ${reason})${detail ? `: ${detail}` : ""}`);
+}
+
 async function runBrowser(browser: string, urls: readonly string[], profile: string, pageTimeoutMilliseconds = 15_000): Promise<BrowserEvidence> {
   const baselineProfilePIDs = new Set(profileBrowserProcessIDs(profile));
   if (baselineProfilePIDs.size !== 0) throw new Error("browser profile PID baseline was not empty");
@@ -386,17 +420,33 @@ async function runBrowser(browser: string, urls: readonly string[], profile: str
   ], { windowsHide: true, detached: process.platform !== "win32" });
   let stderr = "";
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
-  const exit = new Promise<number | null>((resolveExit, reject) => {
-    child.once("error", reject);
+  const exit = new Promise<number | null>((resolveExit) => {
+    child.once("error", () => resolveExit(null));
     child.once("exit", resolveExit);
   });
+  const startupFailure = new Promise<never>((_, reject) => {
+    child.once("error", (error) => reject(browserStartupFailure(browser, profile, (error as NodeJS.ErrnoException).code ?? error.name, stderr)));
+    child.once("exit", (code, signal) => reject(browserStartupFailure(browser, profile, `exit=${code ?? "null"}, signal=${signal ?? "none"}`, stderr)));
+  });
   try {
-    const browserSocket = await waitForValue(() => /DevTools listening on (ws:\/\/[^\s]+)/.exec(stderr)?.[1], 10_000);
+    const browserSocket = await Promise.race([
+      waitForValue(() => readBrowserSocket(profile, stderr), 30_000, () => browserStartupFailure(browser, profile, "timeout=30000ms", stderr).message),
+      startupFailure,
+    ]);
     const debuggerOrigin = new URL(browserSocket).origin.replace("ws:", "http:");
-    const pageSocket = await waitForValue(async () => {
-      const targets = await fetch(`${debuggerOrigin}/json/list`).then((response) => response.json()) as Array<{ readonly type?: string; readonly url?: string; readonly webSocketDebuggerUrl?: string }>;
-      return targets.find((target) => target.type === "page")?.webSocketDebuggerUrl;
-    }, 10_000);
+    const pageSocket = await Promise.race([
+      waitForValue(async () => {
+        try {
+          const response = await fetch(`${debuggerOrigin}/json/list`, { signal: AbortSignal.timeout(2_000) });
+          if (!response.ok) return undefined;
+          const targets = await response.json() as Array<{ readonly type?: string; readonly url?: string; readonly webSocketDebuggerUrl?: string }>;
+          return targets.find((target) => target.type === "page")?.webSocketDebuggerUrl;
+        } catch {
+          return undefined;
+        }
+      }, 15_000, "browser page target timed out"),
+      startupFailure,
+    ]);
     const session = await CDPSession.connect(pageSocket);
     const pages: BrowserPageEvidence[] = [];
     try {
@@ -407,7 +457,14 @@ async function runBrowser(browser: string, urls: readonly string[], profile: str
       await session.command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
       for (const url of urls) {
         await session.command("Page.navigate", { url });
-        pages.push(await waitForValue(() => readPageEvidence(session, url), pageTimeoutMilliseconds));
+        pages.push(await Promise.race([
+          waitForValue(
+            () => readPageEvidence(session, url),
+            pageTimeoutMilliseconds,
+            () => `browser page evidence timed out (${new URL(url).pathname}; requests=${session.requests.length}; errors=${session.errors.length})`,
+          ),
+          startupFailure,
+        ]));
       }
     } finally {
       session.close();
@@ -418,7 +475,7 @@ async function runBrowser(browser: string, urls: readonly string[], profile: str
     return { pages, consoleErrors: session.errors, stderr, processBaselineRestored: true, profileRemoved: true, networkRequests: session.requests };
   } finally {
     terminateProcessTree(child.pid);
-    await Promise.race([exit.catch(() => null), new Promise<null>((resolveWait) => setTimeout(() => resolveWait(null), 5_000))]);
+    await Promise.race([exit, new Promise<null>((resolveWait) => setTimeout(() => resolveWait(null), 5_000))]);
     await terminateProfileProcesses(profile, baselineProfilePIDs);
     releaseTemporaryRoot(profile);
   }
@@ -468,14 +525,14 @@ async function readPageEvidence(session: CDPSession, expectedURL: string): Promi
   return value && value.cssRuleCount > 0 ? value : undefined;
 }
 
-async function waitForValue<T>(read: () => T | undefined | Promise<T | undefined>, timeoutMilliseconds: number): Promise<T> {
+async function waitForValue<T>(read: () => T | undefined | Promise<T | undefined>, timeoutMilliseconds: number, timeoutMessage: string | (() => string)): Promise<T> {
   const deadline = Date.now() + timeoutMilliseconds;
   do {
     const value = await read();
     if (value !== undefined) return value;
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   } while (Date.now() < deadline);
-  throw new Error("browser runtime smoke timed out");
+  throw new Error(typeof timeoutMessage === "string" ? timeoutMessage : timeoutMessage());
 }
 
 class CDPSession {
