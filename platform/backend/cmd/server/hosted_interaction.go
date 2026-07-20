@@ -23,7 +23,7 @@ type hostedInteractionRuntime struct {
 	handler *hostedhttp.Handler
 }
 
-func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Pool, products *product.Service, applications *productapplication.Service, users *identity.EndUserService, clientHasher securevalue.Hasher) (hostedInteractionRuntime, error) {
+func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Pool, products *product.Service, applications *productapplication.Service, users *identity.EndUserService, clientHasher securevalue.Hasher, registrationVerification ...*identity.RegistrationVerificationService) (hostedInteractionRuntime, error) {
 	if pool == nil || products == nil || applications == nil || users == nil || !clientHasher.Configured() {
 		return hostedInteractionRuntime{}, errors.New("hosted interaction dependencies are required")
 	}
@@ -36,7 +36,11 @@ func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Poo
 	if err != nil {
 		return hostedInteractionRuntime{}, err
 	}
-	identityAdapter := hostedIdentityAdapter{users: users}
+	var verification *identity.RegistrationVerificationService
+	if len(registrationVerification) > 0 {
+		verification = registrationVerification[0]
+	}
+	identityAdapter := hostedIdentityAdapter{users: users, verification: verification}
 	service, err := hostedinteraction.NewServiceWithPolicy(
 		hostedpostgres.New(pool),
 		hostedReturnTargetAdapter{applications: applications},
@@ -54,6 +58,9 @@ func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Poo
 		},
 	)
 	if err != nil {
+		return hostedInteractionRuntime{}, err
+	}
+	if err := service.ConfigureSelfService(identityAdapter, hostedPresentationAdapter{products: products}); err != nil {
 		return hostedInteractionRuntime{}, err
 	}
 	httpAdapter := hostedHTTPServiceAdapter{service: service}
@@ -92,7 +99,110 @@ func (a hostedReturnTargetAdapter) ResolveHostedReturnTarget(ctx context.Context
 	return hostedinteraction.ReturnTarget{ProductID: value.ProductID, ApplicationID: value.ApplicationID, Code: value.Code, URI: value.URI, PolicyVersion: value.PolicyVersion, Kind: string(value.Kind)}, nil
 }
 
-type hostedIdentityAdapter struct{ users *identity.EndUserService }
+type hostedIdentityAdapter struct {
+	users        *identity.EndUserService
+	verification *identity.RegistrationVerificationService
+}
+
+type hostedPresentationAdapter struct{ products *product.Service }
+
+func (a hostedPresentationAdapter) ResolveHostedPresentation(ctx context.Context, scope hostedinteraction.Scope) (hostedinteraction.HostedPresentation, error) {
+	value, err := a.products.GetProduct(ctx, scope.ProductID)
+	if err != nil {
+		return hostedinteraction.HostedPresentation{}, err
+	}
+	return hostedinteraction.HostedPresentation{ProductName: value.Name}, nil
+}
+
+func (a hostedIdentityAdapter) Capabilities(_ context.Context, _ hostedinteraction.Scope) hostedinteraction.HostedCapabilities {
+	c := a.users.HostedSelfServiceCapabilities()
+	return hostedinteraction.HostedCapabilities{Password: c.PasswordEnabled, Registration: c.RegistrationEnabled && a.verification != nil, Recovery: c.RecoveryEnabled, Profile: true, Sessions: true, AccountCompletion: true}
+}
+func (a hostedIdentityAdapter) StartRegistrationVerification(ctx context.Context, scope hostedinteraction.Scope, identifier, key, traceID string) (string, error) {
+	if a.verification == nil {
+		return "", hostedinteraction.ErrTemporarilyUnavailable
+	}
+	v, e := a.verification.Start(ctx, identity.StartRegistrationVerificationCommand{Scope: identityScope(scope), Identifier: identifier, IdempotencyKey: key, TraceID: traceID})
+	return v, mapHostedIdentitySelfServiceError(e)
+}
+func (a hostedIdentityAdapter) RegisterHosted(ctx context.Context, scope hostedinteraction.Scope, identifier, credential, continuation, proof, displayName, key, traceID string) (hostedinteraction.HostedAuthProof, error) {
+	v, err := a.users.RegisterHosted(ctx, identity.EndUserRegisterCommand{Scope: identityScope(scope), Identifier: identifier, Credential: credential, VerificationContinuationID: continuation, VerificationProof: proof, DisplayName: displayName, IdempotencyKey: key, TraceID: traceID})
+	if err != nil {
+		return hostedinteraction.HostedAuthProof{}, mapHostedIdentitySelfServiceError(err)
+	}
+	return hostedinteraction.HostedAuthProof{ProofID: v.ProofID, AuthTime: v.AuthTime, ExpiresAt: v.ExpiresAt}, nil
+}
+func (a hostedIdentityAdapter) StartRecovery(ctx context.Context, scope hostedinteraction.Scope, identifier, key, traceID string) (string, error) {
+	v, e := a.users.StartRecovery(ctx, identity.StartEndUserRecoveryCommand{Scope: identityScope(scope), Identifier: identifier, IdempotencyKey: key, TraceID: traceID})
+	return v, mapHostedIdentitySelfServiceError(e)
+}
+func (a hostedIdentityAdapter) CompleteRecovery(ctx context.Context, scope hostedinteraction.Scope, continuation, proof, credential, key, traceID string) error {
+	return mapHostedIdentitySelfServiceError(a.users.CompleteRecovery(ctx, identity.CompleteEndUserRecoveryCommand{Scope: identityScope(scope), Continuation: continuation, Proof: proof, NewCredential: credential, IdempotencyKey: key, TraceID: traceID}))
+}
+func hostedExpectation(scope hostedinteraction.Scope, actor hostedinteraction.Actor) identity.HostedSessionExpectation {
+	return identity.HostedSessionExpectation{Scope: identityScope(scope), UserID: actor.UserID, SessionID: actor.UserSessionID}
+}
+func mapHostedProfile(v identity.EndUserProfile) hostedinteraction.HostedUserProfile {
+	d := v.DisplayName
+	return hostedinteraction.HostedUserProfile{UserID: v.UserID, Version: v.Version, DisplayName: &d, AvatarURL: v.AvatarRef, Locale: v.Locale, Timezone: v.Timezone}
+}
+func (a hostedIdentityAdapter) GetProfile(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor) (hostedinteraction.HostedUserProfile, error) {
+	v, e := a.users.GetHostedProfile(ctx, hostedExpectation(scope, actor))
+	return mapHostedProfile(v), mapHostedIdentitySelfServiceError(e)
+}
+func (a hostedIdentityAdapter) PatchProfile(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor, p hostedinteraction.HostedProfilePatch, version int64, key, traceID string) (hostedinteraction.HostedUserProfile, error) {
+	v, e := a.users.PatchHostedProfile(ctx, hostedExpectation(scope, actor), identity.EndUserProfilePatch{DisplayName: identity.EndUserProfilePatchValue{Set: p.DisplayName.Set, Value: p.DisplayName.Value}, AvatarRef: identity.EndUserProfilePatchValue{Set: p.AvatarURL.Set, Value: p.AvatarURL.Value}, Locale: identity.EndUserProfilePatchValue{Set: p.Locale.Set, Value: p.Locale.Value}, Timezone: identity.EndUserProfilePatchValue{Set: p.Timezone.Set, Value: p.Timezone.Value}}, version, key, traceID)
+	if errors.Is(e, identity.ErrEndUserVersionConflict) {
+		return hostedinteraction.HostedUserProfile{}, hostedinteraction.ErrVersionConflict
+	}
+	return mapHostedProfile(v), mapHostedIdentitySelfServiceError(e)
+}
+func (a hostedIdentityAdapter) ListSessions(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor) ([]hostedinteraction.HostedSessionSummary, error) {
+	v, e := a.users.ListHostedSessions(ctx, hostedExpectation(scope, actor))
+	if e != nil {
+		return nil, mapHostedIdentitySelfServiceError(e)
+	}
+	out := make([]hostedinteraction.HostedSessionSummary, 0, len(v))
+	for _, x := range v {
+		out = append(out, hostedinteraction.HostedSessionSummary{SessionID: x.SessionID, Current: x.Current, CreatedAt: x.CreatedAt, LastSeenAt: x.LastSeenAt, ExpiresAt: x.ExpiresAt})
+	}
+	return out, nil
+}
+func (a hostedIdentityAdapter) ListExternalIdentities(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor) ([]hostedinteraction.HostedExternalIdentity, error) {
+	v, e := a.users.ListHostedExternalIdentities(ctx, hostedExpectation(scope, actor))
+	if e != nil {
+		return nil, mapHostedIdentitySelfServiceError(e)
+	}
+	out := make([]hostedinteraction.HostedExternalIdentity, 0, len(v))
+	for _, x := range v {
+		masked := x.SubjectMasked
+		out = append(out, hostedinteraction.HostedExternalIdentity{ExternalIdentityID: x.ExternalIdentityID, Provider: x.Provider, MaskedSubject: &masked, Status: x.Status, LinkedAt: x.LinkedAt})
+	}
+	return out, nil
+}
+func (a hostedIdentityAdapter) ChangePassword(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor, current, next string, revoke bool, key, traceID string) error {
+	return mapHostedIdentitySelfServiceError(a.users.ChangeHostedPassword(ctx, hostedExpectation(scope, actor), current, next, revoke, key, traceID))
+}
+func (a hostedIdentityAdapter) RevokeSession(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor, target, key, traceID string) error {
+	return mapHostedIdentitySelfServiceError(a.users.RevokeHostedSession(ctx, hostedExpectation(scope, actor), target, key, traceID))
+}
+
+func mapHostedIdentitySelfServiceError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, identity.ErrEndUserVersionConflict):
+		return hostedinteraction.ErrIdempotencyConflict
+	case errors.Is(err, identity.ErrEndUserInvalidCredentials), errors.Is(err, identity.ErrEndUserReauthenticationRequired), errors.Is(err, identity.ErrEndUserRateLimited), errors.Is(err, identity.ErrRegistrationVerificationInvalid), errors.Is(err, identity.ErrRegistrationVerificationExpired), errors.Is(err, identity.ErrRegistrationVerificationReplayed):
+		return hostedinteraction.ErrAuthenticationNeeded
+	case errors.Is(err, identity.ErrEndUserScopeMismatch), errors.Is(err, identity.ErrEndUserSessionExpired), errors.Is(err, identity.ErrEndUserSessionRevoked), errors.Is(err, identity.ErrEndUserAccountDisabled), errors.Is(err, identity.ErrNotFound):
+		return hostedinteraction.ErrSessionRevoked
+	case errors.Is(err, identity.ErrEndUserProviderUnavailable), errors.Is(err, identity.ErrHostedAuthUnavailable):
+		return hostedinteraction.ErrTemporarilyUnavailable
+	default:
+		return err
+	}
+}
 
 func (a hostedIdentityAdapter) AuthenticateHosted(ctx context.Context, scope hostedinteraction.Scope, identifier, credential, source string, risk map[string]any, traceID string) (hostedinteraction.HostedAuthProof, error) {
 	value, err := a.users.AuthenticateHosted(ctx, identity.AuthenticateHostedCommand{Scope: identityScope(scope), Identifier: identifier, Credential: credential, Source: source, RiskSummary: risk, TraceID: traceID})
@@ -207,6 +317,8 @@ func mapHostedSessionAuthenticationError(err error) error {
 	switch {
 	case errors.Is(err, hostedinteraction.ErrInteractionExpired):
 		return hostedhttp.ErrInteractionExpired
+	case errors.Is(err, hostedinteraction.ErrInteractionTerminal):
+		return hostedhttp.ErrInteractionTerminal
 	case errors.Is(err, hostedinteraction.ErrSessionRevoked), errors.Is(err, hostedinteraction.ErrInvalidArgument):
 		return hostedhttp.ErrSessionRevoked
 	default:
@@ -264,6 +376,73 @@ func isUnavailableUserSession(err error) bool {
 
 type hostedHTTPServiceAdapter struct{ service *hostedinteraction.Service }
 
+func mapHTTPInteraction(v hostedinteraction.Projection) hostedhttp.Interaction {
+	return mapHostedProjection(v)
+}
+func mapHTTPPresentation(v hostedinteraction.HostedPresentation) hostedhttp.HostedPresentation {
+	return hostedhttp.HostedPresentation{ProductName: v.ProductName, ThemeVariant: v.ThemeVariant}
+}
+func mapHTTPProfile(v hostedinteraction.HostedUserProfile) hostedhttp.UserProfile {
+	return hostedhttp.UserProfile{UserID: v.UserID, Version: v.Version, DisplayName: v.DisplayName, AvatarURL: v.AvatarURL, Locale: v.Locale, Timezone: v.Timezone}
+}
+func (a hostedHTTPServiceAdapter) AuthBootstrap(ctx context.Context, p hostedhttp.HostedPrincipal, id string) (hostedhttp.HostedAuthBootstrap, error) {
+	v, e := a.service.AuthBootstrap(ctx, id, p.BrowserToken)
+	if e != nil {
+		return hostedhttp.HostedAuthBootstrap{}, mapHostedCoreError(e)
+	}
+	providers := make([]hostedhttp.HostedExternalProvider, 0, len(v.ExternalProviders))
+	for _, x := range v.ExternalProviders {
+		providers = append(providers, hostedhttp.HostedExternalProvider{Provider: x.Provider, Mode: x.Mode, DisplayName: x.DisplayName})
+	}
+	return hostedhttp.HostedAuthBootstrap{Interaction: mapHTTPInteraction(v.Interaction), Presentation: mapHTTPPresentation(v.Presentation), Flow: hostedhttp.HostedAuthFlow{Kind: v.Flow.Kind, IdentifierHint: v.Flow.IdentifierHint}, PasswordEnabled: v.PasswordEnabled, RegistrationEnabled: v.RegistrationEnabled, RecoveryEnabled: v.RecoveryEnabled, ExternalProviders: providers}, nil
+}
+func (a hostedHTTPServiceAdapter) StartRegistrationVerification(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.VerificationStartCommand) (hostedhttp.HostedAuthFlow, error) {
+	v, e := a.service.StartRegistrationVerification(ctx, id, p.BrowserToken, c.Identifier, c.IdempotencyKey, c.RequestID)
+	return hostedhttp.HostedAuthFlow{Kind: v.Kind, IdentifierHint: v.IdentifierHint}, mapHostedCoreError(e)
+}
+func (a hostedHTTPServiceAdapter) RegisterHosted(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.RegisterCommand) (hostedhttp.Completion, error) {
+	v, e := a.service.RegisterHosted(ctx, hostedinteraction.RegisterHostedCommand{InteractionID: id, BrowserToken: p.BrowserToken, Credential: c.Credential, Proof: c.Proof, DisplayName: c.DisplayName, IdempotencyKey: c.IdempotencyKey, TraceID: c.RequestID})
+	if e != nil {
+		return hostedhttp.Completion{}, mapHostedCoreError(e)
+	}
+	return mapHostedCompletion(v), nil
+}
+func (a hostedHTTPServiceAdapter) StartRecovery(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.RecoveryStartCommand) (hostedhttp.HostedAuthFlow, error) {
+	v, e := a.service.StartRecovery(ctx, id, p.BrowserToken, c.Identifier, c.IdempotencyKey, c.RequestID)
+	return hostedhttp.HostedAuthFlow{Kind: v.Kind, IdentifierHint: v.IdentifierHint}, mapHostedCoreError(e)
+}
+func (a hostedHTTPServiceAdapter) CompleteRecovery(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.RecoveryCompleteCommand) error {
+	return mapHostedCoreError(a.service.CompleteRecovery(ctx, id, p.BrowserToken, c.Proof, c.NewCredential, c.IdempotencyKey, c.RequestID))
+}
+func (a hostedHTTPServiceAdapter) ResetAuthFlow(ctx context.Context, p hostedhttp.HostedPrincipal, id, key string) error {
+	return mapHostedCoreError(a.service.ResetAuthFlow(ctx, id, p.BrowserToken, key))
+}
+func (a hostedHTTPServiceAdapter) AccountBootstrap(ctx context.Context, p hostedhttp.HostedPrincipal, id string) (hostedhttp.HostedAccountBootstrap, error) {
+	v, e := a.service.AccountBootstrap(ctx, id, p.BrowserToken)
+	if e != nil {
+		return hostedhttp.HostedAccountBootstrap{}, mapHostedCoreError(e)
+	}
+	sessions := make([]hostedhttp.UserSessionSummary, 0, len(v.Sessions))
+	for _, x := range v.Sessions {
+		sessions = append(sessions, hostedhttp.UserSessionSummary{SessionID: x.SessionID, Current: x.Current, DeviceLabel: x.DeviceLabel, CreatedAt: x.CreatedAt, LastSeenAt: x.LastSeenAt, ExpiresAt: x.ExpiresAt})
+	}
+	external := make([]hostedhttp.ExternalIdentity, 0, len(v.ExternalIdentities))
+	for _, x := range v.ExternalIdentities {
+		external = append(external, hostedhttp.ExternalIdentity{ExternalIdentityID: x.ExternalIdentityID, Provider: x.Provider, MaskedSubject: x.MaskedSubject, Status: x.Status, LinkedAt: x.LinkedAt, AuditID: x.AuditID})
+	}
+	return hostedhttp.HostedAccountBootstrap{Interaction: mapHTTPInteraction(v.Interaction), Presentation: mapHTTPPresentation(v.Presentation), Profile: mapHTTPProfile(v.Profile), Sessions: sessions, ExternalIdentities: external, AllowedActions: v.AllowedActions}, nil
+}
+func (a hostedHTTPServiceAdapter) PatchAccountProfile(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.ProfilePatchCommand) (hostedhttp.UserProfile, error) {
+	v, e := a.service.PatchAccountProfile(ctx, id, p.BrowserToken, hostedinteraction.HostedProfilePatch{DisplayName: hostedinteraction.HostedProfilePatchValue{Set: c.DisplayName.Set, Value: c.DisplayName.Value}, AvatarURL: hostedinteraction.HostedProfilePatchValue{Set: c.AvatarURL.Set, Value: c.AvatarURL.Value}, Locale: hostedinteraction.HostedProfilePatchValue{Set: c.Locale.Set, Value: c.Locale.Value}, Timezone: hostedinteraction.HostedProfilePatchValue{Set: c.Timezone.Set, Value: c.Timezone.Value}}, c.ExpectedVersion, c.IdempotencyKey, c.RequestID)
+	return mapHTTPProfile(v), mapHostedCoreError(e)
+}
+func (a hostedHTTPServiceAdapter) ChangeAccountPassword(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.PasswordChangeCommand) error {
+	return mapHostedCoreError(a.service.ChangeAccountPassword(ctx, id, p.BrowserToken, c.CurrentCredential, c.NewCredential, c.RevokeOtherSessions, c.IdempotencyKey, c.RequestID))
+}
+func (a hostedHTTPServiceAdapter) RevokeAccountSession(ctx context.Context, p hostedhttp.HostedPrincipal, id, target, key, traceID string) error {
+	return mapHostedCoreError(a.service.RevokeAccountSession(ctx, id, p.BrowserToken, target, key, traceID))
+}
+
 func (a hostedHTTPServiceAdapter) Create(ctx context.Context, principal hostedhttp.BearerPrincipal, command hostedhttp.CreateCommand) (hostedhttp.InteractionLaunch, error) {
 	scope := coreHostedScope(principal.Scope)
 	actor := hostedinteraction.Actor{Kind: principal.Kind}
@@ -310,7 +489,16 @@ func (a hostedHTTPServiceAdapter) OpenBrowserSession(ctx context.Context, intera
 	if err != nil {
 		return hostedhttp.BrowserSession{}, mapHostedCoreError(err)
 	}
-	return hostedhttp.BrowserSession{Interaction: mapHostedProjection(projection), CSRFToken: session.CSRFToken, BrowserSessionExpiresAt: session.ExpiresAt, CookieToken: session.Token}, nil
+	result := hostedhttp.BrowserSession{Interaction: mapHostedProjection(projection), CSRFToken: session.CSRFToken, BrowserSessionExpiresAt: session.ExpiresAt, CookieToken: session.Token}
+	if projection.Status == hostedinteraction.StatusCompleted {
+		completion, e := a.service.RecoverBrowserCompletion(ctx, interactionID, session.Token)
+		if e != nil {
+			return hostedhttp.BrowserSession{}, mapHostedCoreError(e)
+		}
+		mapped := mapHostedCompletion(completion)
+		result.Completion = &mapped
+	}
+	return result, nil
 }
 
 func (a hostedHTTPServiceAdapter) AuthenticatePassword(ctx context.Context, principal hostedhttp.HostedPrincipal, interactionID string, command hostedhttp.PasswordCommand) (hostedhttp.Completion, error) {
@@ -329,8 +517,8 @@ func (a hostedHTTPServiceAdapter) CompleteAccount(ctx context.Context, principal
 	return mapHostedCompletion(value), nil
 }
 
-func (a hostedHTTPServiceAdapter) Cancel(ctx context.Context, principal hostedhttp.HostedPrincipal, interactionID, requestID string) (hostedhttp.Interaction, error) {
-	value, err := a.service.Cancel(ctx, interactionID, principal.BrowserToken)
+func (a hostedHTTPServiceAdapter) Cancel(ctx context.Context, principal hostedhttp.HostedPrincipal, interactionID, key, requestID string) (hostedhttp.Interaction, error) {
+	value, err := a.service.Cancel(ctx, interactionID, principal.BrowserToken, key)
 	if err != nil {
 		return hostedhttp.Interaction{}, mapHostedCoreError(err)
 	}
@@ -413,6 +601,8 @@ func mapHostedCoreError(err error) error {
 		return hostedhttp.ErrInvalidInteraction
 	case errors.Is(err, hostedinteraction.ErrInteractionExpired):
 		return hostedhttp.ErrInteractionExpired
+	case errors.Is(err, hostedinteraction.ErrInteractionTerminal):
+		return hostedhttp.ErrInteractionTerminal
 	case errors.Is(err, hostedinteraction.ErrInvalidReturnTarget):
 		return hostedhttp.ErrInvalidReturnTarget
 	case errors.Is(err, hostedinteraction.ErrStateMismatch):
@@ -431,6 +621,10 @@ func mapHostedCoreError(err error) error {
 		return hostedhttp.ErrCSRFFailed
 	case errors.Is(err, hostedinteraction.ErrIdempotencyConflict):
 		return hostedhttp.ErrConflict
+	case errors.Is(err, hostedinteraction.ErrVersionConflict):
+		return hostedhttp.ErrVersionConflict
+	case errors.Is(err, hostedinteraction.ErrCapabilityUnavailable):
+		return hostedhttp.ErrCapabilityUnavailable
 	case errors.Is(err, hostedinteraction.ErrLeaseLost), errors.Is(err, hostedinteraction.ErrTemporarilyUnavailable):
 		return hostedhttp.ErrTemporarilyUnavailable
 	default:
@@ -439,9 +633,12 @@ func mapHostedCoreError(err error) error {
 }
 
 var (
-	_ hostedinteraction.ReturnTargetPort      = hostedReturnTargetAdapter{}
-	_ hostedinteraction.HostedIdentityPort    = hostedIdentityAdapter{}
-	_ hostedinteraction.SessionValidationPort = hostedIdentityAdapter{}
-	_ hostedhttp.Authenticator                = hostedHTTPAuthenticator{}
-	_ hostedhttp.Service                      = hostedHTTPServiceAdapter{}
+	_ hostedinteraction.ReturnTargetPort       = hostedReturnTargetAdapter{}
+	_ hostedinteraction.HostedIdentityPort     = hostedIdentityAdapter{}
+	_ hostedinteraction.SessionValidationPort  = hostedIdentityAdapter{}
+	_ hostedinteraction.HostedSelfServicePort  = hostedIdentityAdapter{}
+	_ hostedinteraction.HostedPresentationPort = hostedPresentationAdapter{}
+	_ hostedhttp.Authenticator                 = hostedHTTPAuthenticator{}
+	_ hostedhttp.Service                       = hostedHTTPServiceAdapter{}
+	_ hostedhttp.SelfService                   = hostedHTTPServiceAdapter{}
 )

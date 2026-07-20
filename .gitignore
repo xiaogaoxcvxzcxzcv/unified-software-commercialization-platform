@@ -45,6 +45,16 @@ artifacts/reviews/G1-10/*
 !artifacts/reviews/G1-10/browser-upgrade-completed.png
 !artifacts/reviews/G1-10/browser-rollback-completed.png
 !artifacts/reviews/G1-10/browser-generated-drift-blocked.png
+!artifacts/reviews/G2A-06/
+artifacts/reviews/G2A-06/*
+!artifacts/reviews/G2A-06/browser-acceptance.md
+!artifacts/reviews/G2A-06/quality-gate-full-postgres-g2a06-final.json
+!artifacts/reviews/G2A-06/quality-gate-full-postgres-g2a06-worktree.json
+!artifacts/reviews/G2A-06/screenshots/
+artifacts/reviews/G2A-06/screenshots/*
+!artifacts/reviews/G2A-06/screenshots/admin-overview-light-1280.png
+!artifacts/reviews/G2A-06/screenshots/hosted-completed-dark-390.png
+!artifacts/reviews/G2A-06/screenshots/hosted-completed-light-1280.png
 !artifacts/smoke/
 artifacts/smoke/*
 !artifacts/smoke/2026-07-15/

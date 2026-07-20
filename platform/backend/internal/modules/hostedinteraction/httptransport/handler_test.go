@@ -50,6 +50,7 @@ type serviceStub struct {
 	passwordCommand PasswordCommand
 	accountCommand  CompleteAccountCommand
 	exchangeCommand ExchangeCommand
+	cancelKey       string
 	getAccess       AccessPrincipal
 	openCookieToken string
 	launchValue     *InteractionLaunch
@@ -102,7 +103,8 @@ func (s *serviceStub) CompleteAccount(_ context.Context, _ HostedPrincipal, _ st
 	}
 	return completion(), s.error
 }
-func (s *serviceStub) Cancel(context.Context, HostedPrincipal, string, string) (Interaction, error) {
+func (s *serviceStub) Cancel(_ context.Context, _ HostedPrincipal, _ string, key, _ string) (Interaction, error) {
+	s.cancelKey = key
 	return projection(), s.error
 }
 func (s *serviceStub) Exchange(_ context.Context, _ BearerPrincipal, _ string, c ExchangeCommand) (ExchangeResult, error) {
@@ -304,6 +306,7 @@ func TestGetAccountCancelAndExchangeAuthenticationBoundaries(t *testing.T) {
 
 	r = request(http.MethodPost, "/api/v1/hosted/interactions/"+testInteractionID+"/cancel", "")
 	hosted(r)
+	r.Header.Set("Idempotency-Key", "cancel-key-00000001")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
@@ -333,6 +336,33 @@ func TestGetAccountCancelAndExchangeAuthenticationBoundaries(t *testing.T) {
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	assertProblem(t, w, http.StatusBadRequest, "invalid_request")
+}
+
+func TestCancelRequiresSingleIdempotencyKeyAndPassesItToService(t *testing.T) {
+	service := &serviceStub{}
+	h := newTestHandler(t, service)
+	path := "/api/v1/hosted/interactions/" + testInteractionID + "/cancel"
+	for _, mutate := range []func(*http.Request){func(*http.Request) {}, func(r *http.Request) { r.Header.Set("Idempotency-Key", "short") }, func(r *http.Request) {
+		r.Header.Add("Idempotency-Key", "cancel-key-00000001")
+		r.Header.Add("Idempotency-Key", "cancel-key-00000002")
+	}} {
+		r := request(http.MethodPost, path, "")
+		hosted(r)
+		mutate(r)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid key status=%d", w.Code)
+		}
+	}
+	r := request(http.MethodPost, path, "")
+	hosted(r)
+	r.Header.Set("Idempotency-Key", "cancel-key-00000001")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || service.cancelKey != "cancel-key-00000001" {
+		t.Fatalf("status=%d key=%q", w.Code, service.cancelKey)
+	}
 }
 
 func TestAuthenticationDependencyErrorsRemainRetryable(t *testing.T) {

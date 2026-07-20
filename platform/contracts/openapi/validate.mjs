@@ -241,7 +241,17 @@ const hostedExchangeSecurity = hostedExchange?.security ?? [];
 if (hostedExchangeSecurity.length !== 1 || !Object.hasOwn(hostedExchangeSecurity[0] ?? {}, "ClientSessionBearer") || !hostedExchange?.["x-idempotency-exemption"]) {
   errors.push("hosted completion exchange must use only ClientSessionBearer and the one-time grant exemption");
 }
-const hostedCompletionProperties = Object.keys(document.components?.schemas?.HostedCompletion?.properties ?? {}).sort();
+for (const [path, method] of [
+  ["/api/v1/hosted/interactions/{interaction_id}/auth/flow", "delete"],
+  ["/api/v1/hosted/interactions/{interaction_id}/account/sessions/{session_id}", "delete"],
+  ["/api/v1/hosted/interactions/{interaction_id}/cancel", "post"],
+]) {
+  const operation = document.paths?.[path]?.[method];
+  const parameters = operation?.parameters ?? [];
+  if (operation?.["x-idempotency-exemption"] || !parameters.some((parameter) => parameter.$ref === "#/components/parameters/IdempotencyKey" || parameter.name === "Idempotency-Key")) {
+    errors.push(`${method.toUpperCase()} ${path} must require Idempotency-Key and cannot declare an exemption`);
+  }
+}const hostedCompletionProperties = Object.keys(document.components?.schemas?.HostedCompletion?.properties ?? {}).sort();
 if (hostedCompletionProperties.join(",") !== ["expires_at", "interaction_id", "return_url", "status"].sort().join(",")) {
   errors.push("HostedCompletion may expose only interaction_id, status, return_url and expires_at");
 }

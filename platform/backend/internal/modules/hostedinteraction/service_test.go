@@ -256,6 +256,315 @@ type stubIdentity struct {
 	receivedRisk *map[string]any
 }
 
+func (stubIdentity) Capabilities(context.Context, Scope) HostedCapabilities {
+	return HostedCapabilities{Password: true, Registration: true, Recovery: true, Profile: true, Sessions: true, AccountCompletion: true}
+}
+
+type capabilityIdentity struct {
+	stubIdentity
+	caps HostedCapabilities
+}
+
+func (c capabilityIdentity) Capabilities(context.Context, Scope) HostedCapabilities { return c.caps }
+
+type scopedCapabilityIdentity struct {
+	stubIdentity
+	byApplication map[string]HostedCapabilities
+}
+
+func (c scopedCapabilityIdentity) Capabilities(_ context.Context, scope Scope) HostedCapabilities {
+	return c.byApplication[scope.ApplicationID]
+}
+func newCapabilityTestService(t *testing.T, value Interaction, identity HostedIdentityPort) (*Service, BrowserSession) {
+	t.Helper()
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &stubRepository{value: value}
+	service, err := NewService(repo, stubReturnTarget{}, identity, stubSessions{}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service, browser
+}
+
+func TestCapabilitiesFailClosedAtEveryPublicWriteEntry(t *testing.T) {
+	value := accountValue()
+	value.Route = RouteAuth
+	service, browser := newCapabilityTestService(t, value, capabilityIdentity{})
+	ctx := context.Background()
+	if _, err := service.Authenticate(ctx, AuthenticateCommand{InteractionID: value.InteractionID, BrowserToken: browser.Token, Identifier: "user@example.com", Credential: "password"}); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("password=%v", err)
+	}
+	if _, err := service.StartRegistrationVerification(ctx, value.InteractionID, browser.Token, "user@example.com", "key", "trace"); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("verification=%v", err)
+	}
+	if _, err := service.RegisterHosted(ctx, RegisterHostedCommand{InteractionID: value.InteractionID, BrowserToken: browser.Token}); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("register=%v", err)
+	}
+	if _, err := service.StartRecovery(ctx, value.InteractionID, browser.Token, "user@example.com", "key", "trace"); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("recovery start=%v", err)
+	}
+	if err := service.CompleteRecovery(ctx, value.InteractionID, browser.Token, "proof", "credential", "key", "trace"); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("recovery complete=%v", err)
+	}
+}
+
+func TestAccountActionsAreComputedAndMutationsRecheck(t *testing.T) {
+	ctx := context.Background()
+	caps := HostedCapabilities{Profile: true, Sessions: true}
+	service := &Service{capabilities: capabilityIdentity{caps: caps}}
+	got := service.accountActions(ctx, testScope())
+	if len(got) != 2 || got[0] != "update_profile" || got[1] != "revoke_session" {
+		t.Fatalf("actions=%v", got)
+	}
+	value := accountValue()
+	disabled, browser := newCapabilityTestService(t, value, capabilityIdentity{})
+	if _, err := disabled.PatchAccountProfile(ctx, value.InteractionID, browser.Token, HostedProfilePatch{}, 1, "", ""); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("profile=%v", err)
+	}
+	if err := disabled.ChangeAccountPassword(ctx, value.InteractionID, browser.Token, "", "", false, "", ""); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("password=%v", err)
+	}
+	if err := disabled.RevokeAccountSession(ctx, value.InteractionID, browser.Token, "session", "idempotency-key-0001", "trace"); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("revoke=%v", err)
+	}
+	if _, err := disabled.CompleteAccount(ctx, CompleteAccountCommand{InteractionID: value.InteractionID, BrowserToken: browser.Token, Result: "closed"}); !errors.Is(err, ErrCapabilityUnavailable) {
+		t.Fatalf("complete=%v", err)
+	}
+}
+
+func TestCapabilitiesAreResolvedFromFrozenApplicationScope(t *testing.T) {
+	ctx := context.Background()
+	a := testScope()
+	a.ApplicationID = "app-a"
+	b := a
+	b.ApplicationID = "app-b"
+	resolver := scopedCapabilityIdentity{byApplication: map[string]HostedCapabilities{"app-a": {Password: true, Profile: true, AccountCompletion: true}}}
+	service := &Service{capabilities: resolver}
+	if got := service.accountActions(ctx, a); len(got) != 3 {
+		t.Fatalf("scope A actions=%v", got)
+	}
+	if got := service.accountActions(ctx, b); len(got) != 0 {
+		t.Fatalf("scope B actions=%v", got)
+	}
+	if !service.capability(ctx, a, "password") || service.capability(ctx, b, "password") {
+		t.Fatal("scope capability isolation failed")
+	}
+}
+
+func TestBusinessBootstrapRejectsAllTerminalStatesStably(t *testing.T) {
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []Status{StatusCancelled, StatusFailed, StatusCompleted, StatusExchanged, StatusExpired} {
+		value := accountValue()
+		value.Route = RouteAuth
+		repo := &stubRepository{value: value}
+		repo.value.Status = status
+		service, err := NewService(repo, stubReturnTarget{}, stubIdentity{}, nil, stubState{}, hasher, "https://hosted.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		token := "terminal-browser-token"
+		repo.tokenDigest = service.digest("browser-token", token)
+		_, got := service.AuthBootstrap(context.Background(), repo.value.InteractionID, token)
+		want := ErrInteractionTerminal
+		if status == StatusExpired {
+			want = ErrInteractionExpired
+		}
+		if !errors.Is(got, want) {
+			t.Fatalf("status=%s error=%v want=%v", status, got, want)
+		}
+	}
+}
+
+func TestCancelBuildsStableBrowserBoundIdempotencyRecord(t *testing.T) {
+	value := accountValue()
+	repository := &stubRepository{value: value}
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Cancel(context.Background(), value.InteractionID, browser.Token, "cancel-service-key-0001"); err != nil {
+		t.Fatal(err)
+	}
+	first := repository.cancelRecord
+	if _, err = service.Cancel(context.Background(), value.InteractionID, browser.Token, "cancel-service-key-0001"); err != nil {
+		t.Fatal(err)
+	}
+	second := repository.cancelRecord
+	if first.InteractionID != value.InteractionID || len(first.ActorDigest) != 32 || len(first.KeyDigest) != 32 || len(first.RequestDigest) != 32 || !EqualSecret(first.ActorDigest, second.ActorDigest) || !EqualSecret(first.KeyDigest, second.KeyDigest) || !EqualSecret(first.RequestDigest, second.RequestDigest) {
+		t.Fatalf("unstable cancel records: first=%+v second=%+v", first, second)
+	}
+}
+
+type resetFlowStub struct {
+	records     []ResetSelfServiceFlowRecord
+	deleteCalls int
+}
+
+func (*resetFlowStub) PutSelfServiceFlow(context.Context, PutSelfServiceFlowRecord) (SelfServiceFlow, error) {
+	return SelfServiceFlow{}, nil
+}
+func (*resetFlowStub) GetSelfServiceFlow(context.Context, string) (SelfServiceFlow, bool, error) {
+	return SelfServiceFlow{}, false, nil
+}
+func (s *resetFlowStub) DeleteSelfServiceFlow(context.Context, string) error {
+	s.deleteCalls++
+	return nil
+}
+func (s *resetFlowStub) ResetSelfServiceFlowIdempotent(_ context.Context, record ResetSelfServiceFlowRecord) error {
+	s.records = append(s.records, record)
+	return nil
+}
+
+func TestResetAuthFlowBuildsStableBrowserBoundIdempotencyRecord(t *testing.T) {
+	value := accountValue()
+	value.Route = RouteAuth
+	value.Actor = Actor{Kind: "client", ClientSessionID: "client"}
+	repository := &stubRepository{value: value}
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, nil, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow := &resetFlowStub{}
+	service.flows = flow
+	browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		if err = service.ResetAuthFlow(context.Background(), value.InteractionID, browser.Token, "reset-service-key-0001"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(flow.records) != 2 || !EqualSecret(flow.records[0].ActorDigest, flow.records[1].ActorDigest) || !EqualSecret(flow.records[0].KeyDigest, flow.records[1].KeyDigest) || !EqualSecret(flow.records[0].RequestDigest, flow.records[1].RequestDigest) {
+		t.Fatalf("unstable reset records: %+v", flow.records)
+	}
+}
+
+type revokeSelfServiceStub struct{ calls int }
+
+func (*revokeSelfServiceStub) Capabilities(context.Context, Scope) HostedCapabilities {
+	return HostedCapabilities{Registration: true, Sessions: true}
+}
+func (*revokeSelfServiceStub) StartRegistrationVerification(context.Context, Scope, string, string, string) (string, error) {
+	return "", nil
+}
+func (*revokeSelfServiceStub) RegisterHosted(context.Context, Scope, string, string, string, string, string, string, string) (HostedAuthProof, error) {
+	return HostedAuthProof{}, nil
+}
+func (*revokeSelfServiceStub) StartRecovery(context.Context, Scope, string, string, string) (string, error) {
+	return "", nil
+}
+func (*revokeSelfServiceStub) CompleteRecovery(context.Context, Scope, string, string, string, string, string) error {
+	return nil
+}
+func (*revokeSelfServiceStub) GetProfile(context.Context, Scope, Actor) (HostedUserProfile, error) {
+	return HostedUserProfile{}, nil
+}
+func (*revokeSelfServiceStub) PatchProfile(context.Context, Scope, Actor, HostedProfilePatch, int64, string, string) (HostedUserProfile, error) {
+	return HostedUserProfile{}, nil
+}
+func (*revokeSelfServiceStub) ListSessions(context.Context, Scope, Actor) ([]HostedSessionSummary, error) {
+	return nil, nil
+}
+func (*revokeSelfServiceStub) ListExternalIdentities(context.Context, Scope, Actor) ([]HostedExternalIdentity, error) {
+	return nil, nil
+}
+func (*revokeSelfServiceStub) ChangePassword(context.Context, Scope, Actor, string, string, bool, string, string) error {
+	return nil
+}
+func (s *revokeSelfServiceStub) RevokeSession(context.Context, Scope, Actor, string, string, string) error {
+	s.calls++
+	return nil
+}
+
+func TestCurrentSessionRevokeReplayBypassesOnlyOuterActiveSessionCheck(t *testing.T) {
+	value := accountValue()
+	repository := &stubRepository{value: value}
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{err: ErrSessionRevoked}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoke := &revokeSelfServiceStub{}
+	service.selfService, service.capabilities = revoke, revoke
+	browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		if err = service.RevokeAccountSession(context.Background(), value.InteractionID, browser.Token, value.Actor.UserSessionID, "current-revoke-key-0001", "trace"); err != nil {
+			t.Fatalf("replay %d error=%v", index, err)
+		}
+	}
+	if revoke.calls != 2 {
+		t.Fatalf("identity revoke calls=%d", revoke.calls)
+	}
+	if _, err = service.AccountBootstrap(context.Background(), value.InteractionID, browser.Token); !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("ordinary account operation was unexpectedly relaxed: %v", err)
+	}
+}
+
+func TestRegisterHostedCompletedRecoveryIgnoresDynamicCapabilityAndSelfServiceAvailability(t *testing.T) {
+	tests := []struct {
+		name         string
+		selfService  HostedSelfServicePort
+		capabilities HostedCapabilityPort
+	}{
+		{name: "registration capability later disabled", selfService: &revokeSelfServiceStub{}, capabilities: capabilityIdentity{}},
+		{name: "self service temporarily unavailable", selfService: nil, capabilities: capabilityIdentity{caps: HostedCapabilities{Registration: true}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value := accountValue()
+			value.Route, value.Actor, value.Status, value.ResultKind = RouteAuth, Actor{Kind: "client", ClientSessionID: "client"}, StatusCompleted, "authorization_code"
+			repository := &stubRepository{value: value, grant: CompletionGrant{GrantID: "hgrant_123456789012345678901234", InteractionID: value.InteractionID, GrantType: "authorization_code", IdentityProofID: "hproof_123456789012345678901234", ExpiresAt: time.Now().Add(time.Minute)}}
+			hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, nil, stubState{}, hasher, "https://hosted.test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			flows := &resetFlowStub{}
+			service.selfService, service.capabilities, service.flows = test.selfService, test.capabilities, flows
+			browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			completion, err := service.RegisterHosted(context.Background(), RegisterHostedCommand{InteractionID: value.InteractionID, BrowserToken: browser.Token, IdempotencyKey: "completed-register-key-01", TraceID: "trace"})
+			if err != nil || completion.Code == "" || completion.Interaction.Status != StatusCompleted || flows.deleteCalls != 1 {
+				t.Fatalf("completed registration recovery=%+v deleteCalls=%d err=%v", completion, flows.deleteCalls, err)
+			}
+		})
+	}
+}
+
 func (s stubIdentity) AuthenticateHosted(_ context.Context, _ Scope, _, _, _ string, risk map[string]any, _ string) (HostedAuthProof, error) {
 	if s.receivedRisk != nil {
 		*s.receivedRisk = risk
@@ -288,6 +597,7 @@ type stubRepository struct {
 	grant         CompletionGrant
 	completeCalls int
 	claim         ClaimedGrant
+	cancelRecord  CancelRecord
 }
 
 func (r *stubRepository) Create(context.Context, CreateRecord) (Interaction, bool, error) {
@@ -335,7 +645,8 @@ func (r *stubRepository) Complete(_ context.Context, record CompleteRecord) (Int
 	}
 	return r.value, r.grant, recovered, nil
 }
-func (r *stubRepository) Cancel(context.Context, string, []byte, OutboxEvent) (Interaction, error) {
+func (r *stubRepository) Cancel(_ context.Context, record CancelRecord) (Interaction, error) {
+	r.cancelRecord = record
 	return r.value, nil
 }
 func (r *stubRepository) ClaimGrant(context.Context, string, Scope, []byte, []byte, time.Duration, string, []byte) (ClaimedGrant, error) {

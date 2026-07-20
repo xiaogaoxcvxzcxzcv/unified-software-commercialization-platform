@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -384,5 +385,342 @@ func TestValidateHostedSessionPostgres(t *testing.T) {
 	}
 	if err := service.ValidateHostedSession(ctx, expected); !errors.Is(err, identity.ErrEndUserAccountDisabled) {
 		t.Fatalf("disabled hosted user error=%v", err)
+	}
+}
+
+func TestHostedSessionRevokeIdempotencyPostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	repository := identitypostgres.New(database.Pool)
+	var databaseNow time.Time
+	if err := database.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		t.Fatal(err)
+	}
+	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return databaseNow })
+	scope := identity.EndUserSessionScope{ProductID: "product.hosted.revoke", ApplicationID: "application.hosted.revoke", Environment: "test"}
+	registered, err := service.Register(ctx, identity.EndUserRegisterCommand{Scope: scope, Identifier: "hosted-revoke@example.com", Credential: "correct hosted revoke password", VerificationProof: strings.Repeat("r", 16), TraceID: "trace.hosted.revoke.register", IdempotencyKey: "register-hosted-revoke-0001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := func(trace string) identity.EndUserIssuedSession {
+		t.Helper()
+		value, loginErr := service.Login(ctx, identity.EndUserLoginCommand{Scope: scope, Identifier: "hosted-revoke@example.com", Credential: "correct hosted revoke password", Source: "loopback", TraceID: trace})
+		if loginErr != nil {
+			t.Fatal(loginErr)
+		}
+		return value
+	}
+	firstTarget := login("trace.hosted.revoke.first")
+	conflictTarget := login("trace.hosted.revoke.conflict")
+	concurrentTarget := login("trace.hosted.revoke.concurrent")
+	expected := identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: registered.Session.SessionID}
+	firstKey := "hosted-revoke-key-0001"
+	if err = service.RevokeHostedSession(ctx, expected, firstTarget.Session.SessionID, firstKey, "trace.hosted.revoke.first-write"); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.RevokeHostedSession(ctx, expected, firstTarget.Session.SessionID, firstKey, "trace.hosted.revoke.replay"); err != nil {
+		t.Fatalf("same request replay error=%v", err)
+	}
+	if err = service.RevokeHostedSession(ctx, expected, conflictTarget.Session.SessionID, firstKey, "trace.hosted.revoke.conflict"); !errors.Is(err, identity.ErrEndUserVersionConflict) {
+		t.Fatalf("same key changed target error=%v", err)
+	}
+	if err = service.ValidateHostedSession(ctx, identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: conflictTarget.Session.SessionID}); err != nil {
+		t.Fatalf("conflicting request revoked second target: %v", err)
+	}
+
+	const workers = 8
+	errorsByWorker := make(chan error, workers)
+	var group sync.WaitGroup
+	for index := 0; index < workers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			errorsByWorker <- service.RevokeHostedSession(ctx, expected, concurrentTarget.Session.SessionID, "hosted-revoke-key-0002", "trace.hosted.revoke.concurrent")
+		}()
+	}
+	group.Wait()
+	close(errorsByWorker)
+	for workerErr := range errorsByWorker {
+		if workerErr != nil {
+			t.Fatalf("concurrent replay error=%v", workerErr)
+		}
+	}
+	for _, target := range []identity.EndUserIssuedSession{firstTarget, concurrentTarget} {
+		if err = service.ValidateHostedSession(ctx, identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: target.Session.SessionID}); !errors.Is(err, identity.ErrEndUserSessionRevoked) {
+			t.Fatalf("target %s validation error=%v", target.Session.SessionID, err)
+		}
+	}
+	var idempotencyRecords, revokeEvents int
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_idempotency_records WHERE operation='hosted_session_revoke'`).Scan(&idempotencyRecords); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.outbox_events WHERE topic='identity.session_revoked.v1'`).Scan(&revokeEvents); err != nil {
+		t.Fatal(err)
+	}
+	if idempotencyRecords != 2 || revokeEvents != 2 {
+		t.Fatalf("idempotency records=%d revoke events=%d", idempotencyRecords, revokeEvents)
+	}
+}
+
+func TestHostedCurrentSessionRevokeReplayIsTheOnlyPostRevocationWriteRecoveryPostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	repository := identitypostgres.New(database.Pool)
+	var databaseNow time.Time
+	if err := database.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		t.Fatal(err)
+	}
+	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return databaseNow })
+	scope := identity.EndUserSessionScope{ProductID: "product.hosted.current-revoke", ApplicationID: "application.hosted.current-revoke", Environment: "test"}
+	registered, err := service.Register(ctx, identity.EndUserRegisterCommand{Scope: scope, Identifier: "hosted-current-revoke@example.com", Credential: "correct hosted current revoke password", VerificationProof: strings.Repeat("c", 16), TraceID: "trace.hosted.current-revoke.register", IdempotencyKey: "register-current-revoke-0001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Login(ctx, identity.EndUserLoginCommand{Scope: scope, Identifier: "hosted-current-revoke@example.com", Credential: "correct hosted current revoke password", Source: "loopback", TraceID: "trace.hosted.current-revoke.second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: registered.Session.SessionID}
+	key := "hosted-current-revoke-key-01"
+	if err = service.RevokeHostedSession(ctx, expected, expected.SessionID, key, "trace.hosted.current-revoke.first"); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.RevokeHostedSession(ctx, expected, expected.SessionID, key, "trace.hosted.current-revoke.replay"); err != nil {
+		t.Fatalf("exact replay after actor revocation error=%v", err)
+	}
+	if err = service.RevokeHostedSession(ctx, expected, second.Session.SessionID, key, "trace.hosted.current-revoke.changed-target"); !errors.Is(err, identity.ErrEndUserVersionConflict) {
+		t.Fatalf("changed target with original key error=%v", err)
+	}
+	if err = service.RevokeHostedSession(ctx, expected, second.Session.SessionID, "hosted-current-revoke-key-02", "trace.hosted.current-revoke.new-key"); !errors.Is(err, identity.ErrEndUserSessionRevoked) {
+		t.Fatalf("new write after actor revocation error=%v", err)
+	}
+	if err = service.ValidateHostedSession(ctx, identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: second.Session.SessionID}); err != nil {
+		t.Fatalf("failed-closed writes revoked the second session: %v", err)
+	}
+	var records, events int
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_idempotency_records WHERE operation='hosted_session_revoke'`).Scan(&records); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.outbox_events WHERE topic='identity.session_revoked.v1'`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if records != 1 || events != 1 {
+		t.Fatalf("idempotency records=%d revoke events=%d", records, events)
+	}
+}
+
+func TestHostedCrossSessionRevocationsUseDeterministicLockOrderPostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	repository := identitypostgres.New(database.Pool)
+	var databaseNow time.Time
+	if err := database.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		t.Fatal(err)
+	}
+	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return databaseNow })
+	scope := identity.EndUserSessionScope{ProductID: "product.hosted.cross-revoke", ApplicationID: "application.hosted.cross-revoke", Environment: "test"}
+	const rounds = 8
+	for round := 0; round < rounds; round++ {
+		identifier := fmt.Sprintf("hosted-cross-revoke-%02d@example.com", round)
+		registered, err := service.Register(ctx, identity.EndUserRegisterCommand{Scope: scope, Identifier: identifier, Credential: "correct hosted cross revoke password", VerificationProof: strings.Repeat("x", 16), TraceID: fmt.Sprintf("trace.hosted.cross-revoke.%02d.register", round), IdempotencyKey: fmt.Sprintf("cross-register-key-%04d", round)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := service.Login(ctx, identity.EndUserLoginCommand{Scope: scope, Identifier: identifier, Credential: "correct hosted cross revoke password", Source: "loopback", TraceID: fmt.Sprintf("trace.hosted.cross-revoke.%02d.login", round)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		left := identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: registered.Session.SessionID}
+		right := identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: second.Session.SessionID}
+		start := make(chan struct{})
+		results := make(chan error, 2)
+		var group sync.WaitGroup
+		group.Add(2)
+		go func() {
+			defer group.Done()
+			<-start
+			results <- service.RevokeHostedSession(ctx, left, right.SessionID, fmt.Sprintf("cross-left-key-%06d", round), fmt.Sprintf("trace.hosted.cross-revoke.%02d.left", round))
+		}()
+		go func() {
+			defer group.Done()
+			<-start
+			results <- service.RevokeHostedSession(ctx, right, left.SessionID, fmt.Sprintf("cross-right-key-%05d", round), fmt.Sprintf("trace.hosted.cross-revoke.%02d.right", round))
+		}()
+		close(start)
+		group.Wait()
+		close(results)
+		succeeded, actorRevoked := 0, 0
+		for revokeErr := range results {
+			switch {
+			case revokeErr == nil:
+				succeeded++
+			case errors.Is(revokeErr, identity.ErrEndUserSessionRevoked):
+				actorRevoked++
+			default:
+				t.Fatalf("round=%d unexpected cross-revoke error=%v", round, revokeErr)
+			}
+		}
+		if succeeded != 1 || actorRevoked != 1 {
+			t.Fatalf("round=%d succeeded=%d actor-revoked=%d", round, succeeded, actorRevoked)
+		}
+		var revokedSessions, records, events int
+		if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_sessions WHERE session_id=ANY($1) AND revoked_at IS NOT NULL`, []string{left.SessionID, right.SessionID}).Scan(&revokedSessions); err != nil {
+			t.Fatal(err)
+		}
+		if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_idempotency_records WHERE operation='hosted_session_revoke'`).Scan(&records); err != nil {
+			t.Fatal(err)
+		}
+		if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.outbox_events WHERE topic='identity.session_revoked.v1'`).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		if revokedSessions != 1 || records != round+1 || events != round+1 {
+			t.Fatalf("round=%d revoked=%d records=%d events=%d", round, revokedSessions, records, events)
+		}
+	}
+}
+
+func TestHostedPasswordUsesPersistedAuthTimePostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	repository := identitypostgres.New(database.Pool)
+	now := time.Now().UTC()
+	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
+	scope := identity.EndUserSessionScope{ProductID: "product.hosted.reauth", ApplicationID: "application.hosted.reauth", Environment: "test"}
+	registered, err := service.Register(ctx, identity.EndUserRegisterCommand{Scope: scope, Identifier: "hosted-reauth@example.com", Credential: "correct hosted reauth password", VerificationProof: strings.Repeat("p", 16), TraceID: "trace.hosted.reauth.register", IdempotencyKey: "register-hosted-reauth-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.Pool.Exec(ctx, `UPDATE identity.end_user_sessions SET auth_time=$2 WHERE session_id=$1`, registered.Session.SessionID, now.Add(-20*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	expected := identity.HostedSessionExpectation{Scope: scope, UserID: registered.Session.UserID, SessionID: registered.Session.SessionID}
+	err = service.ChangeHostedPassword(ctx, expected, "correct hosted reauth password", "replacement hosted reauth password", false, "hosted-password-key-01", "trace.hosted.reauth.change")
+	if !errors.Is(err, identity.ErrEndUserReauthenticationRequired) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestHostedNativeRegistrationCreatesNoSessionAndIsIdempotentPostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	repository := identitypostgres.New(database.Pool)
+	now := time.Now().UTC()
+	service := newEndUserService(t, repository, acceptingRegistrationProof{}, &capturingRecoveryDelivery{}, func() time.Time { return now })
+	scope := identity.EndUserSessionScope{ProductID: "product.hosted.native", ApplicationID: "application.hosted.native", Environment: "test"}
+	command := identity.EndUserRegisterCommand{Scope: scope, Identifier: "hosted-native@example.com", Credential: "correct hosted native password", VerificationContinuationID: "continuation", VerificationProof: strings.Repeat("p", 16), DisplayName: "Native", TraceID: "trace.hosted.native", IdempotencyKey: "hosted-native-register-01"}
+	first, err := service.RegisterHosted(ctx, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.RegisterHosted(ctx, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ProofID != second.ProofID {
+		t.Fatalf("proof replay %q != %q", first.ProofID, second.ProofID)
+	}
+	changed := command
+	changed.DisplayName = "Changed"
+	if _, err = service.RegisterHosted(ctx, changed); !errors.Is(err, identity.ErrEndUserVersionConflict) {
+		t.Fatalf("changed body error=%v", err)
+	}
+	var usersAfterConflict int
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.users`).Scan(&usersAfterConflict); err != nil {
+		t.Fatal(err)
+	}
+	if usersAfterConflict != 1 {
+		t.Fatalf("users after idempotency conflict=%d", usersAfterConflict)
+	}
+	var userID string
+	var proofs, sessions int
+	if err = database.Pool.QueryRow(ctx, `SELECT user_id FROM identity.hosted_auth_proofs WHERE proof_id=$1`, first.ProofID).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.hosted_auth_proofs WHERE user_id=$1`, userID).Scan(&proofs); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_sessions WHERE user_id=$1`, userID).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if proofs != 1 || sessions != 0 {
+		t.Fatalf("proofs=%d sessions=%d", proofs, sessions)
+	}
+	faultUser := "usr_hosted_proof_fault"
+	faultDigest := bytes.Repeat([]byte{8}, 32)
+	faultHash, hashErr := identity.Bcrypt{Cost: 4}.Hash([]byte("correct hosted proof fault password"))
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	verified := now
+	faultEvent := identity.OutboxEvent{EventID: "evt_hosted_proof_fault", Topic: "identity.registered.v1", Now: now, Payload: identity.SecurityEvent{AuditID: "aud_hosted_proof_fault", OccurredAt: now, ActorID: faultUser, Action: "identity.registered", TargetType: "end_user", TargetID: faultUser, Result: "success", TraceID: "trace.hosted.proof.fault", RiskLevel: "normal"}}
+	faultRegistration := identity.EndUserRegistration{User: identity.EndUser{UserID: faultUser, AccountStatus: "active", CreatedAt: now, UpdatedAt: now}, Identifier: identity.EndUserIdentifier{IdentifierID: "uid_hosted_proof_fault", UserID: faultUser, Type: identity.IdentifierEmail, NormalizationVersion: 1, NormalizedDigest: faultDigest, MaskedValue: "f***@example.com", VerificationStatus: "verified", VerifiedAt: &verified, CreatedAt: now, UpdatedAt: now}, Credential: identity.EndUserCredential{CredentialID: "cred_hosted_proof_fault", UserID: faultUser, PasswordHash: faultHash, Algorithm: "bcrypt", Status: "active", ChangedAt: now}, Profile: identity.EndUserProfile{UserID: faultUser, Version: 1, DisplayName: "Fault", CreatedAt: now, UpdatedAt: now}, OutboxEvent: faultEvent}
+	_, _, faultErr := repository.CreateHostedRegistration(ctx, identity.HostedRegistrationRecord{Registration: faultRegistration, Proof: identity.HostedAuthProof{ProofID: first.ProofID, UserID: faultUser, Scope: scope, AuthenticationMethod: "password", RiskSummaryDigest: bytes.Repeat([]byte{9}, 32), TTL: time.Minute, OutboxEvent: identity.OutboxEvent{EventID: "evt_hosted_proof_fault_2", Topic: "identity.hosted_registration_succeeded.v1", Now: now, Payload: faultEvent.Payload}}, Idempotency: identity.EndUserIdempotency{Operation: "hosted_register", ScopeID: "fault-scope", ActorDigest: faultDigest, KeyDigest: bytes.Repeat([]byte{10}, 32), RequestDigest: bytes.Repeat([]byte{11}, 32), ResourceID: first.ProofID, Now: now}, IdentifierDigest: faultDigest})
+	if faultErr == nil {
+		t.Fatal("expected proof uniqueness failure")
+	}
+	var faultUsers int
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.users WHERE user_id=$1`, faultUser).Scan(&faultUsers); err != nil {
+		t.Fatal(err)
+	}
+	if faultUsers != 0 {
+		t.Fatalf("proof fault left users=%d", faultUsers)
+	}
+	grantID := "hgrant_" + strings.Repeat("n", 24)
+	issued, err := service.RedeemHostedAuthGrant(ctx, identity.RedeemHostedAuthGrantCommand{GrantID: grantID, ProofID: first.ProofID, Scope: scope, TraceID: "trace.hosted.native.redeem"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.Session.UserID != userID {
+		t.Fatalf("issued user=%s want=%s", issued.Session.UserID, userID)
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_sessions WHERE user_id=$1`, userID).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 1 {
+		t.Fatalf("sessions after redemption=%d", sessions)
+	}
+}
+
+func TestHostedNativeRegistrationRollsBackAllRowsOnSecondOutboxFailurePostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	repository := identitypostgres.New(database.Pool)
+	now := time.Now().UTC()
+	scope := identity.EndUserSessionScope{ProductID: "product.hosted.rollback", ApplicationID: "application.hosted.rollback", Environment: "test"}
+	userID := "usr_hosted_native_rollback"
+	identifierID := "uid_hosted_native_rollback"
+	credentialID := "cred_hosted_native_rollback"
+	proofID := "hproof_" + strings.Repeat("c", 24)
+	hash, err := identity.Bcrypt{Cost: 4}.Hash([]byte("correct hosted rollback password"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := now
+	digest := bytes.Repeat([]byte{2}, 32)
+	eventID := "evt_hosted_convert_duplicate"
+	security := identity.SecurityEvent{AuditID: "aud_hosted_convert", OccurredAt: now, ActorID: userID, Action: "identity.hosted_registration_succeeded", TargetType: "end_user", TargetID: userID, Result: "success", TraceID: "trace.hosted.convert", RiskLevel: "normal"}
+	event := identity.OutboxEvent{EventID: eventID, Topic: "identity.hosted_registration_succeeded.v1", Now: now, Payload: security}
+	registration := identity.EndUserRegistration{User: identity.EndUser{UserID: userID, AccountStatus: "active", CreatedAt: now, UpdatedAt: now}, Identifier: identity.EndUserIdentifier{IdentifierID: identifierID, UserID: userID, Type: identity.IdentifierEmail, NormalizationVersion: 1, NormalizedDigest: digest, MaskedValue: "h***@example.com", VerificationStatus: "verified", VerifiedAt: &verified, CreatedAt: now, UpdatedAt: now}, Credential: identity.EndUserCredential{CredentialID: credentialID, UserID: userID, PasswordHash: hash, Algorithm: "bcrypt", Status: "active", ChangedAt: now}, Profile: identity.EndUserProfile{UserID: userID, Version: 1, DisplayName: "Rollback", CreatedAt: now, UpdatedAt: now}, OutboxEvent: event}
+	_, _, err = repository.CreateHostedRegistration(ctx, identity.HostedRegistrationRecord{Registration: registration, Proof: identity.HostedAuthProof{ProofID: proofID, UserID: userID, Scope: scope, AuthenticationMethod: "password", RiskSummaryDigest: bytes.Repeat([]byte{1}, 32), TTL: time.Minute, OutboxEvent: event}, Idempotency: identity.EndUserIdempotency{Operation: "hosted_register", ScopeID: "scope", ActorDigest: digest, KeyDigest: bytes.Repeat([]byte{3}, 32), RequestDigest: bytes.Repeat([]byte{4}, 32), ResourceID: proofID, Now: now}, IdentifierDigest: digest})
+	if err == nil {
+		t.Fatal("expected duplicate outbox failure")
+	}
+	var proofs, outbox, users, profiles, credentials, sessions, idempotency int
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.hosted_auth_proofs WHERE proof_id=$1`, proofID).Scan(&proofs); err != nil {
+		t.Fatal(err)
+	}
+	for query, target := range map[string]*int{`SELECT count(*) FROM identity.users WHERE user_id=$1`: &users, `SELECT count(*) FROM identity.user_profiles WHERE user_id=$1`: &profiles, `SELECT count(*) FROM identity.user_credentials WHERE user_id=$1`: &credentials, `SELECT count(*) FROM identity.end_user_sessions WHERE user_id=$1`: &sessions} {
+		if err = database.Pool.QueryRow(ctx, query, userID).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_idempotency_records WHERE operation='hosted_register' AND resource_id=$1`, proofID).Scan(&idempotency); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.outbox_events WHERE event_id=$1`, eventID).Scan(&outbox); err != nil {
+		t.Fatal(err)
+	}
+	if proofs != 0 || outbox != 0 || users != 0 || profiles != 0 || credentials != 0 || sessions != 0 || idempotency != 0 {
+		t.Fatalf("users=%d profiles=%d credentials=%d proofs=%d sessions=%d outbox=%d idem=%d", users, profiles, credentials, proofs, sessions, outbox, idempotency)
 	}
 }

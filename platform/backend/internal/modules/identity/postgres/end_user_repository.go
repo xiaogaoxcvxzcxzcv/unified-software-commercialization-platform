@@ -803,7 +803,7 @@ func (r *Repository) RevokeScopedSessions(ctx context.Context, command identity.
 }
 
 func (r *Repository) ListEndUserSessions(ctx context.Context, userID, currentSessionID string, scope identity.EndUserSessionScope) ([]identity.EndUserSessionSummary, error) {
-	rows, err := r.pool.Query(ctx, `SELECT session_id,product_id,application_id,tenant_id,COALESCE(environment,''),authentication_method,created_at,last_seen_at,refresh_expires_at,revoked_at FROM identity.end_user_sessions WHERE user_id=$1 AND product_id=$2 AND application_id=$3 AND tenant_id IS NOT DISTINCT FROM $4 AND COALESCE(environment,'')=$5 ORDER BY created_at DESC,session_id`, userID, scope.ProductID, scope.ApplicationID, scope.TenantID, scope.Environment)
+	rows, err := r.pool.Query(ctx, `SELECT session_id,product_id,application_id,tenant_id,COALESCE(environment,''),authentication_method,created_at,last_seen_at,refresh_expires_at,revoked_at FROM identity.end_user_sessions WHERE user_id=$1 AND product_id=$2 AND application_id=$3 AND tenant_id IS NOT DISTINCT FROM $4 AND COALESCE(environment,'')=$5 AND revoked_at IS NULL AND refresh_expires_at>clock_timestamp() ORDER BY created_at DESC,session_id`, userID, scope.ProductID, scope.ApplicationID, scope.TenantID, scope.Environment)
 	if err != nil {
 		return nil, err
 	}

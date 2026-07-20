@@ -21,7 +21,7 @@
 | 刷新/退出 | refresh 单次轮换、family 重放检测、撤销幂等 | 瞬时失败保留可重试状态，终态撤销才清客户端会话 |
 | 找回 | 短期一次性 challenge、摘要存储、安全通知、始终返回同形 opaque continuation | 相同幂等键恢复首次结果，防账号枚举和 code 重放 |
 | 资料/安全 | UserContext、乐观并发、近期重认证 | 密码变更按策略撤销其他 session family |
-| 会话管理 | 只返回当前用户的脱敏设备/时间摘要 | 撤销当前或指定会话幂等 |
+| 会话管理 | 普通用户与 Hosted 自助列表只返回当前完整 scope 下的 active 会话（`revoked_at IS NULL` 且 `refresh_expires_at` 晚于数据库当前时间）及脱敏设备/时间摘要；管理员历史查询仍保留 active、expired、revoked 全部记录 | 撤销当前或指定会话幂等；撤销后普通用户与 Hosted 再次读取必须立即不再返回目标会话 |
 | 外部身份 | state/nonce/PKCE、精确回调白名单 | Provider 未配置、回放、冲突均失败关闭 |
 
 注册、找回启动/完成和外部 code 交换均使用服务端范围 + `Idempotency-Key` 保存可恢复结果；一次性 proof/code 只防重放，不能代替网络丢包后的结果恢复。Refresh 请求还必须带 `client_request_id`：相同 refresh token + 相同 request ID 在短恢复窗口返回同一轮换结果；旧 token 配合不同 request ID 视为真实重放并撤销 family。
@@ -113,3 +113,47 @@
 - 该工具只允许注入两个 test-only Port：产生 `catalog_snapshot.scope=experimental` 且所有文档显式标注 acceptance 的 Planner，以及只验证本地验收注册命令的 RegistrationProof。不得把二者接入正式 server composition root。
 - 工具不执行 Generator、不写普通/实验 runtime catalog、不改变 `package.account=contracted`，也不证明软件可装配、能力包 verified candidate 或 available。所有 Product/Blueprint/Plan/Run/Application/User 标识和名称必须带 `g2a05-acceptance` 或 `[ACCEPTANCE FIXTURE]`。
 - 验收密码只能来自 `.runtime/G2A-05/`，不得写入源码、Git、日志或证据；工具输出只包含脱敏对象 ID。固定幂等键允许在未修改夹具用户前安全重跑；若浏览器验收已改变该用户状态，应重置本地控制库或重新建立专用夹具后再运行。
+
+## G2A-06 用户前台 Account Blocks 冻结补充
+
+### 交付形态与复用边界
+
+- `auth.login`、`auth.register`、`auth.recovery`、`account.center`、`account.profile`、`account.security` 必须共用 `platform/client-ui/` 的契约、Headless 状态和 React 业务组件。Hosted UI 只是同一组 Block 的托管编排，不得复制第二套账号状态机。
+- 可部署 Hosted Web Shell 的唯一正式落点是 `platform/hosted-web/`；它只负责 `/ui/v1/auth` 与 `/ui/v1/account` 路由、页面安全头和对 `@capability-platform/client-ui` 的组合，不拥有账号业务状态、SDK token 或后端事实。
+- Web 与 desktop WebView 首版使用 `standard-a` 已验证的主题 Token、基础控件、响应式和可访问性边界。G2A-06 不发布普通模板、不改变 `standard-a` readiness，也不生成软件正文业务页面。
+- 页面和组件只能调用版本化 Client UI API Client；不得直接调用 Provider、后端 Service、Repository、数据库或读取宿主文件。
+- Embedded/generated 形态使用 SDK 持有的 UserBearer；Hosted 浏览器形态只使用 `__Host-platform_hosted_session` HttpOnly Cookie 与内存 CSRF。User access/refresh token、client session token、PKCE verifier 和密码不得进入 URL、DOM 属性、持久化存储、日志或分析事件。
+
+### Hosted auth 自助编排
+
+- `hosted.auth` interaction 绑定创建时的可信 Client Session。浏览器注册、找回启动/完成和密码登录均由 HostedInteraction 公开应用服务调用 Identity 公开 Port；浏览器请求不能提交 Product/Application/Tenant、Client Session 或任意 return URI。
+- Hosted 注册沿用 Identity 的 verification continuation、proof、幂等和防枚举语义。成功后必须形成与密码登录等价、绑定原 interaction scope/nonce/PKCE 的一次性 authorization-code completion；不得把 UserBearer 返回 Hosted 浏览器。
+- Hosted 找回启动始终返回同形安全流程投影；Identity continuation 与 identifier 由 HostedInteraction 加密持久化并绑定 interaction，浏览器不得接收或回传 continuation。完成请求只提交单次 proof、幂等键和新密码。成功后 interaction 保持可继续登录，不自动创建未审计会话。
+- 注册验证与找回启动写入 `hosted_interaction.self_service_flows`；只保存 AEAD 保护的 identifier/continuation、摘要、安全 identifier hint、流程类型、版本和到期时间。bootstrap 仅投影 `login | registration_verification | recovery_verification` 与安全 hint；返回登录通过幂等 flow reset 清理该短期事实。
+- 外部 Provider 入口只来自服务端对当前 Product/Application/environment 的安全 capability 投影。未配置、禁用或密钥引用不完整的 Provider 不进入响应和可访问树；客户端不能通过 query/body 注入 Provider。G2A-06 尚未发布 Hosted Provider start/callback API，因此该关口的 `external_providers` 必须为空；后续只有先冻结公开 API、回调白名单和 state/nonce/PKCE 契约，才允许返回可操作 Provider。
+
+### Hosted account 自助编排
+
+- `hosted.account` interaction 必须绑定创建时的 User ID、User Session ID 与可信 scope。浏览器不能获得或替换该 UserBearer；HostedInteraction 只通过 Identity 公开 Port 读取/修改该绑定用户的 profile、密码和 session。
+- 安全 bootstrap 投影只包含当前 profile、当前范围会话摘要、脱敏外部身份和服务端允许动作；不得包含 identifier 原文、token、digest、内部 Provider 载荷或其他产品/租户数据。
+- `password_enabled`、`registration_enabled`、`recovery_enabled` 与 `allowed_actions` 是服务端授权结果，不只是 UI 提示。对应公开 Service 和每个写接口必须再次按同一可信配置、scope、actor 和 interaction 状态 fail-closed；客户端隐藏按钮不能代替服务端授权。 能力或动作未开放时返回 `403 hosted.capability_not_available` 且不可重试，不得折叠成 `401 hosted.authentication_required`。
+- Profile 更新要求 `expected_version` 与 Idempotency-Key；版本冲突保持当前表单并提供重新加载动作。密码修改要求当前密码、符合策略的新密码、近期认证和 Idempotency-Key；成功后的其他会话撤销策略由 Identity 裁决。
+- 表单校验失败使用真实 `field_errors` 安全投影，字段名只允许公开请求字段且消息不得包含 identifier、proof、credential 或内部 Provider 详情。Profile 过期版本返回独立 `hosted.version_conflict` 409；同一 Idempotency-Key 改变请求体返回 `hosted.idempotency_conflict` 409，两者不得折叠。
+- interaction 进入 `completed`、`cancelled`、`failed`、`expired` 或 `exchanged` 后，浏览器恢复只返回稳定终态/既有 completion，不得继续调用 auth/account 业务 bootstrap 或重新执行 mutation。
+- 会话撤销只能作用于 bootstrap 返回的当前用户会话；撤销当前 HostedInteraction 发起会话会使后续 account 写操作失败关闭。重复撤销保持幂等。
+- `account.center` 只注册当前已交付的 profile/security 入口。Entitlement、Device、Order、Notification 尚未 ready 时不得显示空菜单、假摘要或“敬请期待”。
+
+### HTTP、状态与恢复
+
+- 新增 Hosted 自助路由必须位于 `/api/v1/hosted/interactions/{interaction_id}/auth/*` 或 `/account/*`。全部路由要求精确 interaction path 与当前 active Hosted Cookie；所有写操作还要求唯一且精确匹配的 Hosted Origin 和 `X-CSRF-Token`，并且除密码尝试外要求 `Idempotency-Key`。只读 bootstrap 不要求 CSRF；正常同源 GET 缺少 `Origin` 时允许继续，显式提供时必须只有一个值且精确匹配 Hosted Origin，空值、`null`、重复或不匹配值统一返回 `hosted.csrf_failed`。成功和拒绝响应都不得发送 `Access-Control-Allow-Origin` 或 `Access-Control-Allow-Credentials`，并且必须 `Cache-Control: no-store`；Cookie 与 interaction 绑定不得放宽。
+- Hosted 页面首次加载调用 browser-session，再从服务端恢复 interaction；刷新、窗口重开和响应丢失不得依赖内存业务事实。`completed` 恢复显示稳定返回动作，不重复注册、登录、找回、修改资料或撤销会话。
+- browser-session 恢复 completed interaction 时必须附带服务端从既有 completion grant 构建的可选 `completion`；opened/created 不得返回该字段。客户端只能把该对象作为不透明返回动作，不得推导 code、state 或 return URL。
+- 六个 Block 都必须覆盖 `idle | loading | ready | submitting | success | empty | failed | disabled`。可重试依赖错误保留安全输入边界；认证失效、interaction 过期、能力关闭和稳定的 `hosted.interaction_terminal` 终态错误分别呈现重新开始、返回原应用或关闭动作。
+- 密码、确认密码、verification/recovery proof 与一次性 code 都属于敏感字段：任何提交尝试（包括客户端校验失败）、取消、返回登录、Provider 切换、重新发送、能力撤销、`disabled|empty` 或组件卸载时必须立即清空；服务端字段错误或可重试失败不得恢复这些值。Identifier、display name 和协议选择等非敏感表单值可按当前 active flow 的字段错误策略保留。浏览器历史、页面标题、Referer、错误详情和 request telemetry 均不得包含密码、token、proof、code、identifier 原文或 CSRF。
+- Hosted HTTP 响应统一 `Cache-Control: no-store`，页面设置 CSP、`frame-ancestors 'none'`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff` 和受控 Permissions-Policy。
+
+### G2A-06 验收边界
+
+- 组件测试覆盖六个 Block 的八态、字段错误、取消旧请求、幂等重放、版本冲突、Provider 隐藏、会话撤销和密码清理；API Client 严格拒绝未知字段与错误 content type。
+- 真实 PostgreSQL 与浏览器至少完成 hosted.auth 密码登录回跳、错误 PKCE/code 重放拒绝、hosted.account profile 更新/会话撤销/安全操作、刷新恢复和取消；验证 Web、desktop channel、1280/760/390/320、低高度、键盘和浅深主题。
+- 本关只证明用户前台交付面达到 `verified`。SDK 扩展、配置 Schema、Generated Source、样板装配和完整包九面验证仍属于 G2A-07/G2A-08/G2C；`package.account` 必须保持 `contracted` 且 `availability=[]`。

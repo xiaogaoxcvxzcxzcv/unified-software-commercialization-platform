@@ -225,6 +225,55 @@ func TestEndUserRepositoryScopedRevocationIsVersionedAndIsolated(t *testing.T) {
 	assertEndUserSessionRevoked(t, database, newTenantOne.Session.SessionID, false)
 }
 
+func TestEndUserRepositoryListsOnlyActiveSessionsWithinTrustedScope(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := identitypostgres.New(database.Pool)
+	ctx := context.Background()
+	var databaseNow time.Time
+	if err := database.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		t.Fatal(err)
+	}
+	registration := endUserRegistration(t, "user.session-list", "credential.session-list", "identifier.session-list", "session-list@example.com", databaseNow.Add(-4*time.Hour))
+	if err := repository.CreateEndUser(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+
+	activeOlder := newEndUserSession("session.list.active-older", "family.list.active-older", registration.User.UserID, databaseNow.Add(-30*time.Minute))
+	revoked := newEndUserSession("session.list.revoked", "family.list.revoked", registration.User.UserID, databaseNow.Add(-20*time.Minute))
+	expired := newEndUserSession("session.list.expired", "family.list.expired", registration.User.UserID, databaseNow.Add(-2*time.Hour))
+	current := newEndUserSession("session.list.current", "family.list.current", registration.User.UserID, databaseNow.Add(-10*time.Minute))
+	otherScope := newEndUserSession("session.list.other-scope", "family.list.other-scope", registration.User.UserID, databaseNow.Add(-5*time.Minute))
+	otherScope.Session.ApplicationID = "application.other"
+	for _, session := range []identity.NewEndUserSession{activeOlder, revoked, expired, current, otherScope} {
+		if err := repository.CreateEndUserSession(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.Pool.Exec(ctx, `UPDATE identity.end_user_sessions SET revoked_at=clock_timestamp(),revoke_reason='test_revoked' WHERE session_id=$1`, revoked.Session.SessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repository.ListEndUserSessions(ctx, registration.User.UserID, current.Session.SessionID, endUserScope(current.Session))
+	if err != nil {
+		t.Fatalf("ListEndUserSessions() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("active sessions = %+v", got)
+	}
+	if got[0].SessionID != current.Session.SessionID || !got[0].Current || got[1].SessionID != activeOlder.Session.SessionID || got[1].Current {
+		t.Fatalf("active session order/current projection = %+v", got)
+	}
+	for _, item := range got {
+		if item.ProductID != current.Session.ProductID || item.ApplicationID != current.Session.ApplicationID || item.Environment != current.Session.Environment || item.TenantID != nil || item.RevokedAt != nil || !item.ExpiresAt.After(databaseNow) {
+			t.Fatalf("active session scope/projection changed = %+v", item)
+		}
+	}
+	var historicalRows int
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.end_user_sessions WHERE user_id=$1 AND product_id=$2 AND application_id=$3`, registration.User.UserID, current.Session.ProductID, current.Session.ApplicationID).Scan(&historicalRows); err != nil || historicalRows != 4 {
+		t.Fatalf("session history rows=%d err=%v", historicalRows, err)
+	}
+}
+
 func TestEndUserRepositoryRecoveryAndExternalIdentityAreSingleOwner(t *testing.T) {
 	database := testpostgres.Open(t)
 	repository := identitypostgres.New(database.Pool)

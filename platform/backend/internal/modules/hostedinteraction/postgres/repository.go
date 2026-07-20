@@ -426,37 +426,62 @@ func (r *Repository) Complete(ctx context.Context, record hostedinteraction.Comp
 	return value, grant, false, nil
 }
 
-func (r *Repository) Cancel(ctx context.Context, interactionID string, tokenDigest []byte, event hostedinteraction.OutboxEvent) (hostedinteraction.Interaction, error) {
+func (r *Repository) Cancel(ctx context.Context, record hostedinteraction.CancelRecord) (hostedinteraction.Interaction, error) {
+	if record.InteractionID == "" || len(record.BrowserTokenDigest) != 32 || len(record.ActorDigest) != 32 || len(record.KeyDigest) != 32 || len(record.RequestDigest) != 32 {
+		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidArgument
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	value, _, now, err := lockBrowserAndInteraction(ctx, tx, interactionID, tokenDigest)
-	if err != nil {
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "hosted-cancel|"+hex.EncodeToString(record.ActorDigest)+"|"+hex.EncodeToString(record.KeyDigest)); err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
-	if value.Status == hostedinteraction.StatusCancelled {
+	var existingID string
+	var existingDigest []byte
+	err = tx.QueryRow(ctx, `SELECT interaction_id,request_digest FROM hosted_interaction.idempotency_records WHERE operation='cancel' AND actor_digest=$1 AND key_digest=$2`, record.ActorDigest, record.KeyDigest).Scan(&existingID, &existingDigest)
+	if err == nil {
+		if existingID != record.InteractionID || !hmac.Equal(existingDigest, record.RequestDigest) {
+			return hostedinteraction.Interaction{}, hostedinteraction.ErrIdempotencyConflict
+		}
+		value, getErr := getInteraction(ctx, tx, existingID, false)
+		if getErr != nil {
+			return hostedinteraction.Interaction{}, getErr
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return hostedinteraction.Interaction{}, err
 		}
 		return value, nil
 	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return hostedinteraction.Interaction{}, err
+	}
+	value, _, now, err := lockBrowserAndInteraction(ctx, tx, record.InteractionID, record.BrowserTokenDigest)
+	if err != nil {
+		return hostedinteraction.Interaction{}, err
+	}
+	if value.Status == hostedinteraction.StatusCancelled {
+		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidArgument
+	}
 	if value.Status != hostedinteraction.StatusCreated && value.Status != hostedinteraction.StatusOpened && value.Status != hostedinteraction.StatusAuthenticating {
 		return hostedinteraction.Interaction{}, hostedinteraction.ErrInvalidArgument
 	}
-	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='cancelled',version=version+1,result_kind='cancelled',terminal_at=$2,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status IN ('created','opened','authenticating')`, interactionID, now)
+	result, err := tx.Exec(ctx, `UPDATE hosted_interaction.interactions SET status='cancelled',version=version+1,result_kind='cancelled',terminal_at=$2,authentication_lease_digest=NULL,authentication_started_at=NULL,authentication_lease_expires_at=NULL WHERE interaction_id=$1 AND status IN ('created','opened','authenticating')`, record.InteractionID, now)
 	if err != nil || result.RowsAffected() != 1 {
 		if err == nil {
 			err = hostedinteraction.ErrInvalidArgument
 		}
 		return hostedinteraction.Interaction{}, err
 	}
-	event.OccurredAt = now
-	if err = insertOutbox(ctx, tx, event); err != nil {
+	record.Event.OccurredAt = now
+	if err = insertOutbox(ctx, tx, record.Event); err != nil {
 		return hostedinteraction.Interaction{}, err
 	}
-	value, err = getInteraction(ctx, tx, interactionID, false)
+	if _, err = tx.Exec(ctx, `INSERT INTO hosted_interaction.idempotency_records(operation,actor_digest,key_digest,request_digest,interaction_id,response_document,created_at) VALUES('cancel',$1,$2,$3,$4,'{}'::jsonb,$5)`, record.ActorDigest, record.KeyDigest, record.RequestDigest, record.InteractionID, now); err != nil {
+		return hostedinteraction.Interaction{}, err
+	}
+	value, err = getInteraction(ctx, tx, record.InteractionID, false)
 	if err != nil {
 		return hostedinteraction.Interaction{}, err
 	}

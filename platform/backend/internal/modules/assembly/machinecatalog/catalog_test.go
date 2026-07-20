@@ -24,10 +24,16 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version() != "1.3.0" || len(catalog.Checksum()) != len("sha256:")+64 {
+	if catalog.Version() != "1.4.0" || len(catalog.Checksum()) != len("sha256:")+64 {
 		t.Fatalf("catalog identity = %s %s", catalog.Version(), catalog.Checksum())
 	}
 	ready := map[string]struct{}{
+		"account.center":            {},
+		"account.profile":           {},
+		"account.security":          {},
+		"auth.login":                {},
+		"auth.recovery":             {},
+		"auth.register":             {},
 		"assembly.blueprint-wizard": {},
 		"assembly.plan-review":      {},
 		"assembly.run-status":       {},
@@ -36,6 +42,8 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 		"product.overview":          {},
 		"product.switcher":          {},
 		"product.table":             {},
+		"identity.user-detail":      {},
+		"identity.user-table":       {},
 	}
 	for blockID, definition := range catalog.byID {
 		_, allowed := ready[blockID]
@@ -46,8 +54,11 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 			t.Fatalf("unverified block %q readiness = %q", blockID, definition.Readiness)
 		}
 	}
-	if err := catalog.Validate([]string{"auth.login"}, "client"); !errors.Is(err, ErrBlockNotReady) {
-		t.Fatalf("planned client block should not be usable: %v", err)
+	if err := catalog.Validate([]string{"entitlement.summary"}, "client"); !errors.Is(err, ErrBlockNotReady) {
+		t.Fatalf("unverified client block should not be usable: %v", err)
+	}
+	if err := catalog.Validate([]string{"auth.login", "auth.register", "auth.recovery", "account.center", "account.profile", "account.security"}, "client"); err != nil {
+		t.Fatalf("verified account client blocks should be usable: %v", err)
 	}
 	if err := catalog.Validate([]string{"assembly.blueprint-wizard", "assembly.plan-review"}, "admin"); err != nil {
 		t.Fatalf("verified wizard blocks should be usable: %v", err)

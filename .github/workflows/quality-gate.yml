@@ -9,8 +9,42 @@ permissions:
   contents: read
 
 jobs:
+  windows-tls:
+    name: windows-tls
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            platform/admin-web/package-lock.json
+            platform/hosted-web/package-lock.json
+
+      - name: Install admin dependencies
+        working-directory: platform/admin-web
+        run: npm ci
+
+      - name: Install hosted dependencies
+        working-directory: platform/hosted-web
+        run: npm ci
+
+      - name: Run Admin Windows TLS tests
+        working-directory: platform/admin-web
+        run: npm test -- --run src/test/windowsHttpsProvisioning.test.ts
+
+      - name: Run Hosted Windows TLS tests
+        working-directory: platform/hosted-web
+        run: npm test -- --run src/windows-https-script.test.ts
+
   quality-gate:
     name: quality-gate
+    needs: windows-tls
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -64,6 +98,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             platform/admin-web/package-lock.json
+            platform/hosted-web/package-lock.json
             platform/sdk/typescript/package-lock.json
             platform/client-ui/package-lock.json
 
@@ -77,6 +112,10 @@ jobs:
 
       - name: Install admin dependencies
         working-directory: platform/admin-web
+        run: npm ci
+
+      - name: Install hosted dependencies
+        working-directory: platform/hosted-web
         run: npm ci
 
       - name: Run shared quality gate

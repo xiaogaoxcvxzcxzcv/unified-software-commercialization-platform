@@ -82,6 +82,15 @@ type CompleteRecord struct {
 	Event                     OutboxEvent
 }
 
+type CancelRecord struct {
+	InteractionID      string
+	BrowserTokenDigest []byte
+	ActorDigest        []byte
+	KeyDigest          []byte
+	RequestDigest      []byte
+	Event              OutboxEvent
+}
+
 type Repository interface {
 	Create(context.Context, CreateRecord) (Interaction, bool, error)
 	Get(context.Context, string) (Interaction, error)
@@ -92,7 +101,7 @@ type Repository interface {
 	ResetAuthentication(context.Context, string, []byte, []byte) error
 	GetCompletionGrant(context.Context, string, []byte) (CompletionGrant, error)
 	Complete(context.Context, CompleteRecord) (Interaction, CompletionGrant, bool, error)
-	Cancel(context.Context, string, []byte, OutboxEvent) (Interaction, error)
+	Cancel(context.Context, CancelRecord) (Interaction, error)
 	ClaimGrant(context.Context, string, Scope, []byte, []byte, time.Duration, string, []byte) (ClaimedGrant, error)
 	ConsumeGrant(context.Context, string, []byte, OutboxEvent) (Interaction, error)
 	ExpireDue(context.Context, int) (int, error)

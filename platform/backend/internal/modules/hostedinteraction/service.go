@@ -24,6 +24,10 @@ type Service struct {
 	returnTargets  ReturnTargetPort
 	identity       HostedIdentityPort
 	sessions       SessionValidationPort
+	selfService    HostedSelfServicePort
+	presentation   HostedPresentationPort
+	flows          SelfServiceFlowRepository
+	capabilities   HostedCapabilityPort
 	protector      StateProtector
 	ids            IDGenerator
 	digester       Digester
@@ -33,6 +37,20 @@ type Service struct {
 	grantTTL       time.Duration
 	leaseTTL       time.Duration
 	authLeaseTTL   time.Duration
+}
+
+// ConfigureSelfService wires the optional hosted browser BFF without changing
+// the constructor used by non-browser consumers and focused tests.
+func (s *Service) ConfigureSelfService(identity HostedSelfServicePort, presentation HostedPresentationPort) error {
+	if s == nil || identity == nil || presentation == nil {
+		return ErrTemporarilyUnavailable
+	}
+	flows, ok := s.repository.(SelfServiceFlowRepository)
+	if !ok {
+		return ErrTemporarilyUnavailable
+	}
+	s.selfService, s.presentation, s.flows, s.capabilities = identity, presentation, flows, identity
+	return nil
 }
 
 type ServicePolicy struct {
@@ -57,9 +75,11 @@ func NewServiceWithPolicy(repository Repository, returnTargets ReturnTargetPort,
 	if repository == nil || returnTargets == nil || identity == nil || protector == nil || digester == nil || err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" || !validServicePolicy(policy) {
 		return nil, ErrTemporarilyUnavailable
 	}
-	return &Service{repository: repository, returnTargets: returnTargets, identity: identity, sessions: sessions,
+	service := &Service{repository: repository, returnTargets: returnTargets, identity: identity, sessions: sessions,
 		protector: protector, ids: securevalue.DefaultGenerator(), digester: digester, baseURL: baseURL,
-		interactionTTL: policy.InteractionTTL, browserTTL: policy.BrowserTTL, grantTTL: policy.GrantTTL, leaseTTL: policy.LeaseTTL, authLeaseTTL: policy.AuthLeaseTTL}, nil
+		interactionTTL: policy.InteractionTTL, browserTTL: policy.BrowserTTL, grantTTL: policy.GrantTTL, leaseTTL: policy.LeaseTTL, authLeaseTTL: policy.AuthLeaseTTL}
+	service.capabilities, _ = identity.(HostedCapabilityPort)
+	return service, nil
 }
 
 type CreateCommand struct {
@@ -190,6 +210,22 @@ func (s *Service) OpenBrowserSession(ctx context.Context, interactionID string) 
 	return BrowserSession{BrowserSessionID: sessionID, InteractionID: interactionID, Token: token, CSRFToken: csrf, ExpiresAt: expiresAt}, Project(value), nil
 }
 
+func (s *Service) RecoverBrowserCompletion(ctx context.Context, interactionID, browserToken string) (Completion, error) {
+	digest := s.digest("browser-token", browserToken)
+	access, err := s.repository.ValidateBrowserSession(ctx, interactionID, digest)
+	if err != nil {
+		return Completion{}, err
+	}
+	if access.Interaction.Status != StatusCompleted {
+		return Completion{}, ErrInvalidGrant
+	}
+	grant, err := s.repository.GetCompletionGrant(ctx, interactionID, digest)
+	if err != nil {
+		return Completion{}, err
+	}
+	return s.completion(ctx, access.Interaction, grant)
+}
+
 func (s *Service) GetForBrowser(ctx context.Context, interactionID, browserToken string) (Projection, error) {
 	projection, _, _, err := s.ResolveBrowserAccess(ctx, interactionID, browserToken)
 	return projection, err
@@ -235,6 +271,9 @@ func (s *Service) Authenticate(ctx context.Context, command AuthenticateCommand)
 		}
 		return s.completion(ctx, current, grant)
 	}
+	if !s.capability(ctx, current.Scope, "password") {
+		return Completion{}, ErrCapabilityUnavailable
+	}
 	authLeaseToken, err := s.ids.Token("")
 	if err != nil {
 		return Completion{}, err
@@ -270,6 +309,9 @@ func (s *Service) CompleteAccount(ctx context.Context, command CompleteAccountCo
 		return Completion{}, err
 	}
 	value := access.Interaction
+	if err := s.requireAccountAction(ctx, value.Scope, "complete"); err != nil {
+		return Completion{}, err
+	}
 	if value.Route != RouteAccount || s.sessions == nil {
 		return Completion{}, ErrAuthenticationNeeded
 	}
@@ -325,7 +367,10 @@ func (s *Service) completion(ctx context.Context, completed Interaction, grant C
 	return Completion{Interaction: Project(completed), Code: code, ReturnURL: buildReturnURL(completed.ReturnTargetURI, code, state, completed.InteractionID), GrantExpiresAt: grant.ExpiresAt}, nil
 }
 
-func (s *Service) Cancel(ctx context.Context, interactionID, browserToken string) (Projection, error) {
+func (s *Service) Cancel(ctx context.Context, interactionID, browserToken, idempotencyKey string) (Projection, error) {
+	if len(idempotencyKey) < 16 || len(idempotencyKey) > 128 {
+		return Projection{}, ErrInvalidArgument
+	}
 	value, err := s.repository.Get(ctx, interactionID)
 	if err != nil {
 		return Projection{}, err
@@ -334,7 +379,16 @@ func (s *Service) Cancel(ctx context.Context, interactionID, browserToken string
 	if err != nil {
 		return Projection{}, err
 	}
-	value, err = s.repository.Cancel(ctx, interactionID, s.digest("browser-token", browserToken), event)
+	value, err = s.repository.Cancel(ctx, CancelRecord{
+		InteractionID:      interactionID,
+		BrowserTokenDigest: s.digest("browser-token", browserToken),
+		ActorDigest:        s.digest("cancel-actor", browserToken),
+		KeyDigest:          s.digest("idempotency-key", idempotencyKey),
+		RequestDigest: digestJSON(struct {
+			InteractionID string
+		}{InteractionID: interactionID}),
+		Event: event,
+	})
 	if err != nil {
 		return Projection{}, err
 	}

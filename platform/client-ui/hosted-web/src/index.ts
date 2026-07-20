@@ -13,7 +13,7 @@ const routes: Readonly<Record<string, HostedRouteId>> = Object.freeze({
   "/ui/v1/cashier": "hosted.cashier",
   "/ui/v1/payment-result": "hosted.payment-result",
 });
-const interactionId = /^[A-Za-z0-9_-]{16,128}$/;
+const interactionId = /^hint_[A-Za-z0-9_-]{24,160}$/;
 const forbidden = new Set(["product_id", "tenant_id", "application_id", "amount", "price", "return_url", "access_token", "refresh_token", "token"]);
 
 export function parseHostedLaunch(input: string | URL): Readonly<HostedLaunch> {
@@ -33,3 +33,6 @@ export function parseHostedLaunch(input: string | URL): Readonly<HostedLaunch> {
   if (url.hash) throw new TypeError("hosted UI URL must not contain a fragment");
   return Object.freeze({ routeId, interactionId: value[0]! });
 }
+
+export * from "./account-client.js";
+export * from "./account-controller.js";

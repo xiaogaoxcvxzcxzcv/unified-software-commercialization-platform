@@ -36,6 +36,21 @@ func TestHostedChannelMappingIsClosed(t *testing.T) {
 	}
 }
 
+func TestHostedSelfServiceIdentityErrorsAreExplicitlyMapped(t *testing.T) {
+	tests := []struct{ source, target error }{{identity.ErrEndUserVersionConflict, hostedinteraction.ErrIdempotencyConflict}, {identity.ErrEndUserInvalidCredentials, hostedinteraction.ErrAuthenticationNeeded}, {identity.ErrEndUserReauthenticationRequired, hostedinteraction.ErrAuthenticationNeeded}, {identity.ErrEndUserRateLimited, hostedinteraction.ErrAuthenticationNeeded}, {identity.ErrRegistrationVerificationInvalid, hostedinteraction.ErrAuthenticationNeeded}, {identity.ErrEndUserSessionExpired, hostedinteraction.ErrSessionRevoked}, {identity.ErrEndUserAccountDisabled, hostedinteraction.ErrSessionRevoked}, {identity.ErrEndUserProviderUnavailable, hostedinteraction.ErrTemporarilyUnavailable}}
+	for _, tt := range tests {
+		if got := mapHostedIdentitySelfServiceError(tt.source); !errors.Is(got, tt.target) {
+			t.Fatalf("source=%v got=%v want=%v", tt.source, got, tt.target)
+		}
+	}
+	httpTests := []struct{ source, target error }{{identity.ErrEndUserVersionConflict, hostedhttp.ErrConflict}, {identity.ErrEndUserInvalidCredentials, hostedhttp.ErrAuthenticationRequired}, {identity.ErrEndUserReauthenticationRequired, hostedhttp.ErrAuthenticationRequired}, {identity.ErrEndUserSessionExpired, hostedhttp.ErrSessionRevoked}, {identity.ErrEndUserProviderUnavailable, hostedhttp.ErrTemporarilyUnavailable}}
+	for _, tt := range httpTests {
+		if got := mapHostedCoreError(mapHostedIdentitySelfServiceError(tt.source)); !errors.Is(got, tt.target) {
+			t.Fatalf("http source=%v got=%v want=%v", tt.source, got, tt.target)
+		}
+	}
+}
+
 func TestHostedStateSecretResolverIsReferenceBoundAndCopiesKey(t *testing.T) {
 	resolver := hostedStateSecretResolver{reference: "hosted.state.v1"}
 	for index := range resolver.key {
@@ -68,6 +83,7 @@ func TestHostedScopeAndErrorMappingPreserveSecurityContext(t *testing.T) {
 	}{
 		{hostedinteraction.ErrInvalidArgument, hostedhttp.ErrInvalidInteraction},
 		{hostedinteraction.ErrInteractionExpired, hostedhttp.ErrInteractionExpired},
+		{hostedinteraction.ErrInteractionTerminal, hostedhttp.ErrInteractionTerminal},
 		{hostedinteraction.ErrInvalidReturnTarget, hostedhttp.ErrInvalidReturnTarget},
 		{hostedinteraction.ErrStateMismatch, hostedhttp.ErrStateMismatch},
 		{hostedinteraction.ErrPKCERequired, hostedhttp.ErrPKCERequired},

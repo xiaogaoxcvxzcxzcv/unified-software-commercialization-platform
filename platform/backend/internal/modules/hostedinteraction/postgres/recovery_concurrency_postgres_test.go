@@ -84,7 +84,7 @@ func TestAuthenticationLeaseClearedOnCancelAndExpiry(t *testing.T) {
 	if _, _, err := repository.BeginAuthentication(ctx, cancelledValue.InteractionID, cancelBrowser, digestOf("cancel-auth-lease"), time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	cancelled, err := repository.Cancel(ctx, cancelledValue.InteractionID, cancelBrowser, event("evt_cancel_auth", cancelledValue.InteractionID, "hosted.interaction_cancelled.v1"))
+	cancelled, err := repository.Cancel(ctx, hostedinteraction.CancelRecord{InteractionID: cancelledValue.InteractionID, BrowserTokenDigest: cancelBrowser, ActorDigest: digestOf("cancel-actor"), KeyDigest: digestOf("cancel-key"), RequestDigest: digestOf("cancel-request"), Event: event("evt_cancel_auth", cancelledValue.InteractionID, "hosted.interaction_cancelled.v1")})
 	if err != nil || cancelled.Status != hostedinteraction.StatusCancelled || len(cancelled.AuthenticationLeaseDigest) != 0 || cancelled.AuthenticationLeaseExpiresAt != nil {
 		t.Fatalf("cancel authenticating=(%+v,%v)", cancelled, err)
 	}

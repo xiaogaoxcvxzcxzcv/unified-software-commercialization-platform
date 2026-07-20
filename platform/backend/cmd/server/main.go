@@ -357,7 +357,7 @@ func main() {
 		logger.Error("end-user identity service initialization failed", "error", err)
 		os.Exit(1)
 	}
-	hostedRuntime, err := newHostedInteractionRuntime(cfg.HostedInteraction, db.Pool(), productService, applicationService, endUserService, hasher)
+	hostedRuntime, err := newHostedInteractionRuntime(cfg.HostedInteraction, db.Pool(), productService, applicationService, endUserService, hasher, registrationVerificationService)
 	cfg.HostedInteraction.StateKey = ""
 	cfg.HostedInteraction.DigestKey = ""
 	if err != nil {

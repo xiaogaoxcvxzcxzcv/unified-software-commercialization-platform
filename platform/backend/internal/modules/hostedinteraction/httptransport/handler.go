@@ -28,6 +28,7 @@ var (
 	ErrAuthenticationRequired = errors.New("hosted authentication required")
 	ErrInvalidInteraction     = errors.New("invalid hosted interaction")
 	ErrInteractionExpired     = errors.New("hosted interaction expired")
+	ErrInteractionTerminal    = errors.New("hosted interaction terminal")
 	ErrInvalidReturnTarget    = errors.New("invalid hosted return target")
 	ErrStateMismatch          = errors.New("hosted state mismatch")
 	ErrPKCERequired           = errors.New("hosted pkce required")
@@ -36,6 +37,8 @@ var (
 	ErrSessionRevoked         = errors.New("hosted session revoked")
 	ErrCSRFFailed             = errors.New("hosted csrf failed")
 	ErrConflict               = errors.New("hosted request conflict")
+	ErrVersionConflict        = errors.New("hosted version conflict")
+	ErrCapabilityUnavailable  = errors.New("hosted capability not available")
 	ErrTemporarilyUnavailable = errors.New("hosted temporarily unavailable")
 
 	interactionIDPattern = regexp.MustCompile(`^hint_[A-Za-z0-9_-]{24,160}$`)
@@ -78,8 +81,21 @@ type Service interface {
 	OpenBrowserSession(context.Context, string) (BrowserSession, error)
 	AuthenticatePassword(context.Context, HostedPrincipal, string, PasswordCommand) (Completion, error)
 	CompleteAccount(context.Context, HostedPrincipal, string, CompleteAccountCommand) (Completion, error)
-	Cancel(context.Context, HostedPrincipal, string, string) (Interaction, error)
+	Cancel(context.Context, HostedPrincipal, string, string, string) (Interaction, error)
 	Exchange(context.Context, BearerPrincipal, string, ExchangeCommand) (ExchangeResult, error)
+}
+
+type SelfService interface {
+	AuthBootstrap(context.Context, HostedPrincipal, string) (HostedAuthBootstrap, error)
+	StartRegistrationVerification(context.Context, HostedPrincipal, string, VerificationStartCommand) (HostedAuthFlow, error)
+	RegisterHosted(context.Context, HostedPrincipal, string, RegisterCommand) (Completion, error)
+	StartRecovery(context.Context, HostedPrincipal, string, RecoveryStartCommand) (HostedAuthFlow, error)
+	CompleteRecovery(context.Context, HostedPrincipal, string, RecoveryCompleteCommand) error
+	AccountBootstrap(context.Context, HostedPrincipal, string) (HostedAccountBootstrap, error)
+	PatchAccountProfile(context.Context, HostedPrincipal, string, ProfilePatchCommand) (UserProfile, error)
+	ChangeAccountPassword(context.Context, HostedPrincipal, string, PasswordChangeCommand) error
+	RevokeAccountSession(context.Context, HostedPrincipal, string, string, string, string) error
+	ResetAuthFlow(context.Context, HostedPrincipal, string, string) error
 }
 
 type AccessPrincipal struct {
@@ -134,6 +150,7 @@ type BrowserSession struct {
 	CSRFToken               string      `json:"csrf_token"`
 	BrowserSessionExpiresAt time.Time   `json:"browser_session_expires_at"`
 	CookieToken             string      `json:"-"`
+	Completion              *Completion `json:"completion,omitempty"`
 }
 
 type Completion struct {
@@ -209,6 +226,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.open(w, r, id)
 	case len(path) == 7 && path[5] == "auth" && path[6] == "password":
 		h.password(w, r, id)
+	case len(path) == 7 && path[5] == "auth" && path[6] == "bootstrap":
+		h.authBootstrap(w, r, id)
+	case len(path) == 8 && path[5] == "auth" && path[6] == "verification" && path[7] == "start":
+		h.verificationStart(w, r, id)
+	case len(path) == 7 && path[5] == "auth" && path[6] == "register":
+		h.register(w, r, id)
+	case len(path) == 8 && path[5] == "auth" && path[6] == "recovery" && path[7] == "start":
+		h.recoveryStart(w, r, id)
+	case len(path) == 8 && path[5] == "auth" && path[6] == "recovery" && path[7] == "complete":
+		h.recoveryComplete(w, r, id)
+	case len(path) == 7 && path[5] == "auth" && path[6] == "flow":
+		h.authFlow(w, r, id)
+	case len(path) == 7 && path[5] == "account" && path[6] == "bootstrap":
+		h.accountBootstrap(w, r, id)
+	case len(path) == 7 && path[5] == "account" && path[6] == "profile":
+		h.accountProfile(w, r, id)
+	case len(path) == 7 && path[5] == "account" && path[6] == "password":
+		h.accountPassword(w, r, id)
+	case len(path) == 8 && path[5] == "account" && path[6] == "sessions":
+		h.accountSession(w, r, id, path[7])
 	case len(path) == 7 && path[5] == "account" && path[6] == "complete":
 		h.accountComplete(w, r, id)
 	case len(path) == 6 && path[5] == "cancel":
@@ -317,7 +354,8 @@ func (h *Handler) open(w http.ResponseWriter, r *http.Request, id string) {
 		h.writeError(w, r, err)
 		return
 	}
-	if !opaque(value.CookieToken, 32, 4096) || !bounded(value.CSRFToken, 32, 256) || !value.BrowserSessionExpiresAt.After(time.Now()) || !validInteraction(value.Interaction, id) {
+	validRecoveredCompletion := (value.Interaction.Status == "completed" && value.Completion != nil && validCompletion(*value.Completion, id)) || (value.Interaction.Status != "completed" && value.Completion == nil)
+	if !opaque(value.CookieToken, 32, 4096) || !bounded(value.CSRFToken, 32, 256) || !value.BrowserSessionExpiresAt.After(time.Now()) || !validInteraction(value.Interaction, id) || !validRecoveredCompletion {
 		h.writeError(w, r, ErrTemporarilyUnavailable)
 		return
 	}
@@ -340,8 +378,16 @@ func (h *Handler) password(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	var body passwordRequest
-	if !decodeStrictJSON(w, r, &body) || !bounded(body.Identifier, 3, 320) || !bounded(body.Credential, 8, 1024) {
+	if !decodeStrictJSON(w, r, &body) {
 		h.writeInvalid(w, r)
+		return
+	}
+	if !bounded(body.Identifier, 3, 320) {
+		h.writeInvalidField(w, r, "identifier", "invalid_length")
+		return
+	}
+	if !bounded(body.Credential, 8, 1024) {
+		h.writeInvalidField(w, r, "credential", "invalid_length")
 		return
 	}
 	risk, ok := decodeRisk(body.RiskSummary)
@@ -379,8 +425,12 @@ func (h *Handler) accountComplete(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	var body completeAccountRequest
-	if !decodeStrictJSON(w, r, &body) || !oneOf(body.Result, "closed", "self_service_completed") {
+	if !decodeStrictJSON(w, r, &body) {
 		h.writeInvalid(w, r)
+		return
+	}
+	if !oneOf(body.Result, "closed", "self_service_completed") {
+		h.writeInvalidField(w, r, "result", "invalid_enum")
 		return
 	}
 	value, err := h.service.CompleteAccount(r.Context(), p, id, CompleteAccountCommand{Result: body.Result, IdempotencyKey: key, RequestID: requestid.FromContext(r.Context())})
@@ -403,7 +453,12 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request, id string) {
 	if !ok {
 		return
 	}
-	value, err := h.service.Cancel(r.Context(), p, id, requestid.FromContext(r.Context()))
+	key, ok := singleOpaqueHeader(r, "Idempotency-Key", 16, 128)
+	if !ok {
+		h.writeInvalid(w, r)
+		return
+	}
+	value, err := h.service.Cancel(r.Context(), p, id, key, requestid.FromContext(r.Context()))
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -881,7 +936,10 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 func (h *Handler) writeInvalid(w http.ResponseWriter, r *http.Request) {
-	httpx.ErrorWithOptions(w, r, http.StatusBadRequest, "invalid_request", "invalid request", httpx.ErrorOptions{Retryable: false})
+	httpx.ErrorWithOptions(w, r, http.StatusBadRequest, "invalid_request", "invalid request", httpx.ErrorOptions{Retryable: false, FieldErrors: []httpx.FieldError{{Field: "body", Code: "invalid"}}})
+}
+func (h *Handler) writeInvalidField(w http.ResponseWriter, r *http.Request, field, code string) {
+	httpx.ErrorWithOptions(w, r, http.StatusBadRequest, "invalid_request", "invalid request", httpx.ErrorOptions{Retryable: false, FieldErrors: []httpx.FieldError{{Field: field, Code: code}}})
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) {
@@ -893,6 +951,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		status, code, detail, retryable = http.StatusNotFound, "hosted.invalid_interaction", "hosted interaction not found", false
 	case errors.Is(err, ErrInteractionExpired):
 		status, code, detail, retryable = http.StatusGone, "hosted.interaction_expired", "hosted interaction expired", false
+	case errors.Is(err, ErrInteractionTerminal):
+		status, code, detail, retryable = http.StatusConflict, "hosted.interaction_terminal", "hosted interaction is terminal", false
 	case errors.Is(err, ErrInvalidReturnTarget):
 		status, code, detail, retryable = http.StatusBadRequest, "hosted.invalid_return_target", "invalid return target", false
 	case errors.Is(err, ErrStateMismatch):
@@ -909,6 +969,10 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		status, code, detail, retryable = http.StatusForbidden, "hosted.csrf_failed", "hosted request verification failed", false
 	case errors.Is(err, ErrConflict):
 		status, code, detail, retryable = http.StatusConflict, "hosted.idempotency_conflict", "hosted request conflicts with the original idempotent request", false
+	case errors.Is(err, ErrVersionConflict):
+		status, code, detail, retryable = http.StatusConflict, "hosted.version_conflict", "hosted resource version conflicts with the current version", false
+	case errors.Is(err, ErrCapabilityUnavailable):
+		status, code, detail, retryable = http.StatusForbidden, "hosted.capability_not_available", "hosted capability is not available", false
 	}
 	httpx.ErrorWithOptions(w, r, status, code, detail, httpx.ErrorOptions{Retryable: retryable})
 }

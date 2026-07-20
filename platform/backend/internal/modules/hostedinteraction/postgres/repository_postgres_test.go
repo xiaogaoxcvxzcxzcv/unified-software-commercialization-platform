@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,6 +175,189 @@ func TestRepositoryRotationGrantLeaseAndExpiry(t *testing.T) {
 		if json.Unmarshal([]byte(payload), &object) != nil {
 			t.Fatalf("invalid outbox json: %s", payload)
 		}
+	}
+}
+
+func TestSelfServiceFlowPersistenceVersionResetAndExpiryPostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := hostedpostgres.New(database.Pool)
+	ctx := context.Background()
+	interaction := authInteraction("hint_flow123456789012345678901234", 10*time.Minute)
+	if _, _, err := repository.Create(ctx, createRecord(interaction, "evt_flow_create")); err != nil {
+		t.Fatal(err)
+	}
+	digest := bytes32(71)
+	if _, _, err := repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: interaction.InteractionID, SessionID: "hbs_flow123456789012345678901234", TokenDigest: digest, TTL: time.Minute, Event: event("evt_flow_open", interaction.InteractionID, "hosted.interaction_opened.v1")}); err != nil {
+		t.Fatal(err)
+	}
+	record := hostedinteraction.PutSelfServiceFlowRecord{InteractionID: interaction.InteractionID, Kind: "registration_verification", IdentifierHint: "u***@example.com", Protected: hostedinteraction.ProtectedState{KeyRef: "flow.key", Ciphertext: append(bytes32(1), bytes32(2)...), Digest: bytes32(3)}, TTL: time.Minute}
+	first, err := repository.PutSelfServiceFlow(ctx, record)
+	if err != nil || first.Version != 1 {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	record.Kind = "recovery_verification"
+	second, err := repository.PutSelfServiceFlow(ctx, record)
+	if err != nil || second.Version != 2 {
+		t.Fatalf("second=%+v err=%v", second, err)
+	}
+	loaded, found, err := repository.GetSelfServiceFlow(ctx, interaction.InteractionID)
+	if err != nil || !found || loaded.Kind != record.Kind || string(loaded.Protected.Ciphertext) == "user@example.com" {
+		t.Fatalf("loaded=%+v found=%v err=%v", loaded, found, err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			next := record
+			if index%2 == 0 {
+				next.Kind = "registration_verification"
+			}
+			_, putErr := repository.PutSelfServiceFlow(ctx, next)
+			errs <- putErr
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for putErr := range errs {
+		if putErr != nil {
+			t.Fatal(putErr)
+		}
+	}
+	loaded, found, err = repository.GetSelfServiceFlow(ctx, interaction.InteractionID)
+	if err != nil || !found || loaded.Version != 10 {
+		t.Fatalf("concurrent flow=%+v found=%v err=%v", loaded, found, err)
+	}
+	reset := hostedinteraction.ResetSelfServiceFlowRecord{InteractionID: interaction.InteractionID, ActorDigest: bytes32(72), KeyDigest: bytes32(73), RequestDigest: bytes32(74)}
+	if err = repository.ResetSelfServiceFlowIdempotent(ctx, reset); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err = repository.GetSelfServiceFlow(ctx, interaction.InteractionID); err != nil || found {
+		t.Fatalf("flow A after reset found=%v err=%v", found, err)
+	}
+	if _, err = repository.PutSelfServiceFlow(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	if err = repository.ResetSelfServiceFlowIdempotent(ctx, reset); err != nil {
+		t.Fatalf("old reset replay error=%v", err)
+	}
+	if _, found, err = repository.GetSelfServiceFlow(ctx, interaction.InteractionID); err != nil || !found {
+		t.Fatalf("old reset replay deleted flow B: found=%v err=%v", found, err)
+	}
+	changed := reset
+	changed.RequestDigest = bytes32(75)
+	if err = repository.ResetSelfServiceFlowIdempotent(ctx, changed); !errors.Is(err, hostedinteraction.ErrIdempotencyConflict) {
+		t.Fatalf("same key different request context error=%v", err)
+	}
+	reset.KeyDigest = bytes32(76)
+	var resetGroup sync.WaitGroup
+	resetErrors := make(chan error, 8)
+	for index := 0; index < 8; index++ {
+		resetGroup.Add(1)
+		go func() {
+			defer resetGroup.Done()
+			resetErrors <- repository.ResetSelfServiceFlowIdempotent(ctx, reset)
+		}()
+	}
+	resetGroup.Wait()
+	close(resetErrors)
+	for resetErr := range resetErrors {
+		if resetErr != nil {
+			t.Fatalf("concurrent reset error=%v", resetErr)
+		}
+	}
+	if _, found, err = repository.GetSelfServiceFlow(ctx, interaction.InteractionID); err != nil || found {
+		t.Fatalf("flow B after new reset found=%v err=%v", found, err)
+	}
+	if err = repository.DeleteSelfServiceFlow(ctx, interaction.InteractionID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repository.DeleteSelfServiceFlow(ctx, interaction.InteractionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err = repository.GetSelfServiceFlow(ctx, interaction.InteractionID); err != nil || found {
+		t.Fatalf("after reset found=%v err=%v", found, err)
+	}
+	record.TTL = 40 * time.Millisecond
+	if _, err = repository.PutSelfServiceFlow(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(70 * time.Millisecond)
+	if _, found, err = repository.GetSelfServiceFlow(ctx, interaction.InteractionID); err != nil || found {
+		t.Fatalf("expired flow found=%v err=%v", found, err)
+	}
+}
+
+func TestCancelIdempotencyConcurrentReplayAndCrossRequestConflictPostgres(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := hostedpostgres.New(database.Pool)
+	ctx := context.Background()
+	interaction := authInteraction("hint_cancelidem12345678901234567890", 10*time.Minute)
+	if _, _, err := repository.Create(ctx, createRecord(interaction, "evt_cancel_idem_create")); err != nil {
+		t.Fatal(err)
+	}
+	browserDigest := bytes32(81)
+	if _, _, err := repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: interaction.InteractionID, SessionID: "hbs_cancelidem12345678901234567890", TokenDigest: browserDigest, TTL: time.Minute, Event: event("evt_cancel_idem_open", interaction.InteractionID, "hosted.interaction_opened.v1")}); err != nil {
+		t.Fatal(err)
+	}
+	record := hostedinteraction.CancelRecord{InteractionID: interaction.InteractionID, BrowserTokenDigest: browserDigest, ActorDigest: bytes32(82), KeyDigest: bytes32(83), RequestDigest: bytes32(84), Event: event("evt_cancel_idem_cancel", interaction.InteractionID, "hosted.interaction_cancelled.v1")}
+	const workers = 8
+	var group sync.WaitGroup
+	results := make(chan error, workers)
+	for index := 0; index < workers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			value, cancelErr := repository.Cancel(ctx, record)
+			if cancelErr == nil && value.Status != hostedinteraction.StatusCancelled {
+				cancelErr = errors.New("cancel replay returned non-terminal projection")
+			}
+			results <- cancelErr
+		}()
+	}
+	group.Wait()
+	close(results)
+	for cancelErr := range results {
+		if cancelErr != nil {
+			t.Fatal(cancelErr)
+		}
+	}
+	changed := record
+	changed.RequestDigest = bytes32(85)
+	if _, err := repository.Cancel(ctx, changed); !errors.Is(err, hostedinteraction.ErrIdempotencyConflict) {
+		t.Fatalf("same key changed request error=%v", err)
+	}
+	other := authInteraction("hint_cancelidemother123456789012345", 10*time.Minute)
+	other.StateDigest, other.NonceDigest, other.PKCEChallengeDigest = bytes32(90), bytes32(91), bytes32(92)
+	otherCreate := createRecord(other, "evt_cancel_idem_other_create")
+	otherCreate.ActorDigest, otherCreate.KeyDigest, otherCreate.RequestDigest = bytes32(86), bytes32(87), bytes32(88)
+	if _, _, err := repository.Create(ctx, otherCreate); err != nil {
+		t.Fatal(err)
+	}
+	otherBrowser := bytes32(89)
+	if _, _, err := repository.OpenBrowserSession(ctx, hostedinteraction.OpenBrowserRecord{InteractionID: other.InteractionID, SessionID: "hbs_cancelidemother123456789012345", TokenDigest: otherBrowser, TTL: time.Minute, Event: event("evt_cancel_idem_other_open", other.InteractionID, "hosted.interaction_opened.v1")}); err != nil {
+		t.Fatal(err)
+	}
+	crossInteraction := record
+	crossInteraction.InteractionID = other.InteractionID
+	crossInteraction.BrowserTokenDigest = otherBrowser
+	if _, err := repository.Cancel(ctx, crossInteraction); !errors.Is(err, hostedinteraction.ErrIdempotencyConflict) {
+		t.Fatalf("same actor and key across interactions error=%v", err)
+	}
+	otherValue, err := repository.Get(ctx, other.InteractionID)
+	if err != nil || otherValue.Status != hostedinteraction.StatusOpened {
+		t.Fatalf("cross-interaction conflict mutated target: value=%+v err=%v", otherValue, err)
+	}
+	var records, events int
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM hosted_interaction.idempotency_records WHERE operation='cancel'`).Scan(&records); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM hosted_interaction.outbox_events WHERE event_type='hosted.interaction_cancelled.v1'`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if records != 1 || events != 1 {
+		t.Fatalf("cancel records=%d events=%d", records, events)
 	}
 }
 

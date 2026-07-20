@@ -51,6 +51,8 @@ var errNotTestDatabase = errors.New("g2a05 acceptance fixture requires the local
 type Options struct {
 	RepositoryRoot string
 	Password       []byte
+	TokenPepper    []byte
+	UserPepper     []byte
 }
 
 type Result struct {
@@ -58,6 +60,7 @@ type Result struct {
 	TenantID      string
 	ApplicationID string
 	UserID        string
+	UserSessionID string
 	BlueprintID   string
 	PlanID        string
 	RunID         string
@@ -111,11 +114,19 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, options Options) (Result, err
 	if err != nil {
 		return Result{}, fmt.Errorf("load assembly contracts: %w", err)
 	}
-	hasher, err := securevalue.NewHasher("g2a05-acceptance-token-pepper-v1-g2a05-acceptance-token-pepper-v1")
+	tokenPepper := "g2a05-acceptance-token-pepper-v1-g2a05-acceptance-token-pepper-v1"
+	if len(options.TokenPepper) > 0 {
+		tokenPepper = string(options.TokenPepper)
+	}
+	userPepper := "g2a05-acceptance-user-pepper-v1-g2a05-acceptance-user-pepper-v1"
+	if len(options.UserPepper) > 0 {
+		userPepper = string(options.UserPepper)
+	}
+	hasher, err := securevalue.NewHasher(tokenPepper)
 	if err != nil {
 		return Result{}, err
 	}
-	userHasher, err := securevalue.NewHasher("g2a05-acceptance-user-pepper-v1-g2a05-acceptance-user-pepper-v1")
+	userHasher, err := securevalue.NewHasher(userPepper)
 	if err != nil {
 		return Result{}, err
 	}
@@ -170,17 +181,36 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, options Options) (Result, err
 	if _, err := productService.ReplaceCapabilitySet(ctx, product.ReplaceCapabilitySetCommand{Plan: product.TrustedCapabilityChangePlan{ProductID: createdProduct.ProductID, SourcePlanID: plan.PlanID, CatalogRevision: plan.CatalogRevision, CatalogSnapshotSHA256: plan.CatalogSnapshotSHA256}, ExpectedVersion: 0, ActorID: fixtureActor, IdempotencyKey: "g2a05-acceptance-capabilities-v1", TraceID: fixtureTrace}); err != nil {
 		return Result{}, fmt.Errorf("enable acceptance capability: %w", err)
 	}
-	endUsers, err := identity.NewEndUserService(identitypostgres.New(pool), identity.StrictIdentifierNormalizer{}, identity.Bcrypt{Cost: 10}, userHasher, acceptanceRegistrationProof{}, nil, identity.EndUserPolicy{AccessTTL: time.Hour, RefreshTTL: 24 * time.Hour, RefreshAbsoluteTTL: 48 * time.Hour, RefreshRecoveryWindow: time.Hour, RecoveryTTL: time.Hour, RecoveryMaxAttempts: 3, LoginWindow: time.Minute, LoginMaximumAttempts: 5, LoginBlockDuration: time.Minute, RecentAuthTTL: 10 * time.Minute}, nil)
+	recovery := &acceptanceRecoveryDelivery{}
+	endUsers, err := identity.NewEndUserService(identitypostgres.New(pool), identity.StrictIdentifierNormalizer{}, identity.Bcrypt{Cost: 10}, userHasher, acceptanceRegistrationProof{}, recovery, identity.EndUserPolicy{AccessTTL: time.Hour, RefreshTTL: 24 * time.Hour, RefreshAbsoluteTTL: 48 * time.Hour, RefreshRecoveryWindow: time.Hour, RecoveryTTL: time.Hour, RecoveryMaxAttempts: 3, LoginWindow: time.Minute, LoginMaximumAttempts: 5, LoginBlockDuration: time.Minute, RecentAuthTTL: 10 * time.Minute}, nil)
 	if err != nil {
 		return Result{}, fmt.Errorf("configure acceptance identity: %w", err)
 	}
 	tenantID := createdProduct.OfficialTenantID
 	password := string(options.Password)
 	registered, err := endUsers.Register(ctx, identity.EndUserRegisterCommand{Scope: identity.EndUserSessionScope{ProductID: createdProduct.ProductID, ApplicationID: createdApplication.ApplicationID, TenantID: &tenantID, Environment: "test"}, Identifier: fixtureUserEmail, Credential: password, VerificationContinuationID: "g2a05-acceptance-continuation", VerificationProof: "g2a05-acceptance-proof", DisplayName: "[ACCEPTANCE FIXTURE] G2A-05 User", TraceID: fixtureTrace, IdempotencyKey: "g2a05-acceptance-user-v1"})
+	if errors.Is(err, identity.ErrEndUserVersionConflict) {
+		registered, err = endUsers.Login(ctx, identity.EndUserLoginCommand{
+			Scope:      identity.EndUserSessionScope{ProductID: createdProduct.ProductID, ApplicationID: createdApplication.ApplicationID, TenantID: &tenantID, Environment: "test"},
+			Identifier: fixtureUserEmail, Credential: password, Source: "loopback", TraceID: fixtureTrace,
+		})
+		if errors.Is(err, identity.ErrEndUserInvalidCredentials) {
+			scope := identity.EndUserSessionScope{ProductID: createdProduct.ProductID, ApplicationID: createdApplication.ApplicationID, TenantID: &tenantID, Environment: "test"}
+			continuation, recoveryErr := endUsers.StartRecovery(ctx, identity.StartEndUserRecoveryCommand{Scope: scope, Identifier: fixtureUserEmail, IdempotencyKey: "g2a05-acceptance-recovery-start-v1", TraceID: fixtureTrace})
+			if recoveryErr == nil {
+				recoveryErr = endUsers.CompleteRecovery(ctx, identity.CompleteEndUserRecoveryCommand{Scope: scope, Continuation: continuation, Proof: recovery.proof, NewCredential: password, IdempotencyKey: "g2a05-acceptance-recovery-complete-v1", TraceID: fixtureTrace})
+			}
+			if recoveryErr == nil {
+				registered, err = endUsers.Login(ctx, identity.EndUserLoginCommand{Scope: scope, Identifier: fixtureUserEmail, Credential: password, Source: "loopback", TraceID: fixtureTrace})
+			} else {
+				err = recoveryErr
+			}
+		}
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("create acceptance user: %w", err)
 	}
-	return Result{ProductID: createdProduct.ProductID, TenantID: tenantID, ApplicationID: createdApplication.ApplicationID, UserID: registered.Session.UserID, BlueprintID: blueprint.BlueprintID, PlanID: plan.PlanID, RunID: run.RunID}, nil
+	return Result{ProductID: createdProduct.ProductID, TenantID: tenantID, ApplicationID: createdApplication.ApplicationID, UserID: registered.Session.UserID, UserSessionID: registered.Session.SessionID, BlueprintID: blueprint.BlueprintID, PlanID: plan.PlanID, RunID: run.RunID}, nil
 }
 
 func validateOptions(options Options) error {
@@ -205,6 +235,16 @@ func (acceptanceRegistrationProof) VerifyRegistration(_ context.Context, scope i
 	if scope.Environment != "test" || scope.ProductID == "" || scope.ApplicationID == "" || scope.TenantID == nil || *scope.TenantID == "" || identifier.Value != fixtureUserEmail || continuation != "g2a05-acceptance-continuation" || proof != "g2a05-acceptance-proof" {
 		return identity.ErrEndUserInvalidCredentials
 	}
+	return nil
+}
+
+type acceptanceRecoveryDelivery struct{ proof string }
+
+func (d *acceptanceRecoveryDelivery) EnqueueSecurity(_ context.Context, command identity.SecurityDeliveryCommand) error {
+	if command.Purpose != "password_recovery" || command.Scope.Environment != "test" || command.Destination.Value != fixtureUserEmail {
+		return errors.New("acceptance recovery delivery rejected")
+	}
+	d.proof = command.Proof
 	return nil
 }
 

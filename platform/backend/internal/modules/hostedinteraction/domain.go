@@ -9,6 +9,7 @@ import (
 var (
 	ErrInvalidArgument        = errors.New("hosted.invalid_interaction")
 	ErrInteractionExpired     = errors.New("hosted.interaction_expired")
+	ErrInteractionTerminal    = errors.New("hosted.interaction_terminal")
 	ErrInvalidReturnTarget    = errors.New("hosted.invalid_return_target")
 	ErrStateMismatch          = errors.New("hosted.state_mismatch")
 	ErrPKCERequired           = errors.New("hosted.pkce_required")
@@ -19,6 +20,8 @@ var (
 	ErrCSRF                   = errors.New("hosted.csrf_failed")
 	ErrTemporarilyUnavailable = errors.New("hosted.temporarily_unavailable")
 	ErrIdempotencyConflict    = errors.New("hosted.idempotency_conflict")
+	ErrVersionConflict        = errors.New("hosted.version_conflict")
+	ErrCapabilityUnavailable  = errors.New("hosted.capability_not_available")
 	ErrLeaseLost              = errors.New("hosted.grant_lease_lost")
 )
 
