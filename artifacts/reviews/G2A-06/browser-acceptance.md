@@ -48,7 +48,7 @@
 
 ## 自动化
 
-- Full `-RequirePostgres`：20/20 步通过，报告为 `quality-gate-full-postgres-g2a06-worktree.json`。
+- Full `-RequirePostgres`：20/20 步通过，报告为 `quality-gate-full-postgres-g2a06-final.json`。
 - OpenAPI：118 paths、124 operations、124 unique operationIds。
 - Client SDK：8/8；Client UI：123/123；Admin：158/158；Hosted Web：52/52。
 - Standard-A：Web 与 desktop WebView 均为 7/7，并完成生产构建。
