@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/packages/package.account/1.0.0/config.schema.json",
+  "title": "package.account 1.0.0 configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["password_policy", "recovery", "hosted", "external_providers"],
+  "properties": {
+    "password_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_length", "revoke_other_sessions_on_change"],
+      "properties": {
+        "minimum_length": { "type": "integer", "minimum": 12, "maximum": 256, "default": 12 },
+        "revoke_other_sessions_on_change": { "type": "boolean", "default": true }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["security_notification_provider_ref", "challenge_ttl_seconds"],
+      "properties": {
+        "security_notification_provider_ref": { "$ref": "#/$defs/referenceCode" },
+        "challenge_ttl_seconds": { "type": "integer", "minimum": 60, "maximum": 1800, "default": 600 }
+      }
+    },
+    "hosted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "return_target_codes"],
+      "properties": {
+        "origin": { "$ref": "#/$defs/exactOrigin" },
+        "return_target_codes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["auth", "account"],
+          "properties": {
+            "auth": { "$ref": "#/$defs/returnTargetCode" },
+            "account": { "$ref": "#/$defs/returnTargetCode" }
+          }
+        }
+      }
+    },
+    "external_providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wechat", "oidc"],
+      "properties": {
+        "wechat": { "$ref": "#/$defs/wechatProvider" },
+        "oidc": { "$ref": "#/$defs/oidcProvider" }
+      }
+    }
+  },
+  "$defs": {
+    "referenceCode": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "maxLength": 128
+    },
+    "returnTargetCode": {
+      "$ref": "#/$defs/referenceCode"
+    },
+    "exactOrigin": {
+      "type": "string",
+      "format": "uri",
+      "oneOf": [
+        { "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$" },
+        { "pattern": "^http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$" }
+      ]
+    },
+    "oidcIssuer": {
+      "type": "string",
+      "format": "uri",
+      "oneOf": [
+        { "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[A-Za-z0-9._~!$&()*+,;=:@%/-]*)?$" },
+        { "pattern": "^http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[A-Za-z0-9._~!$&()*+,;=:@%/-]*)?$" }
+      ]
+    },
+    "wechatProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "provider_application_ref": { "$ref": "#/$defs/referenceCode" },
+        "client_secret_ref": { "$ref": "#/$defs/referenceCode" },
+        "return_target_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/returnTargetCode" }
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/providerEnablement" }]
+    },
+    "oidcProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "provider_application_ref": { "$ref": "#/$defs/referenceCode" },
+        "client_secret_ref": { "$ref": "#/$defs/referenceCode" },
+        "issuer": { "$ref": "#/$defs/oidcIssuer" },
+        "return_target_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/returnTargetCode" }
+        }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/providerEnablement" },
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": { "required": ["issuer"] }
+        }
+      ]
+    },
+    "providerEnablement": {
+      "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+      "then": {
+        "required": ["provider_application_ref", "client_secret_ref", "return_target_codes"],
+        "properties": { "return_target_codes": { "minItems": 1 } }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            { "required": ["client_secret_ref"] },
+            { "required": ["provider_application_ref"] }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"platform.local/capability-platform/backend/internal/modules/accesscontrol"
 )
 
-func TestAccountContractedPackageHasClosedContentAndNoPublishedCatalogEntry(t *testing.T) {
+func TestAccountSourcePackageRemainsContractedAndOrdinaryUnpublished(t *testing.T) {
 	root := repositoryRoot(t)
 	versionRoot := filepath.Join(root, "platform", "contracts", "packages", "package.account", "1.0.0")
 	raw, err := os.ReadFile(filepath.Join(versionRoot, "manifest.json"))
@@ -21,33 +23,130 @@ func TestAccountContractedPackageHasClosedContentAndNoPublishedCatalogEntry(t *t
 		t.Fatal(err)
 	}
 	if manifest.LifecycleStatus != "contracted" || len(manifest.Availability) != 0 {
-		t.Fatalf("publication state = %q %#v", manifest.LifecycleStatus, manifest.Availability)
+		t.Fatalf("source publication state = %q %#v", manifest.LifecycleStatus, manifest.Availability)
 	}
 	if err := validateDocumentIntegrity(sourceDocument{
 		contents: raw, identity: manifest.PackageID, version: manifest.Version,
 		versionRoot: versionRoot, manifestName: "manifest.json",
 	}, manifest.ManifestSHA256, manifest.ContentFiles, manifest.ContentTreeSHA256); err != nil {
-		t.Fatalf("Account package integrity: %v", err)
+		t.Fatalf("Account source package integrity: %v", err)
 	}
 	for _, output := range manifest.GeneratedOutputs {
 		if output.SourceSHA256 == "" {
 			t.Fatalf("generated output source is unsealed: %#v", output)
 		}
 	}
-	for _, catalogRoot := range []string{
-		filepath.Join(root, "platform", "capability-packages"),
-		filepath.Join(root, "platform", "experimental", "capability-packages"),
-	} {
-		path := filepath.Join(catalogRoot, "package.account")
-		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("contracted Account package was published at %s: %v", path, err)
-		}
+	ordinaryPath := filepath.Join(root, "platform", "capability-packages", "package.account")
+	if _, err := os.Stat(ordinaryPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Account package entered ordinary catalog at %s: %v", ordinaryPath, err)
 	}
 	if !errors.Is(validatePackageLifecycle(manifest.LifecycleStatus, ordinaryView), ErrCatalogState) {
-		t.Fatal("ordinary catalog accepted contracted Account package")
+		t.Fatal("ordinary catalog accepted contracted Account source package")
 	}
 	if !errors.Is(validatePackageLifecycle(manifest.LifecycleStatus, experimentalView), ErrCatalogState) {
-		t.Fatal("experimental catalog accepted contracted Account package")
+		t.Fatal("experimental catalog accepted contracted Account source package without candidate publication")
+	}
+}
+
+func TestAccountExperimentalVerifiedCandidateIsIsolatedFromOrdinaryCatalog(t *testing.T) {
+	root := repositoryRoot(t)
+	candidateRoot := filepath.Join(root, "platform", "experimental", "capability-packages", "package.account", "1.0.0")
+	raw, err := os.ReadFile(filepath.Join(candidateRoot, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest PackageManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.PackageID != "package.account" || manifest.Version != "1.0.0" {
+		t.Fatalf("candidate identity = %s@%s", manifest.PackageID, manifest.Version)
+	}
+	if manifest.LifecycleStatus != "verified" {
+		t.Fatalf("candidate lifecycle = %s", manifest.LifecycleStatus)
+	}
+	if len(manifest.Availability) != 2 {
+		t.Fatalf("candidate availability = %#v", manifest.Availability)
+	}
+	seenTargets := map[string]bool{"web": false, "desktop_webview": false}
+	for _, entry := range manifest.Availability {
+		if entry.Visibility != "experimental" || entry.Readiness != "verified" || entry.DeliveryMode != "generated_source" {
+			t.Fatalf("candidate availability entry = %#v", entry)
+		}
+		if len(entry.Environments) != 1 || entry.Environments[0] != "test" {
+			t.Fatalf("candidate environments = %#v", entry.Environments)
+		}
+		if len(entry.EvidenceRefs) == 0 || entry.EvidenceRefs[0] != "artifacts/reviews/G2A-08/account-package-nine-face-verification.md" {
+			t.Fatalf("candidate evidence refs = %#v", entry.EvidenceRefs)
+		}
+		if _, ok := seenTargets[entry.Target]; !ok {
+			t.Fatalf("unexpected candidate target %q", entry.Target)
+		}
+		seenTargets[entry.Target] = true
+	}
+	for target, seen := range seenTargets {
+		if !seen {
+			t.Fatalf("candidate missing target %s", target)
+		}
+	}
+	if err := validateDocumentIntegrity(sourceDocument{
+		contents: raw, identity: manifest.PackageID, version: manifest.Version,
+		versionRoot: candidateRoot, manifestName: "manifest.json",
+	}, manifest.ManifestSHA256, manifest.ContentFiles, manifest.ContentTreeSHA256); err != nil {
+		t.Fatalf("Account experimental candidate integrity: %v", err)
+	}
+	if !errors.Is(validatePackageLifecycle(manifest.LifecycleStatus, ordinaryView), ErrCatalogState) {
+		t.Fatal("ordinary lifecycle accepted experimental verified Account candidate")
+	}
+	if err := validatePackageLifecycle(manifest.LifecycleStatus, experimentalView); err != nil {
+		t.Fatalf("experimental lifecycle rejected Account candidate: %v", err)
+	}
+
+	blocks, err := LoadBlockCatalog(filepath.Join(root, "platform", "contracts", "catalogs", "v1", "feature-blocks.json"), loadContracts(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary, err := LoadOrdinary(
+		filepath.Join(root, "platform", "capability-packages"),
+		filepath.Join(root, "platform", "templates"),
+		loadContracts(t), accesscontrol.CurrentPermissionCatalog(), blocks,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinarySnapshot, err := ordinary.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range ordinarySnapshot.Packages {
+		if item.ID == "package.account" {
+			t.Fatalf("ordinary snapshot exposed Account package: %#v", item)
+		}
+	}
+
+	experimental, err := LoadExperimental(
+		filepath.Join(root, "platform", "experimental", "capability-packages"),
+		filepath.Join(root, "platform", "experimental", "templates"),
+		loadContracts(t), accesscontrol.CurrentPermissionCatalog(), blocks,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	experimentalSnapshot, err := experimental.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *SnapshotItem
+	for index := range experimentalSnapshot.Packages {
+		if experimentalSnapshot.Packages[index].ID == "package.account" {
+			found = &experimentalSnapshot.Packages[index]
+		}
+	}
+	if found == nil {
+		t.Fatal("experimental snapshot did not expose Account candidate")
+	}
+	if found.Version != "1.0.0" || len(found.Availability) != 2 {
+		t.Fatalf("experimental snapshot Account item = %#v", found)
 	}
 }
 

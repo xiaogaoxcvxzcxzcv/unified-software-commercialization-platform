@@ -13,7 +13,7 @@ Account 是面向最终用户的完整能力包编排，不是新的数据所有
 
 `package.account` 仍处于 `contracted`。G2A-03/G2A-04 已交付最终用户认证账号 API、范围准入、外部身份与安全通知服务端能力；G2A-04.1 的 `hosted.auth` / `hosted.account` 真实后端、G2A-05 管理 Blocks、G2A-06 用户 Blocks/Hosted UI 与 G2A-07 SDK/配置/Generated Source 已 `verified`。G2A-08 包内验证已开始；G2A-08 和 G2C 装配回归未完成前，不得晋级能力包。
 
-管理后台与 Hosted UI/用户 Feature Block 已完成各自关口验证；Account 专用 SDK、能力配置和生成源码已形成本地专项、Full、clean commit 与托管 CI 证据。目标端装配、包内九面机器证据、升级/回滚和旧产品回归仍未完成。因此九个交付面尚未封口，该包不进入 ordinary 或 experimental runtime catalog，不能从创建入口选择，更不得标记为 `available`。
+管理后台与 Hosted UI/用户 Feature Block 已完成各自关口验证；Account 专用 SDK、能力配置和生成源码已形成本地专项、Full、clean commit 与托管 CI 证据。G2A-08 已开始把 Account 发布为受控 experimental verified candidate：源契约包仍是 `contracted`，普通 runtime catalog 仍不可见；experimental candidate 只用于后续受控装配验收。目标端完整装配、升级/回滚和旧产品回归仍未完成，因此不得标记为 `available`。
 
 ## 后续实现归位
 
