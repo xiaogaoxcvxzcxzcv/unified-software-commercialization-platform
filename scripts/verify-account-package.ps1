@@ -110,6 +110,16 @@ try {
         Copy-Item -LiteralPath (Join-Path $harnessRoot $name) -Destination (Join-Path $runtimeRoot $name)
     }
 
+    foreach ($name in @("package.json", "package-lock.json")) {
+        $runtimePackagePath = Join-Path $runtimeRoot $name
+        $runtimePackageText = Get-Content -LiteralPath $runtimePackagePath -Raw -Encoding UTF8
+        $runtimePackageText = $runtimePackageText.Replace('file:../../sdk/typescript', 'file:../../../platform/sdk/typescript')
+        $runtimePackageText = $runtimePackageText.Replace('file:../../client-ui', 'file:../../../platform/client-ui')
+        $runtimePackageText = $runtimePackageText.Replace('"../../sdk/typescript"', '"../../../platform/sdk/typescript"')
+        $runtimePackageText = $runtimePackageText.Replace('"../../client-ui"', '"../../../platform/client-ui"')
+        [IO.File]::WriteAllText($runtimePackagePath, $runtimePackageText, (New-Object Text.UTF8Encoding($false)))
+    }
+
     Invoke-SanitizedNative $repositoryRoot "npm" @("--prefix", $sdkRoot, "run", "build") "local Client SDK build failed"
     Invoke-SanitizedNative $repositoryRoot "npm" @("--prefix", $clientUiRoot, "run", "build") "local Client UI build failed"
 

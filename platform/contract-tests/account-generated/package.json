@@ -9,8 +9,8 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@capability-platform/client-sdk": "file:../../../platform/sdk/typescript",
-    "@capability-platform/client-ui": "file:../../../platform/client-ui",
+    "@capability-platform/client-sdk": "file:../../sdk/typescript",
+    "@capability-platform/client-ui": "file:../../client-ui",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
