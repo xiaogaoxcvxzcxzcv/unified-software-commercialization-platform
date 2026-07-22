@@ -37,32 +37,32 @@
   "content_files": [
     {
       "path": "config.schema.json",
-      "sha256": "sha256:651588f23e9a9096390f45b43dfafdd28678bafc041f15473cdae99e535f3701",
+      "sha256": "sha256:fd638d29d45210001fc0c41f98dc9fdc7cbf0a3929a4feab217bd7abf8ac164a",
       "kind": "file"
     },
     {
       "path": "content/docs/account-integration.md.tmpl",
-      "sha256": "sha256:8126f4b9fc16f1cd78aa8ce1d0892b18e373dc9ea7edc3a0ca0d760ce97f03a8",
+      "sha256": "sha256:16d7b2e96b30bc555ff2ce507191863db911689e9dacee55149d33ee2736d08e",
       "kind": "file"
     },
     {
       "path": "content/generated/account.generated.test.ts.tmpl",
-      "sha256": "sha256:728b2d6957ab4cd4575f2898c908d76074747cbd5139acf906e520c6aa868866",
+      "sha256": "sha256:92e394afe619ba856cd2648d6c42b078b9d8588d69987c1a67292cfff91f1880",
       "kind": "file"
     },
     {
       "path": "content/generated/client.ts.tmpl",
-      "sha256": "sha256:769b777afbe204f59db1d4df91324f19192aad3cd3297269e5fde9b800e57558",
+      "sha256": "sha256:cf45e23ec8f86b8c2c206c7edd384c7eea0b059232c1a7559bac2c01ef219ce4",
       "kind": "file"
     },
     {
       "path": "content/generated/integration.example.ts.tmpl",
-      "sha256": "sha256:ce29fd766cc94b26186b6fcf0fbd466596ef92c34ca75909c60ceb4d0ed3e21e",
+      "sha256": "sha256:9c45b6e7ff9d00c5a3ff52a1e6453e4ac928b40c7ea3b9851486dffda9858165",
       "kind": "file"
     },
     {
       "path": "content/generated/routes.tsx.tmpl",
-      "sha256": "sha256:2e790f5d9c4122186449d6b7b4151c96f95a8a24091434933560167ae29f7ab8",
+      "sha256": "sha256:d0dfa3205f433251cba73640b35abdabcaa48683fc8daf6a7ef15b01331807d7",
       "kind": "file"
     },
     {
@@ -71,7 +71,7 @@
       "kind": "file"
     }
   ],
-  "content_tree_sha256": "sha256:e783de2fb2a9b098830d08989aa83360c89605c50060c15a521b55dffe5ef151",
+  "content_tree_sha256": "sha256:45872ca4ce0b3ceab22e86d953e4336b06feedbce99661b46f70058fb411f1a7",
   "data_retention": [
     {
       "data_set": "identity.user",
@@ -123,7 +123,7 @@
       "path": "src/generated/packages/account/client.ts",
       "render_strategy": "strict_template",
       "source_path": "content/generated/client.ts.tmpl",
-      "source_sha256": "sha256:769b777afbe204f59db1d4df91324f19192aad3cd3297269e5fde9b800e57558"
+      "source_sha256": "sha256:cf45e23ec8f86b8c2c206c7edd384c7eea0b059232c1a7559bac2c01ef219ce4"
     },
     {
       "content_type": "text",
@@ -131,7 +131,7 @@
       "path": "src/generated/packages/account/routes.tsx",
       "render_strategy": "strict_template",
       "source_path": "content/generated/routes.tsx.tmpl",
-      "source_sha256": "sha256:2e790f5d9c4122186449d6b7b4151c96f95a8a24091434933560167ae29f7ab8"
+      "source_sha256": "sha256:d0dfa3205f433251cba73640b35abdabcaa48683fc8daf6a7ef15b01331807d7"
     },
     {
       "content_type": "text",
@@ -139,7 +139,7 @@
       "path": "src/generated/packages/account/integration.example.ts",
       "render_strategy": "strict_template",
       "source_path": "content/generated/integration.example.ts.tmpl",
-      "source_sha256": "sha256:ce29fd766cc94b26186b6fcf0fbd466596ef92c34ca75909c60ceb4d0ed3e21e"
+      "source_sha256": "sha256:9c45b6e7ff9d00c5a3ff52a1e6453e4ac928b40c7ea3b9851486dffda9858165"
     },
     {
       "content_type": "text",
@@ -147,7 +147,7 @@
       "path": "src/generated/packages/account/account.generated.test.ts",
       "render_strategy": "strict_template",
       "source_path": "content/generated/account.generated.test.ts.tmpl",
-      "source_sha256": "sha256:728b2d6957ab4cd4575f2898c908d76074747cbd5139acf906e520c6aa868866"
+      "source_sha256": "sha256:92e394afe619ba856cd2648d6c42b078b9d8588d69987c1a67292cfff91f1880"
     },
     {
       "content_type": "text",
@@ -155,7 +155,7 @@
       "path": "docs/generated/account-integration.md",
       "render_strategy": "strict_template",
       "source_path": "content/docs/account-integration.md.tmpl",
-      "source_sha256": "sha256:8126f4b9fc16f1cd78aa8ce1d0892b18e373dc9ea7edc3a0ca0d760ce97f03a8"
+      "source_sha256": "sha256:16d7b2e96b30bc555ff2ce507191863db911689e9dacee55149d33ee2736d08e"
     }
   ],
   "hosted_routes": [
@@ -163,7 +163,7 @@
     "hosted.account"
   ],
   "lifecycle_status": "contracted",
-  "manifest_sha256": "sha256:a3f0e73a5bf41c3d2568b20b00902b971c711ec486714b8c2c20b971f22b59dd",
+  "manifest_sha256": "sha256:8076b41747532c8c6dd492ceaa663e34abd7b9a68759ef2633f393f43304e0a7",
   "migrations": [
     "platform/backend/migrations/000014_identity_end_user.up.sql",
     "platform/backend/migrations/000015_product_user_access.up.sql",
