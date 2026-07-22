@@ -22,7 +22,7 @@
 
 目标：能够创建一个不含软件独有业务内容的基础软件蓝图，并安全、可重复地产生前台框架和装配结果。
 
-F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-06 已通过；提交 `000e895f470ef32feea78443bb0839dddac7109e` 的 push/PR 托管门禁均成功。下一唯一严格关口是仍为 `planned`、尚未开始的 G2A-07 SDK/配置/源码。生产 OIDC/微信 Provider E2E、G2A-07、G2A-08 包内验证和完整 Account 包没有冒充完成；`package.account` 仍仅为 `contracted`，普通与 experimental 运行目录仍为空，当前仍没有 `verified` 或 `available` 完整能力包。
+F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-06 已通过；提交 `000e895f470ef32feea78443bb0839dddac7109e` 的 push/PR 托管门禁均成功。当前唯一严格关口是 `in_progress` 的 G2A-07 SDK/配置/源码：本地脏工作区 Full `-RequirePostgres` 22/22 已通过，但提交、push/PR 托管 CI 与可复现提交证据仍待完成。生产 OIDC/微信 Provider E2E、G2A-08 包内验证和完整 Account 包没有冒充完成；`package.account` 仍仅为 `contracted`，普通与 experimental 运行目录仍为空，当前仍没有 `verified` 或 `available` 完整能力包。
 
 范围：
 

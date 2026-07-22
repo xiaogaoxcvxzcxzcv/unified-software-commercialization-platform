@@ -38,6 +38,13 @@ func TestContractedAccountManifestIsClosedButNotPublished(t *testing.T) {
 			SHA256 string `json:"sha256"`
 			Kind   string `json:"kind"`
 		} `json:"content_files"`
+		GeneratedOutputs []struct {
+			Path         string `json:"path"`
+			SourcePath   string `json:"source_path"`
+			SourceSHA256 string `json:"source_sha256"`
+		} `json:"generated_outputs"`
+		SDKMethods   []string `json:"sdk_methods"`
+		StableErrors []string `json:"stable_errors"`
 	}
 	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
 		t.Fatal(err)
@@ -57,20 +64,43 @@ func TestContractedAccountManifestIsClosedButNotPublished(t *testing.T) {
 	if err != nil || "sha256:"+treeDigest != manifest.ContentTreeSHA256 {
 		t.Fatalf("content tree digest = %q, want %q, err=%v", treeDigest, manifest.ContentTreeSHA256, err)
 	}
-	if len(manifest.ContentFiles) != 1 || manifest.ContentFiles[0].Path != manifest.ConfigSchemaPath {
-		t.Fatalf("contract content closure = %#v", manifest.ContentFiles)
+	if len(manifest.ContentFiles) != 7 || len(manifest.GeneratedOutputs) != 6 {
+		t.Fatalf("contract content/output closure = %d/%d", len(manifest.ContentFiles), len(manifest.GeneratedOutputs))
 	}
-	configRaw, err := os.ReadFile(filepath.Join(versionRoot, manifest.ConfigSchemaPath))
-	if err != nil {
-		t.Fatal(err)
+	if len(manifest.SDKMethods) != 22 || manifest.SDKMethods[5] != "restoreSession" || manifest.SDKMethods[7] != "clearSession" {
+		t.Fatalf("contract SDK method closure = %#v", manifest.SDKMethods)
 	}
-	var configSchema any
-	if err := json.Unmarshal(configRaw, &configSchema); err != nil {
-		t.Fatalf("config schema JSON: %v", err)
+	errorSet := make(map[string]bool, len(manifest.StableErrors))
+	for _, code := range manifest.StableErrors {
+		errorSet[code] = true
 	}
-	configDigest := sha256.Sum256(configRaw)
-	if got := "sha256:" + hex.EncodeToString(configDigest[:]); got != manifest.ContentFiles[0].SHA256 {
-		t.Fatalf("config digest = %q, want %q", got, manifest.ContentFiles[0].SHA256)
+	if !errorSet["IDENTITY_SESSION_EXPIRED"] || !errorSet["IDENTITY_REFRESH_REPLAYED"] {
+		t.Fatalf("contract stable error closure = %#v", manifest.StableErrors)
+	}
+	contentDigests := make(map[string]string, len(manifest.ContentFiles))
+	for _, file := range manifest.ContentFiles {
+		raw, readErr := os.ReadFile(filepath.Join(versionRoot, filepath.FromSlash(file.Path)))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		digest := sha256.Sum256(raw)
+		got := "sha256:" + hex.EncodeToString(digest[:])
+		if got != file.SHA256 {
+			t.Fatalf("content digest for %q = %q, want %q", file.Path, got, file.SHA256)
+		}
+		contentDigests[file.Path] = file.SHA256
+	}
+	if contentDigests[manifest.ConfigSchemaPath] == "" {
+		t.Fatalf("config schema is not content-locked: %q", manifest.ConfigSchemaPath)
+	}
+	for _, output := range manifest.GeneratedOutputs {
+		if contentDigests[output.SourcePath] != output.SourceSHA256 {
+			t.Fatalf("generated output source is not content-locked: %#v", output)
+		}
+		if !strings.HasPrefix(output.Path, "src/generated/packages/account/") &&
+			output.Path != "docs/generated/account-integration.md" {
+			t.Fatalf("generated output escaped Account roots: %q", output.Path)
+		}
 	}
 }
 
@@ -92,6 +122,10 @@ func TestAccountConfigFailsClosedForOptionalProviders(t *testing.T) {
 	base := map[string]any{
 		"password_policy": map[string]any{"minimum_length": 12, "revoke_other_sessions_on_change": true},
 		"recovery":        map[string]any{"security_notification_provider_ref": "notification.security", "challenge_ttl_seconds": 600},
+		"hosted": map[string]any{
+			"origin":              "https://account.example.test",
+			"return_target_codes": map[string]any{"auth": "auth.default", "account": "account.default"},
+		},
 		"external_providers": map[string]any{
 			"wechat": map[string]any{"enabled": false},
 			"oidc":   map[string]any{"enabled": false},
@@ -115,10 +149,82 @@ func TestAccountConfigFailsClosedForOptionalProviders(t *testing.T) {
 	if err := validate(enabled); err != nil {
 		t.Fatalf("configured optional provider rejected: %v", err)
 	}
+	wechatEnabled := cloneJSONMap(t, base)
+	wechatEnabled["external_providers"].(map[string]any)["wechat"] = map[string]any{
+		"enabled": true, "provider_application_ref": "wechat.primary", "client_secret_ref": "secret.wechat.primary",
+		"return_target_codes": []string{"account.callback"},
+	}
+	if err := validate(wechatEnabled); err != nil {
+		t.Fatalf("enabled WeChat provider without issuer rejected: %v", err)
+	}
+	disabledOIDCMetadata := cloneJSONMap(t, base)
+	disabledOIDCMetadata["external_providers"].(map[string]any)["oidc"] = map[string]any{
+		"enabled": false, "issuer": "https://identity.example.test/tenant",
+		"return_target_codes": []string{"account.callback"},
+	}
+	if err := validate(disabledOIDCMetadata); err != nil {
+		t.Fatalf("safe inactive OIDC metadata rejected: %v", err)
+	}
+
+	for _, issuer := range []string{
+		"https://identity.example.test", "https://identity.example.test:65535/tenant/v2.0",
+		"http://localhost:5556/oidc", "http://[::1]:5556/issuer",
+	} {
+		candidate := cloneJSONMap(t, enabled)
+		candidate["external_providers"].(map[string]any)["oidc"].(map[string]any)["issuer"] = issuer
+		if err := validate(candidate); err != nil {
+			t.Fatalf("valid OIDC issuer %q rejected: %v", issuer, err)
+		}
+	}
+	missingIssuer := cloneJSONMap(t, enabled)
+	delete(missingIssuer["external_providers"].(map[string]any)["oidc"].(map[string]any), "issuer")
+	if err := validate(missingIssuer); err == nil {
+		t.Fatal("enabled OIDC provider without issuer accepted")
+	}
+	for _, issuer := range []string{
+		"http://identity.example.test", "https://user@identity.example.test",
+		"https://identity.example.test/tenant?query=1", "https://identity.example.test/tenant#fragment",
+		"https://identity.example.test:0/tenant", "https://identity.example.test:65536/tenant", "https://identity.example.test:123456/tenant",
+	} {
+		candidate := cloneJSONMap(t, enabled)
+		candidate["external_providers"].(map[string]any)["oidc"].(map[string]any)["issuer"] = issuer
+		if err := validate(candidate); err == nil {
+			t.Fatalf("unsafe OIDC issuer %q accepted", issuer)
+		}
+	}
+
+	for _, origin := range []string{
+		"https://account.example.test", "https://account.example.test:65535",
+		"http://localhost:5174", "http://127.0.0.1:5174", "http://[::1]:5174",
+	} {
+		candidate := cloneJSONMap(t, base)
+		candidate["hosted"].(map[string]any)["origin"] = origin
+		if err := validate(candidate); err != nil {
+			t.Fatalf("valid Hosted Origin %q rejected: %v", origin, err)
+		}
+	}
+	for _, origin := range []string{
+		"http://account.example.test", "https://user@example.test", "https://user:pass@example.test",
+		"https://account.example.test/path", "https://account.example.test?query=1",
+		"https://account.example.test#fragment", "https://account.example.test:0",
+		"https://account.example.test:65536", "https://account.example.test:99999",
+		"https://account.example.test:123456", "http://192.168.1.10:5174",
+	} {
+		candidate := cloneJSONMap(t, base)
+		candidate["hosted"].(map[string]any)["origin"] = origin
+		if err := validate(candidate); err == nil {
+			t.Fatalf("invalid Hosted Origin %q accepted", origin)
+		}
+	}
 	missingSecret := cloneJSONMap(t, enabled)
 	delete(missingSecret["external_providers"].(map[string]any)["oidc"].(map[string]any), "client_secret_ref")
 	if err := validate(missingSecret); err == nil {
 		t.Fatal("enabled provider without secret ref accepted")
+	}
+	missingApplication := cloneJSONMap(t, enabled)
+	delete(missingApplication["external_providers"].(map[string]any)["oidc"].(map[string]any), "provider_application_ref")
+	if err := validate(missingApplication); err == nil {
+		t.Fatal("enabled provider without application ref accepted")
 	}
 	credentialOnDisabled := cloneJSONMap(t, base)
 	credentialOnDisabled["external_providers"].(map[string]any)["wechat"] = map[string]any{
@@ -126,6 +232,24 @@ func TestAccountConfigFailsClosedForOptionalProviders(t *testing.T) {
 	}
 	if err := validate(credentialOnDisabled); err == nil {
 		t.Fatal("disabled provider with active credential refs accepted")
+	}
+
+	missingReturnTarget := cloneJSONMap(t, base)
+	delete(missingReturnTarget["hosted"].(map[string]any)["return_target_codes"].(map[string]any), "account")
+	if err := validate(missingReturnTarget); err == nil {
+		t.Fatal("missing account return target code accepted")
+	}
+	invalidReturnTarget := cloneJSONMap(t, base)
+	invalidReturnTarget["hosted"].(map[string]any)["return_target_codes"].(map[string]any)["auth"] =
+		"https://app.example.test/callback"
+	if err := validate(invalidReturnTarget); err == nil {
+		t.Fatal("final return URI accepted in place of a return target code")
+	}
+
+	missingProviderTargets := cloneJSONMap(t, enabled)
+	delete(missingProviderTargets["external_providers"].(map[string]any)["oidc"].(map[string]any), "return_target_codes")
+	if err := validate(missingProviderTargets); err == nil {
+		t.Fatal("enabled provider without return target codes accepted")
 	}
 }
 

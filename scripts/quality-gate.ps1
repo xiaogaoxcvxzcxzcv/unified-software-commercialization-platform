@@ -512,6 +512,15 @@ try {
             Push-Location (Join-Path $RepoRoot 'platform/sdk/typescript')
             try { Invoke-Native -Command 'npm' -Arguments @('run', 'build') } finally { Pop-Location }
         }
+        Invoke-GateStep -Name 'Client UI locked dependency refresh' -Action {
+            Push-Location (Join-Path $RepoRoot 'platform/client-ui')
+            try { Invoke-Native -Command 'npm' -Arguments @('ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund') } finally { Pop-Location }
+        }
+
+        Invoke-GateStep -Name 'Account package generated source' -Action {
+            & (Join-Path $RepoRoot 'scripts/verify-account-package.ps1')
+            if ($LASTEXITCODE -ne 0) { throw 'account package generated source verification failed' }
+        }
         Invoke-GateStep -Name 'Client UI tests' -Action {
             Push-Location (Join-Path $RepoRoot 'platform/client-ui')
             try { Invoke-Native -Command 'npm' -Arguments @('test') } finally { Pop-Location }

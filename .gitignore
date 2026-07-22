@@ -52,6 +52,13 @@ artifacts/reviews/G2A-06/*
 !artifacts/reviews/G2A-06/quality-gate-hosted-push-000e895.json
 !artifacts/reviews/G2A-06/quality-gate-hosted-pr-merge-4f9cddf.json
 !artifacts/reviews/G2A-06/quality-gate-full-postgres-g2a06-worktree.json
+!artifacts/reviews/G2A-07/
+artifacts/reviews/G2A-07/*
+!artifacts/reviews/G2A-07/account-sdk-generated-source.md
+!artifacts/reviews/G2A-07/quality-gate-full-postgres.json
+!artifacts/reviews/G2A-07/quality-gate-hosted-push.json
+!artifacts/reviews/G2A-07/quality-gate-hosted-pr.json
+
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*
 !artifacts/reviews/G2A-06/screenshots/admin-overview-light-1280.png

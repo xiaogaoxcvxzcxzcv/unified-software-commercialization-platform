@@ -1,5 +1,10 @@
 export type ClientErrorKind = "network" | "timeout" | "cancelled" | "rate_limited" | "server" | "authentication" | "authorization" | "not_found" | "conflict" | "validation" | "capability_disabled" | "unknown";
 
+const terminalAuthenticationCodes = new Set([
+  "IDENTITY_ACCOUNT_DISABLED", "IDENTITY_SESSION_EXPIRED", "IDENTITY_SESSION_REVOKED",
+  "IDENTITY_REFRESH_REPLAYED",
+]);
+
 export interface ClientErrorDetails {
   readonly kind: ClientErrorKind;
   readonly code: string;
@@ -31,6 +36,8 @@ export class ClientSdkError extends Error {
 }
 
 export function classifyStatus(status: number, code: string): ClientErrorKind {
+  if (terminalAuthenticationCodes.has(code)) return "authentication";
+
   if (code === "capability_disabled") return "capability_disabled";
   if (status === 401) return "authentication";
   if (status === 403) return "authorization";

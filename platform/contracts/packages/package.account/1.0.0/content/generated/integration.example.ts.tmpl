@@ -1,0 +1,55 @@
+import type { AccountSdk } from "@capability-platform/client-sdk";
+
+export type AccountIntegrationClient = Pick<
+  AccountSdk,
+  | "startRegistrationVerification"
+  | "registerUser"
+  | "login"
+  | "restoreSession"
+  | "clearSession"
+  | "getProfile"
+  | "updateProfile"
+  | "logout"
+>;
+
+export interface AccountIntegrationInput {
+  readonly identifier: string;
+  readonly credential: string;
+  readonly verificationProof: string;
+  readonly verificationIdempotencyKey: string;
+  readonly registrationIdempotencyKey: string;
+  readonly profileIdempotencyKey: string;
+  readonly displayName: string;
+}
+
+export async function verifyAccountIntegration(
+  primary: AccountIntegrationClient,
+  restored: AccountIntegrationClient,
+  input: AccountIntegrationInput,
+): Promise<void> {
+  const verification = await primary.startRegistrationVerification(
+    { identifier: input.identifier },
+    { idempotencyKey: input.verificationIdempotencyKey },
+  );
+  await primary.registerUser(
+    {
+      identifier: input.identifier,
+      credential: input.credential,
+      verificationContinuationId: verification.continuationId,
+      verificationProof: input.verificationProof,
+      displayName: input.displayName,
+    },
+    { idempotencyKey: input.registrationIdempotencyKey },
+  );
+  await primary.logout();
+  await primary.login({ identifier: input.identifier, credential: input.credential });
+  const restoredSession = await restored.restoreSession();
+  if (!restoredSession) throw new Error("Account Vault did not restore the authenticated session.");
+  await primary.clearSession();
+  const profile = await restored.getProfile();
+  await restored.updateProfile(
+    { expectedVersion: profile.version, displayName: input.displayName },
+    { idempotencyKey: input.profileIdempotencyKey },
+  );
+  await restored.logout();
+}

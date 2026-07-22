@@ -157,3 +157,36 @@
 - 组件测试覆盖六个 Block 的八态、字段错误、取消旧请求、幂等重放、版本冲突、Provider 隐藏、会话撤销和密码清理；API Client 严格拒绝未知字段与错误 content type。
 - 真实 PostgreSQL 与浏览器至少完成 hosted.auth 密码登录回跳、错误 PKCE/code 重放拒绝、hosted.account profile 更新/会话撤销/安全操作、刷新恢复和取消；验证 Web、desktop channel、1280/760/390/320、低高度、键盘和浅深主题。
 - 本关只证明用户前台交付面达到 `verified`。SDK 扩展、配置 Schema、Generated Source、样板装配和完整包九面验证仍属于 G2A-07/G2A-08/G2C；`package.account` 必须保持 `contracted` 且 `availability=[]`。
+
+## G2A-07 SDK、配置与 Generated Source 冻结补充
+
+### TypeScript SDK 边界
+
+- `@capability-platform/client-sdk` 在现有可信 Client Session 基座上新增 `sdk.account`。Account 方法只能使用 SDK 已建立的 Client Session 或由 SDK 持有的 User Session；调用方不得传入 `product_id`、`tenant_id`、`application_id`、UserBearer、Authorization 或 Cookie。
+- v1 方法固定为 `startRegistrationVerification`、`registerUser`、`login`、`getCurrentSession`、`refreshSession`、`restoreSession`、`logout`、`clearSession`、`startRecovery`、`completeRecovery`、`startExternalLogin`、`completeExternalLogin`、`exchangeWechatCode`、`getProfile`、`updateProfile`、`changePassword`、`listSessions`、`revokeSession`、`listExternalIdentities`、`linkExternalIdentity`、`unlinkExternalIdentity` 和 `getAccessSummary`。其中 `restoreSession` 与 `clearSession` 是受兼容承诺的本地会话生命周期方法，不新增后端 operation；其余方法覆盖 Package Manifest 的最终用户公开 API。
+- 注册、登录和恢复使用可信 Client Session；资料、安全、会话和访问摘要使用 UserBearer；refresh 只使用 SDK 当前持有的 refresh token 和稳定 `client_request_id`。SDK 必须验证 `no-store` 的凭据响应及必需字段，同时忽略兼容新增的未知响应字段。
+- access/refresh token 默认只保存在内存。Web 不得把它们写入 Local Storage、Session Storage、URL、日志或分析事件；浏览器刷新恢复使用 Hosted HttpOnly Cookie 流。桌面宿主可以显式注入实现 `AccountSessionVault` 的系统安全存储适配器，SDK 本身不提供明文文件、浏览器存储或固定密钥实现。
+- `restoreSession` 只接受 Vault 返回且通过结构校验、未过 refresh 到期时间的记录；access token 过期但 refresh token 有效时使用同一个恢复请求 ID 轮换。恢复失败、refresh 重放/撤销、退出成功或终态认证错误必须清除内存和 Vault；网络、超时或调用方取消不得提前销毁仍有效的会话。
+- 登录不得自动重试。带 Idempotency-Key 的注册/恢复/资料写、同 `client_request_id` 的 refresh，以及安全 GET 可以按 SDK 全局上限重试；密码尝试、无幂等键写和已收到确定业务响应的请求不得重放。超时、取消、重新认证、能力关闭、冲突和验证错误继续使用稳定分类错误。
+- 所有 Account 响应采用严格必需字段与类型校验；未知枚举映射为 `unknown`。解析错误不得保留或回显 credential、proof、token、identifier 原文或服务端内部详情。
+
+### 配置 Schema 边界
+
+- `config.schema.json` 必须同时验证密码策略、安全通知 Provider、Hosted Origin、`hosted.auth`/`hosted.account` 的预登记 return target code，以及可选微信/OIDC Provider。
+- Hosted Origin 必须是无用户名、密码、路径、查询和 fragment 的精确 HTTPS Origin；只允许 loopback 开发使用 HTTP。它是部署/装配受信配置，不来自浏览器请求。
+- return target 只保存预登记 code，不保存任意 URI。auth/account code 都必须存在并由 Product Application 的公开服务解析；蓝图或 SDK 不能提交最终回跳 URI。
+- 可选 Provider `enabled=false` 时不得携带应用或 secret 引用；`enabled=true` 时必须提供应用引用、secret 引用和至少一个预登记 return target code。Schema 与生成源码只保留 secret ref，禁止生成 secret 值。
+
+### Generated Source 与包级样板
+
+- `package.account@1.0.0` 生成输出固定归入 `src/generated/packages/account/` 和 `docs/generated/account-integration.md`；至少包含运行时配置、SDK/Client UI 组合入口、路由导出、类型安全接入示例和自动化测试入口。
+- 包输出不得写入 `custom/`，不得复制 Identity/Hosted 状态机，也不得与 UI Template 的入口文件争用同一路径。Template 在后续组合关口只消费包导出的稳定 route/runtime 入口。
+- 生成配置只包含 API/Hosted 公共 Origin、return target code、Provider 可用性和 secret ref 标识，不包含 token、credential、proof、真实用户数据、宿主绝对路径或最终 return URI。
+- 当前 Product Blueprint v1 不含内联 package configuration；G2A-07 生成源码只能交付与 `config.schema.json` 一致的类型、校验和显式 runtime injection 入口，不得读取或发明 `blueprint.configuration.account`。后续装配必须先冻结受控 `config_ref` 到运行时公开配置的绑定契约，才允许生成某款软件的实际配置值。
+- 包级样板必须从锁定 Package Manifest 的 `generated_outputs` 产生文件，安装本地 SDK/Client UI 后完成类型检查、构建和测试；测试通过公开 SDK 完成注册、登录、会话恢复、资料更新和退出，不得手写第二套认证状态机或直接调用 Repository/Service。
+- 生成器重复执行必须字节稳定；修改 `custom/` 或未知文件后重新生成不得覆盖它们。G2A-07 只封口 SDK、配置、源码和文档交付面，Package Manifest 仍为 `contracted`、`availability=[]`，不得复制进 ordinary/experimental runtime catalog；九面总验收和候选晋级留给 G2A-08。
+
+### G2A-07 专项验收
+
+- SDK 单元测试覆盖全部 v1 方法、Client/User Bearer 选择、no-store、响应解析、登录不重试、幂等重试、refresh 同请求恢复、取消/超时、终态清理、Vault 恢复和敏感值不泄漏。
+- 配置正反例覆盖 HTTPS/loopback Origin、路径/凭据/query/fragment 拒绝、return target code、Provider 启停和 secret ref；机器目录重新计算 Manifest/内容树摘要并拒绝额外或漂移文件。

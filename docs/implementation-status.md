@@ -59,7 +59,7 @@
 
 ## 最近验证（2026-07-20）
 
-- G2A-06：`verified`。6 个 Account 用户 Block、Hosted auth/account 编排、active-only session、密码字段全路径清理、Origin/CSRF/CORS 失败关闭、真实 HTTPS 浏览器、多视口和稳定完成状态已验证；本地 Full `-RequirePostgres` 20/20、OpenAPI 118/124、Client SDK 8/8、Client UI 123/123、Admin 158/158 及全部生产构建通过。提交 `000e895f470ef32feea78443bb0839dddac7109e` 的 push run `29733848060` 与 PR run `29733850624` 均成功；Hosted Linux 46 passed + 8 platform-skipped，Windows TLS 8/8。证据：`artifacts/reviews/G2A-06/browser-acceptance.md`、本地基线报告与两份托管原始报告。G2A-07 保持 `planned`，`package.account` 仍为 `contracted` 且没有 available 包。
+- G2A-06：`verified`。6 个 Account 用户 Block、Hosted auth/account 编排、active-only session、密码字段全路径清理、Origin/CSRF/CORS 失败关闭、真实 HTTPS 浏览器、多视口和稳定完成状态已验证；本地 Full `-RequirePostgres` 20/20、OpenAPI 118/124、Client SDK 8/8、Client UI 123/123、Admin 158/158 及全部生产构建通过。提交 `000e895f470ef32feea78443bb0839dddac7109e` 的 push run `29733848060` 与 PR run `29733850624` 均成功；Hosted Linux 46 passed + 8 platform-skipped，Windows TLS 8/8。证据：`artifacts/reviews/G2A-06/browser-acceptance.md`、本地基线报告与两份托管原始报告。当前唯一关口 G2A-07 为 `in_progress`；`package.account` 仍为 `contracted` 且没有 available 包。
 
 - G2A-04.1：`verified`。ADR-0018、`000018` 至 `000022`、7 条 Hosted 路由、Identity proof/grant 会话绑定，以及真实运行时 auth/account HTTP + PostgreSQL 链已实现；修复提交 `eb89c1d` 的本地真实 PostgreSQL Full 18/18 与 Hosted 确定性并发专项 `-count=3` 均通过，机器报告提交 `35b38d6` 引用该修复提交。GitHub push run `29626935922` 与 PR run `29626937426` 均成功；历史 PR run `29626127011` 的短 TTL 失败及修复过程已记录。证据：`artifacts/reviews/G2A-04.1/hosted-interaction-auth-account.md`。G2A-05 已验证，当前唯一关口切换为 `planned` 的 G2A-06；`package.account` 仍为 `contracted`，当前没有 `available` 完整能力包。
 

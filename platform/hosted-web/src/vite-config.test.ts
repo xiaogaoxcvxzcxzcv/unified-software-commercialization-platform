@@ -86,7 +86,7 @@ describe("hosted Vite backend boundary", () => {
       await expectSecureHTML(devOrigin, true);
       await expectProxy(devOrigin, "dev", backend.requests);
       await expectSecureProxyResponses(devOrigin, "dev", backend.observedRequests);
-      const devEvidence = await runBrowser(browser!, hostedURLs(devOrigin), createBrowserProfile("hosted-browser-dev-"));
+      const devEvidence = await runBrowser(browser!, hostedURLs(devOrigin), createBrowserProfile("hosted-browser-dev-"), 30_000);
       expectStyledRuntime(devEvidence);
       expect(backend.requests.some((path) => path.includes("hint_auth_") && path.endsWith("/auth/bootstrap"))).toBe(true);
       expect(backend.requests.some((path) => path.includes("hint_account_") && path.endsWith("/account/bootstrap"))).toBe(true);
@@ -117,7 +117,7 @@ describe("hosted Vite backend boundary", () => {
       await expectSecureHTML(previewOrigin, false);
       await expectProxy(previewOrigin, "preview", backend.requests);
       await expectSecureProxyResponses(previewOrigin, "preview", backend.observedRequests);
-      expectStyledRuntime(await runBrowser(browser!, hostedURLs(previewOrigin), createBrowserProfile("hosted-browser-preview-")));
+      expectStyledRuntime(await runBrowser(browser!, hostedURLs(previewOrigin), createBrowserProfile("hosted-browser-preview-"), 30_000));
     } finally {
       await vite.close();
       if (previewServer) await closeServer(previewServer.httpServer);

@@ -1,0 +1,24 @@
+{
+  "name": "@capability-platform/account-generated-contract-test",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src/generated/packages/account/account.generated.test.ts --configLoader runner",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@capability-platform/client-sdk": "file:../../../platform/sdk/typescript",
+    "@capability-platform/client-ui": "file:../../../platform/client-ui",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/node": "24.10.1",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

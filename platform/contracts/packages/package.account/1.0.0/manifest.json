@@ -1,45 +1,323 @@
 {
-  "schema_version": "1.0.0",
-  "package_id": "package.account",
-  "version": "1.0.0",
-  "name": "Unified account",
-  "user_value": "Reusable registration, authentication, profile, session security, and scoped product admission.",
-  "lifecycle_status": "contracted",
-  "availability": [],
-  "dependencies": [],
-  "conflicts": [],
-  "supported_targets": ["web", "desktop_webview"],
-  "supported_delivery_modes": ["generated_source"],
-  "required_permissions": ["identity.security.manage", "identity.user.read", "product.user-access.manage"],
-  "backend_capabilities": ["identity.login", "identity.register", "identity.refresh", "identity.logout", "identity.recovery", "identity.profile", "identity.session-manage", "identity.external-login", "identity.external-link", "product-user-access.evaluate", "product-user-access.manage", "account.access-decision", "account.scoped-user-query"],
-  "migrations": ["platform/backend/migrations/000014_identity_end_user.up.sql", "platform/backend/migrations/000015_product_user_access.up.sql"],
-  "events": ["identity.user-registered.v1", "identity.session-refreshed.v1", "identity.session-revoked.v1", "identity.profile-updated.v1", "product-user-access.status-changed.v1", "product-user-access.session-revocation-requested.v1"],
-  "audit_actions": ["identity.user-security-status-changed", "identity.session-revoked", "product-user-access.status-changed"],
-  "admin_blocks": ["identity.user-table", "identity.user-detail"],
-  "client_blocks": ["auth.login", "auth.register", "auth.recovery", "account.center", "account.profile", "account.security"],
-  "hosted_routes": ["hosted.auth", "hosted.account"],
-  "ui_template_compatibility": [{ "template_id": "standard-a", "version_range": "^0.1.0" }],
-  "public_api_operations": ["registerUser", "login", "getCurrentUserSession", "refreshSession", "logout", "startPasswordRecovery", "completePasswordRecovery", "getCurrentUserProfile", "updateCurrentUserProfile", "changeCurrentUserPassword", "listCurrentUserSessions", "revokeCurrentUserSession", "startExternalLogin", "exchangeWechatCode", "listCurrentUserExternalIdentities", "linkExternalIdentity", "unlinkExternalIdentity", "getCurrentAccountAccessSummary", "listUsers", "listProductUsers", "listTenantUsers", "setGlobalUserSecurityStatus", "setProductUserAccessStatus", "setTenantUserAccessStatus"],
-  "sdk_modules": ["sdk.account"],
-  "sdk_methods": ["registerUser", "login", "getCurrentSession", "refreshSession", "logout", "startRecovery", "completeRecovery", "getProfile", "updateProfile", "changePassword", "listSessions", "revokeSession", "listExternalIdentities", "getAccessSummary"],
-  "stable_errors": ["IDENTITY_INVALID_CREDENTIALS", "IDENTITY_ACCOUNT_DISABLED", "IDENTITY_RECOVERY_INVALID", "IDENTITY_RECOVERY_REPLAYED", "IDENTITY_SESSION_REVOKED", "PRODUCT_USER_ACCESS_SUSPENDED", "TENANT_USER_ACCESS_SUSPENDED", "ENTITLEMENT_REQUIRED", "ENTITLEMENT_EXPIRED"],
-  "config_schema_path": "config.schema.json",
-  "secret_refs": [],
-  "provider_requirements": ["notification.security"],
-  "optional_provider_requirements": ["identity.external.oidc", "identity.external.wechat"],
-  "generated_outputs": [],
-  "source_locations": ["platform/backend/internal/modules/identity", "platform/backend/internal/modules/productuseraccess", "platform/admin/src", "platform/client-ui", "platform/sdk/typescript"],
-  "extension_points": ["account.profile-slot", "account.security-slot"],
-  "test_paths": ["platform/backend/internal/modules/identity", "platform/backend/internal/modules/productuseraccess", "platform/admin/src", "platform/client-ui", "platform/sdk/typescript"],
-  "smoke_tests": ["st-003", "st-004", "st-022", "st-025-auth-account", "st-038"],
-  "documentation_paths": ["docs/features/account/README.md", "docs/features/account/contract.md", "docs/features/identity/contract.md", "docs/features/product-user-access/contract.md", "docs/adr/0016-product-user-access-boundary.md"],
-  "upgrade_policy": { "strategy": "compatible", "guide_path": "docs/features/account/contract.md" },
-  "rollback_policy": { "strategy": "automatic", "guide_path": "docs/features/account/contract.md" },
-  "data_retention": [
-    { "data_set": "identity.user", "policy": "Global identity is retained independently from product admission and entitlement state.", "guide_path": "docs/features/identity/contract.md" },
-    { "data_set": "product-user-access.admission", "policy": "Admission history remains auditable when access returns to active.", "guide_path": "docs/features/product-user-access/contract.md" }
+  "admin_blocks": [
+    "identity.user-table",
+    "identity.user-detail"
   ],
-  "content_files": [{ "path": "config.schema.json", "sha256": "sha256:c94dc25c92f62fbf69ef90798f0d8267d97357e1923a06b61199af76c53c7ca3", "kind": "file" }],
-  "content_tree_sha256": "sha256:1c071ff1358a47d884c8d94ff7fc42f8392d9350af647c988e1a7e344faa099d",
-  "manifest_sha256": "sha256:5ad62ae9dbd7d343a4a826df8d1661b7fa72189f654ad0d66212616faedaaeb9"
+  "audit_actions": [
+    "identity.user-security-status-changed",
+    "identity.session-revoked",
+    "product-user-access.status-changed"
+  ],
+  "availability": [],
+  "backend_capabilities": [
+    "identity.login",
+    "identity.register",
+    "identity.refresh",
+    "identity.logout",
+    "identity.recovery",
+    "identity.profile",
+    "identity.session-manage",
+    "identity.external-login",
+    "identity.external-link",
+    "product-user-access.evaluate",
+    "product-user-access.manage",
+    "account.access-decision",
+    "account.scoped-user-query"
+  ],
+  "client_blocks": [
+    "auth.login",
+    "auth.register",
+    "auth.recovery",
+    "account.center",
+    "account.profile",
+    "account.security"
+  ],
+  "config_schema_path": "config.schema.json",
+  "conflicts": [],
+  "content_files": [
+    {
+      "path": "config.schema.json",
+      "sha256": "sha256:651588f23e9a9096390f45b43dfafdd28678bafc041f15473cdae99e535f3701",
+      "kind": "file"
+    },
+    {
+      "path": "content/docs/account-integration.md.tmpl",
+      "sha256": "sha256:8126f4b9fc16f1cd78aa8ce1d0892b18e373dc9ea7edc3a0ca0d760ce97f03a8",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/account.generated.test.ts.tmpl",
+      "sha256": "sha256:728b2d6957ab4cd4575f2898c908d76074747cbd5139acf906e520c6aa868866",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/client.ts.tmpl",
+      "sha256": "sha256:769b777afbe204f59db1d4df91324f19192aad3cd3297269e5fde9b800e57558",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/integration.example.ts.tmpl",
+      "sha256": "sha256:ce29fd766cc94b26186b6fcf0fbd466596ef92c34ca75909c60ceb4d0ed3e21e",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/routes.tsx.tmpl",
+      "sha256": "sha256:2e790f5d9c4122186449d6b7b4151c96f95a8a24091434933560167ae29f7ab8",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/runtime-config.ts.tmpl",
+      "sha256": "sha256:e58b832fc940a08576e7683e60a6818a18e756696f53c5feb4a84c4da306abc6",
+      "kind": "file"
+    }
+  ],
+  "content_tree_sha256": "sha256:e783de2fb2a9b098830d08989aa83360c89605c50060c15a521b55dffe5ef151",
+  "data_retention": [
+    {
+      "data_set": "identity.user",
+      "guide_path": "docs/features/identity/contract.md",
+      "policy": "Global identity is retained independently from product admission and entitlement state."
+    },
+    {
+      "data_set": "product-user-access.admission",
+      "guide_path": "docs/features/product-user-access/contract.md",
+      "policy": "Admission history remains auditable when access returns to active."
+    }
+  ],
+  "dependencies": [],
+  "documentation_paths": [
+    "docs/features/account/README.md",
+    "docs/features/account/contract.md",
+    "docs/features/hosted-interaction/contract.md",
+    "docs/features/identity/contract.md",
+    "docs/features/product-user-access/contract.md",
+    "docs/adr/0016-product-user-access-boundary.md",
+    "platform/contracts/client-ui-contract.md",
+    "platform/contracts/hosted-ui-contract.md",
+    "platform/sdk/typescript/README.md"
+  ],
+  "events": [
+    "identity.user-registered.v1",
+    "identity.session-refreshed.v1",
+    "identity.session-revoked.v1",
+    "identity.profile-updated.v1",
+    "product-user-access.status-changed.v1",
+    "product-user-access.session-revocation-requested.v1"
+  ],
+  "extension_points": [
+    "account.profile-slot",
+    "account.security-slot"
+  ],
+  "generated_outputs": [
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/account/runtime-config.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/runtime-config.ts.tmpl",
+      "source_sha256": "sha256:e58b832fc940a08576e7683e60a6818a18e756696f53c5feb4a84c4da306abc6"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/account/client.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/client.ts.tmpl",
+      "source_sha256": "sha256:769b777afbe204f59db1d4df91324f19192aad3cd3297269e5fde9b800e57558"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/account/routes.tsx",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/routes.tsx.tmpl",
+      "source_sha256": "sha256:2e790f5d9c4122186449d6b7b4151c96f95a8a24091434933560167ae29f7ab8"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/account/integration.example.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/integration.example.ts.tmpl",
+      "source_sha256": "sha256:ce29fd766cc94b26186b6fcf0fbd466596ef92c34ca75909c60ceb4d0ed3e21e"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/account/account.generated.test.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/account.generated.test.ts.tmpl",
+      "source_sha256": "sha256:728b2d6957ab4cd4575f2898c908d76074747cbd5139acf906e520c6aa868866"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "docs/generated/account-integration.md",
+      "render_strategy": "strict_template",
+      "source_path": "content/docs/account-integration.md.tmpl",
+      "source_sha256": "sha256:8126f4b9fc16f1cd78aa8ce1d0892b18e373dc9ea7edc3a0ca0d760ce97f03a8"
+    }
+  ],
+  "hosted_routes": [
+    "hosted.auth",
+    "hosted.account"
+  ],
+  "lifecycle_status": "contracted",
+  "manifest_sha256": "sha256:a3f0e73a5bf41c3d2568b20b00902b971c711ec486714b8c2c20b971f22b59dd",
+  "migrations": [
+    "platform/backend/migrations/000014_identity_end_user.up.sql",
+    "platform/backend/migrations/000015_product_user_access.up.sql",
+    "platform/backend/migrations/000016_identity_user_auth_api.up.sql",
+    "platform/backend/migrations/000017_external_identity_security_notification.up.sql",
+    "platform/backend/migrations/000018_hosted_interaction_auth_account.up.sql",
+    "platform/backend/migrations/000019_identity_end_user_session_environment.up.sql",
+    "platform/backend/migrations/000020_hosted_authentication_lease.up.sql",
+    "platform/backend/migrations/000021_identity_verification_environment.up.sql",
+    "platform/backend/migrations/000022_hosted_actor_session_shape.up.sql",
+    "platform/backend/migrations/000023_account_admin_query.up.sql",
+    "platform/backend/migrations/000025_hosted_self_service_flow.up.sql"
+  ],
+  "name": "Unified account",
+  "optional_provider_requirements": [
+    "identity.external.oidc",
+    "identity.external.wechat"
+  ],
+  "package_id": "package.account",
+  "provider_requirements": [
+    "notification.security"
+  ],
+  "public_api_operations": [
+    "startUserVerification",
+    "registerUser",
+    "login",
+    "getCurrentUserSession",
+    "refreshSession",
+    "logout",
+    "startPasswordRecovery",
+    "completePasswordRecovery",
+    "getCurrentUserProfile",
+    "updateCurrentUserProfile",
+    "changeCurrentUserPassword",
+    "listCurrentUserSessions",
+    "revokeCurrentUserSession",
+    "startExternalLogin",
+    "completeExternalLogin",
+    "exchangeWechatCode",
+    "listCurrentUserExternalIdentities",
+    "linkExternalIdentity",
+    "unlinkExternalIdentity",
+    "getCurrentAccountAccessSummary",
+    "listUsers",
+    "listProductUsers",
+    "listTenantUsers",
+    "setGlobalUserSecurityStatus",
+    "setProductUserAccessStatus",
+    "setTenantUserAccessStatus"
+  ],
+  "required_permissions": [
+    "identity.security.manage",
+    "identity.user.read",
+    "product.user-access.manage"
+  ],
+  "rollback_policy": {
+    "guide_path": "docs/features/account/contract.md",
+    "strategy": "automatic"
+  },
+  "schema_version": "1.0.0",
+  "sdk_methods": [
+    "startRegistrationVerification",
+    "registerUser",
+    "login",
+    "getCurrentSession",
+    "refreshSession",
+    "restoreSession",
+    "logout",
+    "clearSession",
+    "startRecovery",
+    "completeRecovery",
+    "getProfile",
+    "updateProfile",
+    "changePassword",
+    "listSessions",
+    "revokeSession",
+    "startExternalLogin",
+    "completeExternalLogin",
+    "exchangeWechatCode",
+    "listExternalIdentities",
+    "linkExternalIdentity",
+    "unlinkExternalIdentity",
+    "getAccessSummary"
+  ],
+  "sdk_modules": [
+    "sdk.account"
+  ],
+  "secret_refs": [],
+  "smoke_tests": [
+    "st-003",
+    "st-004",
+    "st-022",
+    "st-025-auth-account",
+    "st-038"
+  ],
+  "source_locations": [
+    "platform/backend/internal/modules/hostedinteraction",
+    "platform/backend/internal/modules/identity",
+    "platform/backend/internal/modules/productuseraccess",
+    "platform/backend/internal/workflows/accountaccess",
+    "platform/backend/internal/workflows/accountuseradmin",
+    "platform/backend/internal/workflows/accountuserquery",
+    "platform/admin-web/src",
+    "platform/client-ui",
+    "platform/hosted-web",
+    "platform/sdk/typescript",
+    "platform/contracts/packages/package.account/1.0.0/content"
+  ],
+  "stable_errors": [
+    "IDENTITY_INVALID_CREDENTIALS",
+    "IDENTITY_ACCOUNT_DISABLED",
+    "IDENTITY_RECOVERY_INVALID",
+    "IDENTITY_RECOVERY_REPLAYED",
+    "IDENTITY_SESSION_REVOKED",
+    "IDENTITY_SESSION_EXPIRED",
+    "IDENTITY_REFRESH_REPLAYED",
+    "PRODUCT_USER_ACCESS_SUSPENDED",
+    "TENANT_USER_ACCESS_SUSPENDED",
+    "ENTITLEMENT_REQUIRED",
+    "ENTITLEMENT_EXPIRED"
+  ],
+  "supported_delivery_modes": [
+    "generated_source"
+  ],
+  "supported_targets": [
+    "web",
+    "desktop_webview"
+  ],
+  "test_paths": [
+    "platform/backend/internal/modules/hostedinteraction",
+    "platform/backend/internal/modules/identity",
+    "platform/backend/internal/modules/productuseraccess",
+    "platform/backend/internal/workflows/accountaccess",
+    "platform/backend/internal/workflows/accountuseradmin",
+    "platform/backend/internal/workflows/accountuserquery",
+    "platform/backend/internal/modules/assembly/generation",
+    "platform/backend/internal/modules/assembly/machinecatalog",
+    "platform/backend/internal/modules/assembly/machinecontract",
+    "platform/admin-web/src",
+    "platform/client-ui",
+    "platform/hosted-web",
+    "platform/sdk/typescript",
+    "platform/contract-tests/account-generated"
+  ],
+  "ui_template_compatibility": [
+    {
+      "template_id": "standard-a",
+      "version_range": "^0.1.0"
+    }
+  ],
+  "upgrade_policy": {
+    "guide_path": "docs/features/account/contract.md",
+    "strategy": "compatible"
+  },
+  "user_value": "Reusable registration, authentication, profile, session security, and scoped product admission.",
+  "version": "1.0.0"
 }

@@ -1,0 +1,15 @@
+import {
+  ClientSdk,
+  type AccountSdk,
+  type ClientSdkOptions,
+} from "@capability-platform/client-sdk";
+
+export interface AccountRuntime {
+  readonly sdk: ClientSdk;
+  readonly account: AccountSdk;
+}
+
+export function createAccountRuntime(options: ClientSdkOptions): AccountRuntime {
+  const sdk = new ClientSdk(options);
+  return Object.freeze({ sdk, account: sdk.account });
+}
