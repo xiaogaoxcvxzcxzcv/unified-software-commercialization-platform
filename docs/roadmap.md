@@ -22,7 +22,7 @@
 
 目标：能够创建一个不含软件独有业务内容的基础软件蓝图，并安全、可重复地产生前台框架和装配结果。
 
-F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-07 已通过；G2A-07 提交 `5b49f6d10225402b3ae448b042e2b2f060a6ead6` 的 PR #14 required check 已成功。当前唯一严格关口切换为 `planned` 的 G2A-08 Account 包内九面验证。生产 OIDC/微信 Provider E2E、G2A-08 包内验证和完整 Account 包没有冒充完成；`package.account` 仍仅为 `contracted`，普通与 experimental 运行目录仍为空，当前仍没有 `verified` 或 `available` 完整能力包。
+F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-07 已通过；G2A-07 提交 `5b49f6d10225402b3ae448b042e2b2f060a6ead6` 的 PR #14 required check 已成功。当前唯一严格关口为 `in_progress` 的 G2A-08 Account 包内九面验证。生产 OIDC/微信 Provider E2E、G2A-08 包内验证和完整 Account 包没有冒充完成；`package.account` 仍仅为 `contracted`，普通与 experimental 运行目录仍为空，当前仍没有 `verified` 或 `available` 完整能力包。
 
 范围：
 

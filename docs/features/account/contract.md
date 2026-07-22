@@ -190,3 +190,39 @@
 
 - SDK 单元测试覆盖全部 v1 方法、Client/User Bearer 选择、no-store、响应解析、登录不重试、幂等重试、refresh 同请求恢复、取消/超时、终态清理、Vault 恢复和敏感值不泄漏。
 - 配置正反例覆盖 HTTPS/loopback Origin、路径/凭据/query/fragment 拒绝、return target code、Provider 启停和 secret ref；机器目录重新计算 Manifest/内容树摘要并拒绝额外或漂移文件。
+
+## G2A-08 Account 包内九面验证冻结补充
+
+G2A-08 只封口 `package.account@1.0.0` 的包内完整性和 experimental verified candidate 发布资格；它不创建装配验收软件，不执行 Account + Entitlement 组合，不进入 ordinary 目录，也不得宣称普通 `/create` 已可选择 Account。
+
+### 九面验收矩阵
+
+G2A-08 验证报告必须逐项列出以下九面证据，且每一项都能追踪到 Manifest、契约、机器目录、代码路径、测试命令和提交：
+
+1. 产品结果：注册、登录、找回、个人中心、会话安全、外部身份、Product/Tenant 准入和后台用户管理的用户/管理员结果完整。
+2. 用户前台：`auth.login`、`auth.register`、`auth.recovery`、`account.center`、`account.profile`、`account.security` 均为 ready，Hosted 与 generated/package 入口不复制账号状态机。
+3. 统一管理后台：`identity.user-table` 与 `identity.user-detail` 使用真实 API Client、真实权限、近期认证、高风险确认、审计定位和能力关闭失败关闭。
+4. 统一后端：Identity、Product User Access、HostedInteraction、Account Access Decision、Account User Query/Admin Workflow 的迁移、事务、幂等、恢复、审计和 PostgreSQL 隔离均有测试。
+5. SDK/渠道适配：`sdk.account` v1 22 个稳定方法、Vault、no-store、超时/取消/重试和错误分类通过契约测试；桌面 WebView 只能通过显式安全 Vault 适配。
+6. 配置/Provider：`config.schema.json` 覆盖 Hosted Origin、return target、通知安全 Provider 和可选 OIDC/微信 Provider；未配置 Provider 入口隐藏，强制启用缺配置失败关闭。
+7. 源码交付：六个 generated 输出和 `docs/generated/account-integration.md` 由 Manifest 内容树锁定，重复生成字节稳定，不写 `custom/`、不泄漏宿主路径或秘密。
+8. 质量证据：ST-003、ST-004、ST-022、ST-025 auth/account 子范围、ST-038 Account 范围、双 Product、双 Tenant、失败恢复、目录隔离、秘密扫描、UTF-8、OpenAPI 和真实 PostgreSQL Full 均有脱敏机器报告。
+9. 文档：`implementation-status.md`、`roadmap.md`、`ai-development-map.md`、`capability-index.md`、`capability-package-catalog.md`、`smoke-tests.md` 和本契约同步，且明确 `verified` 不等于 `available`。
+
+### 范围隔离与失败恢复
+
+- 必须创建或复用自动化夹具证明产品 A/B 共享全局用户但 Product/Tenant 准入互不污染；A 的 official、A1、A2 三个范围必须覆盖停用、恢复、旧会话撤销和列表/详情读取边界。
+- 全局 `locked|disabled` 必须影响全部产品；A 产品停用不得影响 B；A1 租户停用不得影响 A official 或 A2。
+- 注册验证、找回、Hosted auth/account、自助资料修改、会话撤销、SDK refresh/restore 和生成器执行均必须覆盖同幂等键恢复、响应丢失恢复、重放拒绝和可重试错误保留状态。
+- 外部身份在 G2A-08 只验证已冻结的防重放、冲突和配置失败关闭子范围；真实生产微信/OIDC Provider E2E 继续作为后续 Provider 验收，不得用测试 Adapter 冒充生产 Provider。
+
+### Experimental verified candidate 发布规则
+
+G2A-08 最终通过时，`package.account@1.0.0` 必须从源契约生成或复制到 `platform/experimental/capability-packages/package.account/1.0.0/`，且 Manifest 同时满足：
+
+- `lifecycle_status="verified"`。
+- `availability[]` 只包含 `visibility="experimental"`、`readiness="verified"`，目标端限本关实际验证过的 `web` 与 `desktop_webview`，交付形态限 `generated_source`，环境限测试证据覆盖的范围。
+- `evidence_refs` 指向 G2A-08 评审报告和机器报告；普通目录 `platform/capability-packages/` 仍不得出现该包。
+- MachineCatalog 必须证明 ordinary view 看不到 Account，experimental view 在有 `assembly.experimental.use` 权限时可见，且 URL query、Header 或 Blueprint 字段不能把 ordinary 请求切到 experimental。
+
+完成后状态只能是 experimental `verified candidate`。`available` 晋级必须等 G2C 完成 Account + Entitlement + standard-a 装配验收软件 A/B、升级/回滚、custom 边界和旧产品回归后，再由普通 `/create` 创建验收软件 C 终验。

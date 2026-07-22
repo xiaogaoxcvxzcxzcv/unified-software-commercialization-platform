@@ -58,6 +58,9 @@ artifacts/reviews/G2A-07/*
 !artifacts/reviews/G2A-07/quality-gate-full-postgres.json
 !artifacts/reviews/G2A-07/quality-gate-hosted-push.json
 !artifacts/reviews/G2A-07/quality-gate-hosted-pr.json
+!artifacts/reviews/G2A-08/
+artifacts/reviews/G2A-08/*
+!artifacts/reviews/G2A-08/account-package-nine-face-verification.md
 
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*
