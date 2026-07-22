@@ -22,7 +22,7 @@
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；当前本地/CI 共用 Full 20 项门禁，并在 RequirePostgres 时用可观察详细输出拒绝数据库测试静默跳过；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
 | 产品蓝图与 Assembly | G1-11 verified | G1-04 至 G1-11 已验证；创建/恢复、生命周期 API、可信 Extension Catalog、确定性快照/计划、本地 Full 18/18 和托管 push/PR 检查均通过 | G2C 真实工具、扩展安装/升级/卸载与完整软件装配 |
-| 完整能力包目录 | package.account verified candidate / package.entitlement planned | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 至 G2A-08 的认证账号 API、准入、外部身份、安全通知、HostedInteraction、管理 Blocks、用户 Blocks、SDK/配置/Generated Source、包内九面验证和 experimental candidate 发布均已通过；ordinary 目录仍为空 | 下一唯一关口为 G2B-01 Entitlement 模型、Manifest 和并发规则；仍缺 G2C 装配回归，当前没有 available 完整能力包 |
+| 完整能力包目录 | package.account verified candidate / package.entitlement contracted | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 至 G2A-08 的认证账号 API、准入、外部身份、安全通知、HostedInteraction、管理 Blocks、用户 Blocks、SDK/配置/Generated Source、包内九面验证和 experimental candidate 发布均已通过；Entitlement G2B-01 模型、Manifest、唯一约束和并发规则已封口；ordinary 目录仍为空 | 下一关口仍需先完成 G2B-01 验证证据后进入 G2B-02 后端与迁移；仍缺 G2C 装配回归，当前没有 available 完整能力包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 装配验收软件 | planned | G2 黄金链和 A/B/C 创建、隔离、晋级、回归标准已确定；它们不承担真实正文开发 | 可运行验收软件仓库、软件本地 AI 交接、最小扩展边界夹具、account/entitlement 装配与回归证据 |
 | 管理后台 | auth/G1-08.1-G1-08.4/G1-10/G2A-05 verified | 生命周期 Plan/Operation、重新认证回跳、幂等冲突显式处理、工件验证和有界轮询已实现；G2A-05 Account API Client、真实后端、权限/危险操作、nullable 会话、能力集审计持久化和浏览器入口已通过真实 PostgreSQL、浏览器与托管 required check。`identity.user-table`、`identity.user-detail` 机器目录已同步为 ready；`package.account` 已完成 G2A-08 experimental verified candidate | Entitlement 管理 Blocks 和平板视觉 QA |
@@ -47,7 +47,7 @@
 | hosted-interaction | G2A-04.1 + G2A-06 + G2A-08 verified | ADR-0018 所有权、`000018` 至 `000025`、interaction/browser session/completion grant、自助 profile/password/session 流、精确 return target、state/nonce/PKCE、一次性 code、Origin/CSRF、幂等恢复和 G2A-08 formal server compatibility 已实现；真实 PostgreSQL、HTTPS 浏览器、响应头、本地 Full 与托管 required check 已通过 | G2C 装配回归 |
 | product-user-access / account composition | G2A-03 + G2A-08 verified | 独立 Product/Tenant 准入事实、Guard 管理 API、审计/撤销 Outbox、实时组合裁决、登录前准入和双 Product/双 Tenant ST-038 专项已通过真实 PostgreSQL、本地 Full 与托管 CI | G2C 装配验收、范围用户读模型与 entitlement 组合 |
 | access-control / audit | verified foundation + admin demo | Permission Catalog 1.1、permission + scope 实时授权、范围绑定幂等与授权版本、拒绝审计、append-only Audit、可信范围/trace_id 查询，以及 Identity/Product/Application/Tenant/Access Control Outbox 到 Audit 的进程组合已有正式代码和本地自动化；后台审计页面仍为演示 Client | 跨模块浏览器 E2E、大范围导出/保留、生产恢复与后台真实 API Client |
-| entitlement | contracted + admin demo | 授予、检查、撤销和来源流水契约已定 |
+| entitlement | contracted + admin demo | G2B-01 已补齐 Feature/Policy/Validity/Grant/Revision/Ledger/Check Decision、叠加/撤销/到期语义、唯一约束、幂等和并发策略；授予、检查、撤销和来源流水契约已定 |
 | device / license | contracted | 设备租约、上限、撤销、激活码批次和兑换已定 |
 | catalog / order / payment / commerce | contracted | 不可变价格、订单、支付事实、收银会话、退款对账和跨模块流程已定 |
 | ai-gateway / usage | contracted | 动态模型、逻辑路由、预占、计量、价格版本和账本已定 |
