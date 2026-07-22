@@ -104,6 +104,124 @@ func TestContractedAccountManifestIsClosedButNotPublished(t *testing.T) {
 	}
 }
 
+func TestAccountPackageG2A08NineFaceEvidenceIsTraceable(t *testing.T) {
+	root := repositoryRoot(t)
+	versionRoot := filepath.Join(root, "platform", "contracts", "packages", "package.account", "1.0.0")
+	manifestRaw, err := os.ReadFile(filepath.Join(versionRoot, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		LifecycleStatus              string   `json:"lifecycle_status"`
+		Availability                 []any    `json:"availability"`
+		BackendCapabilities          []string `json:"backend_capabilities"`
+		Migrations                   []string `json:"migrations"`
+		Events                       []string `json:"events"`
+		AuditActions                 []string `json:"audit_actions"`
+		AdminBlocks                  []string `json:"admin_blocks"`
+		ClientBlocks                 []string `json:"client_blocks"`
+		HostedRoutes                 []string `json:"hosted_routes"`
+		UITemplateCompatibility      []any    `json:"ui_template_compatibility"`
+		PublicAPIOperations          []string `json:"public_api_operations"`
+		SDKModules                   []string `json:"sdk_modules"`
+		SDKMethods                   []string `json:"sdk_methods"`
+		StableErrors                 []string `json:"stable_errors"`
+		ConfigSchemaPath             string   `json:"config_schema_path"`
+		ProviderRequirements         []string `json:"provider_requirements"`
+		OptionalProviderRequirements []string `json:"optional_provider_requirements"`
+		GeneratedOutputs             []any    `json:"generated_outputs"`
+		SourceLocations              []string `json:"source_locations"`
+		ExtensionPoints              []string `json:"extension_points"`
+		TestPaths                    []string `json:"test_paths"`
+		SmokeTests                   []string `json:"smoke_tests"`
+		DocumentationPaths           []string `json:"documentation_paths"`
+		UpgradePolicy                any      `json:"upgrade_policy"`
+		RollbackPolicy               any      `json:"rollback_policy"`
+		DataRetention                []any    `json:"data_retention"`
+	}
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.LifecycleStatus != "contracted" || len(manifest.Availability) != 0 {
+		t.Fatalf("G2A-08 must start from contracted unpublished source package, got %q %#v", manifest.LifecycleStatus, manifest.Availability)
+	}
+	mustHave := map[string]int{
+		"product result/backend capabilities": len(manifest.BackendCapabilities),
+		"migrations":                          len(manifest.Migrations),
+		"events":                              len(manifest.Events),
+		"audit actions":                       len(manifest.AuditActions),
+		"admin blocks":                        len(manifest.AdminBlocks),
+		"client blocks":                       len(manifest.ClientBlocks),
+		"hosted routes":                       len(manifest.HostedRoutes),
+		"template compatibility":              len(manifest.UITemplateCompatibility),
+		"public api operations":               len(manifest.PublicAPIOperations),
+		"sdk modules":                         len(manifest.SDKModules),
+		"sdk methods":                         len(manifest.SDKMethods),
+		"stable errors":                       len(manifest.StableErrors),
+		"provider requirements":               len(manifest.ProviderRequirements),
+		"generated outputs":                   len(manifest.GeneratedOutputs),
+		"source locations":                    len(manifest.SourceLocations),
+		"extension points":                    len(manifest.ExtensionPoints),
+		"test paths":                          len(manifest.TestPaths),
+		"smoke tests":                         len(manifest.SmokeTests),
+		"documentation paths":                 len(manifest.DocumentationPaths),
+		"data retention":                      len(manifest.DataRetention),
+	}
+	for name, count := range mustHave {
+		if count == 0 {
+			t.Fatalf("package.account missing G2A-08 nine-face evidence field: %s", name)
+		}
+	}
+	if manifest.ConfigSchemaPath == "" || manifest.UpgradePolicy == nil || manifest.RollbackPolicy == nil {
+		t.Fatalf("package.account missing config or lifecycle evidence: config=%q upgrade=%#v rollback=%#v", manifest.ConfigSchemaPath, manifest.UpgradePolicy, manifest.RollbackPolicy)
+	}
+	assertContainsAll(t, "admin blocks", manifest.AdminBlocks, []string{"identity.user-table", "identity.user-detail"})
+	assertContainsAll(t, "client blocks", manifest.ClientBlocks, []string{"auth.login", "auth.register", "auth.recovery", "account.center", "account.profile", "account.security"})
+	assertContainsAll(t, "hosted routes", manifest.HostedRoutes, []string{"hosted.auth", "hosted.account"})
+	assertContainsAll(t, "smoke tests", manifest.SmokeTests, []string{"st-003", "st-004", "st-022", "st-025-auth-account", "st-038"})
+	assertContainsAll(t, "stable errors", manifest.StableErrors, []string{"IDENTITY_ACCOUNT_DISABLED", "PRODUCT_USER_ACCESS_SUSPENDED", "TENANT_USER_ACCESS_SUSPENDED", "ENTITLEMENT_REQUIRED", "ENTITLEMENT_EXPIRED"})
+
+	catalogRaw, err := os.ReadFile(filepath.Join(root, "platform", "contracts", "catalogs", "v1", "feature-blocks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Blocks []struct {
+			BlockID   string `json:"block_id"`
+			Surface   string `json:"surface"`
+			Readiness string `json:"readiness"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(catalogRaw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	readyBlocks := map[string]string{}
+	for _, block := range catalog.Blocks {
+		if block.Readiness == "ready" {
+			readyBlocks[block.BlockID] = block.Surface
+		}
+	}
+	for _, blockID := range manifest.AdminBlocks {
+		if readyBlocks[blockID] != "admin" {
+			t.Fatalf("admin block %q is not ready in machine catalog: surface=%q", blockID, readyBlocks[blockID])
+		}
+	}
+	for _, blockID := range manifest.ClientBlocks {
+		if readyBlocks[blockID] != "client" {
+			t.Fatalf("client block %q is not ready in machine catalog: surface=%q", blockID, readyBlocks[blockID])
+		}
+	}
+	for _, candidate := range append(append([]string{}, manifest.DocumentationPaths...), manifest.SourceLocations...) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(candidate))); err != nil {
+			t.Fatalf("package.account references missing path %q: %v", candidate, err)
+		}
+	}
+	for _, candidate := range manifest.TestPaths {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(candidate))); err != nil {
+			t.Fatalf("package.account references missing test path %q: %v", candidate, err)
+		}
+	}
+}
 func TestAccountConfigFailsClosedForOptionalProviders(t *testing.T) {
 	root := repositoryRoot(t)
 	configPath := filepath.Join(root, "platform", "contracts", "packages", "package.account", "1.0.0", "config.schema.json")
@@ -253,6 +371,18 @@ func TestAccountConfigFailsClosedForOptionalProviders(t *testing.T) {
 	}
 }
 
+func assertContainsAll(t *testing.T, name string, got []string, want []string) {
+	t.Helper()
+	seen := make(map[string]bool, len(got))
+	for _, value := range got {
+		seen[value] = true
+	}
+	for _, value := range want {
+		if !seen[value] {
+			t.Fatalf("%s missing %q in %#v", name, value, got)
+		}
+	}
+}
 func cloneJSONMap(t *testing.T, value map[string]any) map[string]any {
 	t.Helper()
 	raw, err := json.Marshal(value)
