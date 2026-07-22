@@ -158,6 +158,74 @@ func TestRepositoryTenantScopePrecedenceAndLists(t *testing.T) {
 	}
 }
 
+func TestRepositoryG2A08ST038DualProductDualTenantIsolation(t *testing.T) {
+	database := testpostgres.Open(t)
+	service := productuseraccess.NewService(accesspostgres.New(database.Pool), &sequenceIDs{}, digestKey, fixedNow)
+	ctx := context.Background()
+	user := productuseraccess.UserContext{UserID: "g2a08-shared-user"}
+	productA := productuseraccess.ProductContext{ProductID: "g2a08-product-a"}
+	productB := productuseraccess.ProductContext{ProductID: "g2a08-product-b"}
+	tenantA1 := productuseraccess.TenantContext{ProductID: productA.ProductID, TenantID: "g2a08-tenant-a1"}
+	tenantA2 := productuseraccess.TenantContext{ProductID: productA.ProductID, TenantID: "g2a08-tenant-a2"}
+
+	if _, err := service.SetProductAccessStatus(ctx, productuseraccess.SetProductAccessStatusCommand{Product: productA, User: user, Status: productuseraccess.StatusSuspended, ExpectedVersion: 0, ReasonCode: "security.review", IdempotencyKey: "g2a08-product-a-suspend-0001", ActorID: "admin-g2a08", TraceID: "trace-g2a08-product-a-suspend"}); err != nil {
+		t.Fatal(err)
+	}
+	assertAdmission(t, service, productA, nil, user, false, "PRODUCT_USER_ACCESS_SUSPENDED", 1, 0)
+	assertAdmission(t, service, productB, nil, user, true, "", 0, 0)
+
+	if _, err := service.SetProductAccessStatus(ctx, productuseraccess.SetProductAccessStatusCommand{Product: productA, User: user, Status: productuseraccess.StatusActive, ExpectedVersion: 1, ReasonCode: "manual.restore", IdempotencyKey: "g2a08-product-a-restore-0001", ActorID: "admin-g2a08", TraceID: "trace-g2a08-product-a-restore"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetTenantAccessStatus(ctx, productuseraccess.SetTenantAccessStatusCommand{Product: productA, Tenant: tenantA1, User: user, Status: productuseraccess.StatusSuspended, ExpectedVersion: 0, ReasonCode: "tenant.review", IdempotencyKey: "g2a08-tenant-a1-suspend-0001", ActorID: "admin-g2a08", TraceID: "trace-g2a08-tenant-a1-suspend"}); err != nil {
+		t.Fatal(err)
+	}
+	assertAdmission(t, service, productA, nil, user, true, "", 2, 0)
+	assertAdmission(t, service, productA, &tenantA1, user, false, "TENANT_USER_ACCESS_SUSPENDED", 2, 1)
+	assertAdmission(t, service, productA, &tenantA2, user, true, "", 2, 0)
+	assertAdmission(t, service, productB, nil, user, true, "", 0, 0)
+
+	if _, err := service.SetProductAccessStatus(ctx, productuseraccess.SetProductAccessStatusCommand{Product: productA, User: user, Status: productuseraccess.StatusSuspended, ExpectedVersion: 2, ReasonCode: "security.review", IdempotencyKey: "g2a08-product-a-resuspend-0001", ActorID: "admin-g2a08", TraceID: "trace-g2a08-product-a-resuspend"}); err != nil {
+		t.Fatal(err)
+	}
+	assertAdmission(t, service, productA, &tenantA1, user, false, "PRODUCT_USER_ACCESS_SUSPENDED", 3, 0)
+	assertAdmission(t, service, productA, &tenantA2, user, false, "PRODUCT_USER_ACCESS_SUSPENDED", 3, 0)
+	assertAdmission(t, service, productB, nil, user, true, "", 0, 0)
+
+	productAUsers, err := service.ListScopedUserIDs(ctx, productuseraccess.ListScopedUserIDsQuery{Product: productA})
+	if err != nil || len(productAUsers) != 1 || productAUsers[0] != user.UserID {
+		t.Fatalf("product A users=%v error=%v", productAUsers, err)
+	}
+	productBUsers, err := service.ListScopedUserIDs(ctx, productuseraccess.ListScopedUserIDsQuery{Product: productB})
+	if err != nil || len(productBUsers) != 0 {
+		t.Fatalf("product B users=%v error=%v", productBUsers, err)
+	}
+	tenantA1Users, err := service.ListScopedUserIDs(ctx, productuseraccess.ListScopedUserIDsQuery{Product: productA, Tenant: &tenantA1})
+	if err != nil || len(tenantA1Users) != 1 || tenantA1Users[0] != user.UserID {
+		t.Fatalf("tenant A1 users=%v error=%v", tenantA1Users, err)
+	}
+	tenantA2Users, err := service.ListScopedUserIDs(ctx, productuseraccess.ListScopedUserIDsQuery{Product: productA, Tenant: &tenantA2})
+	if err != nil || len(tenantA2Users) != 0 {
+		t.Fatalf("tenant A2 users=%v error=%v", tenantA2Users, err)
+	}
+
+	var productAFacts, productBFacts, tenantA1Facts, tenantA2Facts int
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM product_user_access.product_access WHERE product_id=$1 AND user_id=$2`, productA.ProductID, user.UserID).Scan(&productAFacts); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM product_user_access.product_access WHERE product_id=$1 AND user_id=$2`, productB.ProductID, user.UserID).Scan(&productBFacts); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM product_user_access.tenant_access WHERE product_id=$1 AND tenant_id=$2 AND user_id=$3`, productA.ProductID, tenantA1.TenantID, user.UserID).Scan(&tenantA1Facts); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM product_user_access.tenant_access WHERE product_id=$1 AND tenant_id=$2 AND user_id=$3`, productA.ProductID, tenantA2.TenantID, user.UserID).Scan(&tenantA2Facts); err != nil {
+		t.Fatal(err)
+	}
+	if productAFacts != 1 || productBFacts != 0 || tenantA1Facts != 1 || tenantA2Facts != 0 {
+		t.Fatalf("unexpected persisted facts productA/productB/tenantA1/tenantA2=%d/%d/%d/%d", productAFacts, productBFacts, tenantA1Facts, tenantA2Facts)
+	}
+}
 func TestRepositoryConcurrentExpectedVersionAndOutboxFailureRollback(t *testing.T) {
 	database := testpostgres.Open(t)
 	ctx := context.Background()
@@ -318,4 +386,11 @@ func TestRepositoryOutboxPoisonPayloadIsLeasedAndDoesNotBlockFollowingEvent(t *t
 	}
 }
 
+func assertAdmission(t *testing.T, service *productuseraccess.Service, product productuseraccess.ProductContext, tenant *productuseraccess.TenantContext, user productuseraccess.UserContext, allowed bool, code string, productVersion, tenantVersion int64) {
+	t.Helper()
+	admission, err := service.EvaluateScopedAdmission(context.Background(), product, tenant, user)
+	if err != nil || admission.Allowed != allowed || admission.Code != code || admission.ProductVersion != productVersion || admission.TenantVersion != tenantVersion {
+		t.Fatalf("admission product=%s tenant=%v user=%s got=%+v error=%v want allowed=%v code=%q product_version=%d tenant_version=%d", product.ProductID, tenant, user.UserID, admission, err, allowed, code, productVersion, tenantVersion)
+	}
+}
 func fixedNow() time.Time { return time.Date(2026, 7, 17, 8, 0, 0, 123456000, time.UTC) }
