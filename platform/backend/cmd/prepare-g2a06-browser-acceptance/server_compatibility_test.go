@@ -289,7 +289,7 @@ func verifyFormalBootstrap(t *testing.T, baseURL, allowedOrigin, interactionID, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapBody, _ := io.ReadAll(io.LimitReader(bootstrapResponse.Body, 8192))
+	bootstrapBody, _ := io.ReadAll(bootstrapResponse.Body)
 	_ = bootstrapResponse.Body.Close()
 	if bootstrapResponse.StatusCode != http.StatusOK {
 		t.Fatalf("formal server %s bootstrap status=%d body=%s log=%s", route, bootstrapResponse.StatusCode, bootstrapBody, serverLog.String())
@@ -297,7 +297,7 @@ func verifyFormalBootstrap(t *testing.T, baseURL, allowedOrigin, interactionID, 
 	verifyPrivateBootstrapHeaders(t, bootstrapResponse.Header, route+" bootstrap without Origin")
 	var payload map[string]any
 	if json.Unmarshal(bootstrapBody, &payload) != nil || payload["interaction"] == nil || payload["presentation"] == nil {
-		t.Fatalf("formal server %s bootstrap shape rejected", route)
+		t.Fatalf("formal server %s bootstrap shape rejected body=%s log=%s", route, bootstrapBody, serverLog.String())
 	}
 	allowedRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/hosted/interactions/%s/%s/bootstrap", baseURL, interactionID, route), nil)
 	if err != nil {
@@ -309,7 +309,7 @@ func verifyFormalBootstrap(t *testing.T, baseURL, allowedOrigin, interactionID, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowedBody, _ := io.ReadAll(io.LimitReader(allowedResponse.Body, 8192))
+	allowedBody, _ := io.ReadAll(allowedResponse.Body)
 	_ = allowedResponse.Body.Close()
 	if allowedResponse.StatusCode != http.StatusOK {
 		t.Fatalf("formal server %s bootstrap with exact allowed Origin status=%d body=%s", route, allowedResponse.StatusCode, allowedBody)
@@ -317,7 +317,7 @@ func verifyFormalBootstrap(t *testing.T, baseURL, allowedOrigin, interactionID, 
 	verifyPrivateBootstrapHeaders(t, allowedResponse.Header, route+" bootstrap with exact allowed Origin")
 	var allowedPayload map[string]any
 	if json.Unmarshal(allowedBody, &allowedPayload) != nil || allowedPayload["interaction"] == nil || allowedPayload["presentation"] == nil {
-		t.Fatalf("formal server %s allowed-Origin bootstrap shape rejected", route)
+		t.Fatalf("formal server %s allowed-Origin bootstrap shape rejected body=%s log=%s", route, allowedBody, serverLog.String())
 	}
 	for _, test := range []struct {
 		name    string

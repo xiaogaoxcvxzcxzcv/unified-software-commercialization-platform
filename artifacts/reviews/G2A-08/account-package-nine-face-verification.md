@@ -1,6 +1,6 @@
 # G2A-08 Account 包内九面验证
 
-状态：`in_progress`（2026-07-22）。本文件是 G2A-08 的证据矩阵和缺口清单；未形成完整机器报告、提交、push 和 required check 前，不得标记 verified。
+状态：`in_progress`（2026-07-22）。本文件是 G2A-08 的证据矩阵和缺口清单；本地 Full 已在未提交修复状态下通过；未形成最终提交、push 和 required check 前，不得标记 verified。
 
 ## 当前裁决
 
@@ -21,7 +21,7 @@
 | SDK/渠道适配 | G2A-07 SDK 37 tests、样板 typecheck/Vitest/build | 纳入 ST-003/ST-004/ST-038 包内总验收 |
 | 配置/Provider | `config.schema.json`、Provider 启停和 secret ref 子范围已验证 | 汇总未配置/强制启用失败关闭与真实 Provider 未验证边界 |
 | 源码交付 | 六个 generated 输出、内容树、custom/未知文件保留已验证 | 作为 experimental candidate 证据引用，仍不得声称可装配软件 |
-| 质量证据 | 本地 Full 22/22、PR #14 required check 已证明 G2A-07；G2A-08 目录发布专项 `go test ./internal/modules/assembly/machinecatalog ./internal/modules/assembly/machinecontract -run 'Account|ExperimentalStandardA|G2A08' -count=1` 已通过；PR #14 上一 checkpoint 的 `quality-gate` 与 `windows-tls` 已通过 | G2A-08 真实 PostgreSQL 双 Product/双 Tenant 专项已通过；仍需要 Full、最终 push/PR required check |
+| 质量证据 | 本地 Full 22/22、PR #14 required check 已证明 G2A-07；G2A-08 目录发布专项 `go test ./internal/modules/assembly/machinecatalog ./internal/modules/assembly/machinecontract -run 'Account|ExperimentalStandardA|G2A08' -count=1` 已通过；PR #14 上一 checkpoint 的 `quality-gate` 与 `windows-tls` 已通过 | G2A-08 真实 PostgreSQL 双 Product/双 Tenant 专项已通过；本地 Full `-RequirePostgres` 22/22 已通过，修复了 formal account bootstrap 测试因 8192 字节读取上限截断大型会话投影而误报 shape rejected 的问题；仍需要最终提交、push/PR required check |
 | 文档 | 主计划、状态表和 Account 契约已开始同步 | 收口时同步 smoke、目录、索引和实施状态为 verified candidate 口径 |
 
 ## 不允许误报
@@ -38,5 +38,5 @@
 2. 已新增真实 PostgreSQL 专项：产品 A/B、A official/A1/A2、Product/Tenant 停用优先级、范围列表和默认事实污染防护；全局锁定/禁用、恢复和会话撤销继续引用 Identity/Admin/Hosted 既有 PostgreSQL 证据并由 Full 复验收口。
 3. 已把 `package.account@1.0.0` 复制到 experimental runtime catalog，并改为 `verified` + experimental availability；普通目录仍未发布。
 4. 已更新 MachineCatalog 测试，覆盖源契约仍 contracted、ordinary 不可见、experimental snapshot 可见；query/header/blueprint 注入 scope 的 HTTP 层回归仍由 G1-08.2 证据和后续 Full 覆盖。
-5. 已运行 G2A-08 目录发布专项和 Product User Access 双 Product/双 Tenant 真实 PostgreSQL 专项；仍需 Full `-RequirePostgres`、前端/SDK/Hosted 构建测试、Core/秘密/UTF-8/OpenAPI。
+5. 已运行 G2A-08 目录发布专项、Product User Access 双 Product/双 Tenant 真实 PostgreSQL专项，以及本地 Full `-RequirePostgres` 22/22（报告：`.runtime/G2A-08/quality-gate-full-bootstrap-readall.json`；该报告因代码尚未提交显示 `reproducible_commit=false`）。仍需最终提交、push 和 PR required check。
 6. 提交、push，等待 PR required check 成功后再把 G2A-08 标记 verified。
