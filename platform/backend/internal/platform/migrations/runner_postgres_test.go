@@ -20,7 +20,7 @@ func TestPostgreSQLMigrationsUpRepeatDownAndReapply(t *testing.T) {
 	if err := migrations.ApplyDownAll(ctx, database.Pool, database.MigrationPath); err != nil {
 		t.Fatalf("ApplyDownAll() error = %v", err)
 	}
-	for _, schema := range []string{"platform_meta", "identity", "access_control", "audit", "product", "product_application", "tenant", "assembly", "notification", "hosted_interaction"} {
+	for _, schema := range []string{"platform_meta", "identity", "access_control", "audit", "product", "product_application", "tenant", "assembly", "notification", "hosted_interaction", "entitlement"} {
 		var exists bool
 		if err := database.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)`, schema).Scan(&exists); err != nil {
 			t.Fatalf("query schema %q after down: %v", schema, err)
@@ -104,6 +104,13 @@ func assertMigrationState(t *testing.T, database testpostgres.Database) {
 		"assembly.generated_project_locks",
 		"assembly.idempotency_records",
 		"assembly.outbox_events",
+		"entitlement.features",
+		"entitlement.policies",
+		"entitlement.grants",
+		"entitlement.revisions",
+		"entitlement.ledger",
+		"entitlement.idempotency_records",
+		"entitlement.outbox_events",
 	} {
 		var found *string
 		if err := database.Pool.QueryRow(ctx, `SELECT to_regclass($1)::text`, relation).Scan(&found); err != nil {
@@ -121,7 +128,7 @@ func assertMigrationState(t *testing.T, database testpostgres.Database) {
 		t.Fatalf("audit append-only trigger count = %d, want 1", triggerCount)
 	}
 
-	for _, trigger := range []string{"products_identity_immutable", "product_applications_identity_immutable", "product_tenants_identity_immutable", "external_auth_flow_one_way", "external_identity_proof_one_way", "registration_verification_one_way", "security_delivery_attempt_immutable", "hosted_interaction_one_way", "hosted_browser_session_one_way", "hosted_idempotency_immutable", "hosted_grant_one_way", "hosted_outbox_one_way", "identity_hosted_auth_proof_one_way", "identity_hosted_grant_redemption_immutable", "assembly_blueprints_document_immutable", "assembly_plans_contract_immutable", "assembly_runs_contract_immutable", "assembly_runs_retry_chain_valid", "assembly_run_steps_contract_immutable", "assembly_runs_delete_immutable", "assembly_run_steps_delete_immutable", "assembly_run_diagnostics_immutable", "assembly_run_reports_immutable", "assembly_manifests_lifecycle_source_valid", "generated_project_locks_lifecycle_source_valid", "lifecycle_plans_immutable", "lifecycle_operations_insert_valid", "lifecycle_operations_contract_immutable", "lifecycle_operations_delete_immutable", "lifecycle_artifact_transitions_contract_immutable", "lifecycle_artifact_transitions_delete_immutable", "lifecycle_diagnostics_immutable", "lifecycle_reports_immutable", "lifecycle_heads_contract_immutable", "lifecycle_heads_delete_immutable"} {
+	for _, trigger := range []string{"products_identity_immutable", "product_applications_identity_immutable", "product_tenants_identity_immutable", "external_auth_flow_one_way", "external_identity_proof_one_way", "registration_verification_one_way", "security_delivery_attempt_immutable", "hosted_interaction_one_way", "hosted_browser_session_one_way", "hosted_idempotency_immutable", "hosted_grant_one_way", "hosted_outbox_one_way", "identity_hosted_auth_proof_one_way", "identity_hosted_grant_redemption_immutable", "assembly_blueprints_document_immutable", "assembly_plans_contract_immutable", "assembly_runs_contract_immutable", "assembly_runs_retry_chain_valid", "assembly_run_steps_contract_immutable", "assembly_runs_delete_immutable", "assembly_run_steps_delete_immutable", "assembly_run_diagnostics_immutable", "assembly_run_reports_immutable", "assembly_manifests_lifecycle_source_valid", "generated_project_locks_lifecycle_source_valid", "lifecycle_plans_immutable", "lifecycle_operations_insert_valid", "lifecycle_operations_contract_immutable", "lifecycle_operations_delete_immutable", "lifecycle_artifact_transitions_contract_immutable", "lifecycle_artifact_transitions_delete_immutable", "lifecycle_diagnostics_immutable", "lifecycle_reports_immutable", "lifecycle_heads_contract_immutable", "lifecycle_heads_delete_immutable", "entitlement_features_identity_immutable", "entitlement_policies_identity_immutable", "entitlement_revisions_identity_immutable", "entitlement_idempotency_identity_immutable", "entitlement_grants_append_only", "entitlement_ledger_append_only"} {
 		if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_trigger WHERE tgname=$1 AND NOT tgisinternal`, trigger).Scan(&triggerCount); err != nil {
 			t.Fatalf("query trigger %q: %v", trigger, err)
 		}
