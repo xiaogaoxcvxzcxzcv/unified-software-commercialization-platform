@@ -12,6 +12,25 @@
 - 更新全迁移回滚/重放测试，把 `entitlement` schema、核心关系和触发器纳入检查。
 - 修正 Entitlement README 与主计划当前执行点漂移：G2B-01 已 verified，当前唯一关口是 G2B-02。
 
+## 后端服务层阶段性范围
+
+新增 Entitlement Domain/Application 起点：
+
+- `platform/backend/internal/modules/entitlement/domain.go`
+- `platform/backend/internal/modules/entitlement/repository.go`
+- `platform/backend/internal/modules/entitlement/service.go`
+- `platform/backend/internal/modules/entitlement/service_test.go`
+
+当前服务层已覆盖：
+
+- 可信 `ProductContext`、`TenantContext`、`UserContext` 和 `AdminScope` 输入边界。
+- `CheckEntitlement`、`GrantEntitlement`、`ExtendEntitlement`、`ReplaceEntitlement`、`RevokeEntitlement`、`GetCurrentEntitlements`、`ListHistory` 和 Outbox claim/mark 应用服务入口。
+- 稳定错误码、Effect、Source、Validity、Revision、Ledger、Check Decision 等领域类型。
+- 写操作幂等键 HMAC 摘要、请求体摘要、审计 ID、Grant/Ledger/Outbox ID 生成和服务端 UTC 时间注入。
+- 管理授予、延长、替换、撤销的 `expected_revision` 前置校验；Grant 首次写不要求 expected revision。
+
+当前服务层仍只是 Application Port 与校验层；真正事务串行化、来源重复返回、Revision 重算、Ledger/Outbox 同事务落库和 HTTP API 仍在后续 G2B-02 工作内。
+
 ## 迁移覆盖
 
 `000026_entitlement` 当前建立以下数据库事实：
@@ -81,10 +100,43 @@ ok  	platform.local/capability-platform/backend/internal/platform/migrations	9.6
 --- PASS: TestPostgreSQLMigrationsUpRepeatDownAndReapply
 ```
 
+命令：
+
+```powershell
+cd platform/backend
+$env:GOCACHE = (Join-Path (Get-Location).Path '..\..\.runtime\go-build-cache')
+$env:GOMODCACHE = (Join-Path (Get-Location).Path '..\..\.runtime\go-mod-cache')
+$env:GOPROXY = 'https://goproxy.cn,direct'
+$env:GOSUMDB = 'sum.golang.google.cn'
+go test -count=1 ./internal/modules/entitlement
+```
+
+结果：
+
+```text
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement	0.426s
+ok  	platform.local/capability-platform/backend/internal/platform/migrations	9.636s
+```
+
+命令：
+
+```powershell
+.\scripts\quality-gate.ps1 -Mode Core -ReportPath '.runtime\G2B-02\quality-gate-core-service-final.json'
+```
+
+结果：
+
+```text
+Strict UTF-8 valid: 772 text files
+Migration pairs valid: 26 versions
+Local documentation links valid: 131 Markdown files
+OpenAPI contract valid: 118 paths, 124 operations, 124 unique operationIds.
+Quality gate passed: mode=Core steps=6
+```
+
 ## 未完成项
 
 - Entitlement Domain 模型与规则服务。
-- Entitlement Application Service。
 - PostgreSQL Repository/Adapter。
 - check/grant/extend/revoke/query/history HTTP API。
 - 管理权限与审计连接。
