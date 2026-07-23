@@ -335,13 +335,30 @@
       "target": "desktop_webview"
     }
   ],
-  "manifest_sha256": "sha256:b172ab1a663f26eb6efd13add5cac45f7a409b9a74c23e7102fbcc03192cd5f8",
+  "manifest_sha256": "sha256:364ff76d1f4120dfad3ffc4d3a6d56590effb792bc294e981db9ed02459187e8",
   "name": "Standard A Workbench Shell",
-  "package_compatibility": [],
+  "package_compatibility": [
+    {
+      "package_id": "package.account",
+      "version_range": "^1.0.0"
+    },
+    {
+      "package_id": "package.entitlement",
+      "version_range": "^1.0.0"
+    }
+  ],
   "preview_assets": [],
   "schema_version": "1.0.0",
   "source_root": "template",
-  "supported_blocks": [],
+  "supported_blocks": [
+    "account.center",
+    "account.profile",
+    "account.security",
+    "auth.login",
+    "auth.recovery",
+    "auth.register",
+    "entitlement.summary"
+  ],
   "supported_delivery_modes": [
     "generated_source"
   ],

@@ -74,6 +74,103 @@ func TestPlannerBuildsDeterministicMultiApplicationPlan(t *testing.T) {
 	}
 }
 
+func TestG2C01RealExperimentalCandidateCombinationBuildsDeterministicPlan(t *testing.T) {
+	registry := loadRegistry(t)
+	blocks, err := machinecatalog.LoadBlockCatalog(filepath.Join(repositoryRoot(t), "platform", "contracts", "catalogs", "v1", "feature-blocks.json"), registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := machinecatalog.LoadExperimentalWithToolsAndExtensions(
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "capability-packages"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "templates"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "tools", "generators"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "tools", "sdks"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "extensions"),
+		registry, accesscontrol.CurrentPermissionCatalog(), blocks,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := loadBlueprint(t)
+	var value map[string]any
+	if err := json.Unmarshal(document, &value); err != nil {
+		t.Fatal(err)
+	}
+	value["packages"] = []any{
+		map[string]any{"package_id": "package.account", "version": "1.0.0"},
+		map[string]any{"package_id": "package.entitlement", "version": "1.0.0"},
+	}
+	for _, item := range value["applications"].([]any) {
+		application := item.(map[string]any)
+		application["environment"] = "test"
+		ui := application["ui"].(map[string]any)
+		ui["template_id"] = "standard-a"
+		ui["version"] = "0.1.0"
+		ui["delivery_mode"] = "generated_source"
+	}
+	value["provider_refs"] = []any{map[string]any{
+		"provider": "notification.security", "environment": "test",
+		"config_ref": "configs/notification-security.json", "secret_refs": []any{},
+	}}
+	value["extensions"] = []any{map[string]any{
+		"extension_id": "extension.editor-tools", "version": "1.0.0",
+		"manifest_path": "extension.editor-tools/1.0.0/manifest.json",
+	}}
+	document, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Validate("product-blueprint", document); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner := New(catalog)
+	blueprint := core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}
+	first, err := planner.BuildPlan(context.Background(), blueprint, "test")
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	second, err := planner.BuildPlan(context.Background(), blueprint, "test")
+	if err != nil {
+		t.Fatalf("BuildPlan() second error = %v", err)
+	}
+	if string(first.Document) != string(second.Document) {
+		t.Fatal("real G2C-01 experimental combination produced nondeterministic plan bytes")
+	}
+	if err := registry.Validate("assembly-plan", first.Document); err != nil {
+		t.Fatalf("plan schema validation failed: %v", err)
+	}
+	var plan struct {
+		CatalogSnapshot  catalogSnapshotRef    `json:"catalog_snapshot"`
+		Packages         []resolvedPackage     `json:"packages"`
+		Applications     []resolvedApplication `json:"applications"`
+		Extensions       []resolvedExtension   `json:"extensions"`
+		Generator        resolvedGenerator     `json:"generator"`
+		SDKs             []resolvedSDK         `json:"sdks"`
+		Capabilities     []map[string]any      `json:"capabilities"`
+		ExpectedOutputs  []expectedOutput      `json:"expected_outputs"`
+		RequiredProvider []string              `json:"required_providers"`
+	}
+	if err := json.Unmarshal(first.Document, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.CatalogSnapshot.Scope != "experimental" || len(plan.Packages) != 2 || plan.Packages[0].PackageID != "package.account" || plan.Packages[1].PackageID != "package.entitlement" {
+		t.Fatalf("plan package/scope closure = %#v / %#v", plan.CatalogSnapshot, plan.Packages)
+	}
+	if len(plan.Applications) != 2 || len(plan.Extensions) != 1 || plan.Extensions[0].ExtensionID != "extension.editor-tools" {
+		t.Fatalf("plan app/extensions = %#v / %#v", plan.Applications, plan.Extensions)
+	}
+	if plan.Generator.GeneratorID != "platform.generator" || len(plan.SDKs) != 1 || plan.SDKs[0].SDKID != "platform.sdk" {
+		t.Fatalf("plan tools = %#v / %#v", plan.Generator, plan.SDKs)
+	}
+	if len(plan.Capabilities) == 0 || len(plan.ExpectedOutputs) == 0 || len(plan.RequiredProvider) != 1 || plan.RequiredProvider[0] != "notification.security" {
+		t.Fatalf("plan capabilities/outputs/providers = %#v / %d / %#v", plan.Capabilities, len(plan.ExpectedOutputs), plan.RequiredProvider)
+	}
+}
+
 func TestPlannerRejectsBlueprintWithoutCapabilityPackages(t *testing.T) {
 	registry := loadRegistry(t)
 	document := loadBlueprint(t)

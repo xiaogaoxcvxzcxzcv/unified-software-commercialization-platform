@@ -1,0 +1,57 @@
+{
+  "catalog_scope": "experimental",
+  "content_files": [
+    {
+      "kind": "file",
+      "path": "evidence/g2c01-tool-report.json",
+      "sha256": "sha256:86d750e7603d28b055d80081b4908efb4aceefae981314743da5b735732ef813"
+    }
+  ],
+  "content_tree_sha256": "sha256:621416500563485500a308069a19a0c0bf087f7e2df02f54eb01794661c03535",
+  "evidence": [
+    {
+      "delivery_mode": "generated_source",
+      "environment": "test",
+      "path": "evidence/g2c01-tool-report.json",
+      "sha256": "sha256:86d750e7603d28b055d80081b4908efb4aceefae981314743da5b735732ef813",
+      "status": "passed",
+      "target": "web",
+      "type": "test_report"
+    },
+    {
+      "delivery_mode": "generated_source",
+      "environment": "test",
+      "path": "evidence/g2c01-tool-report.json",
+      "sha256": "sha256:86d750e7603d28b055d80081b4908efb4aceefae981314743da5b735732ef813",
+      "status": "passed",
+      "target": "desktop_webview",
+      "type": "test_report"
+    }
+  ],
+  "execution": {
+    "adapter_id": "assembly.client-sdk",
+    "mode": "builtin_adapter"
+  },
+  "manifest_sha256": "sha256:8483f8c81ca1f78dd579c44581f57a04bc9747103f408d523c954f0c2e7ba2df",
+  "name": "Platform Client SDK Tool",
+  "platform_contract_range": "^1.0.0",
+  "protocol": {
+    "id": "assembly.sdk",
+    "version": "1.0.0"
+  },
+  "readiness": "verified",
+  "schema_version": "1.0.0",
+  "supported_delivery_modes": [
+    "generated_source"
+  ],
+  "supported_environments": [
+    "test"
+  ],
+  "supported_targets": [
+    "web",
+    "desktop_webview"
+  ],
+  "tool_id": "platform.sdk",
+  "tool_kind": "sdk",
+  "version": "1.0.0"
+}

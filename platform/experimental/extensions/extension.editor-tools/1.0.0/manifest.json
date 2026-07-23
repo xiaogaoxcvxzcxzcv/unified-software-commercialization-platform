@@ -1,0 +1,111 @@
+{
+  "admin_items": [
+    {
+      "entry_path": "extensions/editor-tools/admin.tsx",
+      "item_id": "editor.admin",
+      "label_key": "editor.admin",
+      "path": "/extensions/editor",
+      "required_permission": "assembly.plan"
+    }
+  ],
+  "catalog_scope": "experimental",
+  "consumed_services": [
+    "identity.public-service"
+  ],
+  "content_files": [
+    {
+      "kind": "file",
+      "path": "extensions/editor-tools/account-slot.tsx",
+      "sha256": "sha256:26e1730cee66d2d270ae7be054f8e8cf8073a5dca5914d05203fe99144813e03"
+    },
+    {
+      "kind": "file",
+      "path": "extensions/editor-tools/admin.tsx",
+      "sha256": "sha256:abdcc0458562909a5b121a5b84bddf6be91ba698af34cbe0443af37ae2b4d07f"
+    },
+    {
+      "kind": "file",
+      "path": "extensions/editor-tools/workspace.tsx",
+      "sha256": "sha256:74bdd228e347b73011abc034a4e20749b3be47715338fa987a21a6ac7db25b82"
+    }
+  ],
+  "content_tree_sha256": "sha256:5bad511e82d38879aaa24ce2aee4a090c1604a23245a7899a8b8ce4b14f91ddc",
+  "data_namespace": "ext_editor_tools",
+  "extension_id": "extension.editor-tools",
+  "install_plan": {
+    "steps": [
+      "extension.register-routes"
+    ],
+    "strategy": "declarative_v1"
+  },
+  "manifest_sha256": "sha256:ef592fcd5a2c92e909daa304c5776b325c3a7f59a4fb731b5bb2c71945cf9f7c",
+  "navigation_items": [
+    {
+      "item_id": "editor.workspace-nav",
+      "label_key": "editor.workspace",
+      "required_permission": "assembly.plan",
+      "route_id": "editor.workspace",
+      "target": "web"
+    }
+  ],
+  "owned_paths": [
+    "extensions/editor-tools/account-slot.tsx",
+    "extensions/editor-tools/admin.tsx",
+    "extensions/editor-tools/workspace.tsx"
+  ],
+  "owned_tables": [
+    "ext_editor_tools.projects"
+  ],
+  "product_code": "video-brain",
+  "public_api_operations": [
+    "getCurrentEntitlements"
+  ],
+  "published_events": [
+    "editor.project_exported.v1"
+  ],
+  "readiness": "verified",
+  "required_permissions": [
+    "assembly.plan"
+  ],
+  "retention_policy": {
+    "mode": "delete",
+    "retention_days": 0
+  },
+  "routes": [
+    {
+      "entry_path": "extensions/editor-tools/workspace.tsx",
+      "path": "/editor/workspace",
+      "required_permission": "assembly.plan",
+      "route_id": "editor.workspace",
+      "target": "web"
+    }
+  ],
+  "schema_version": "1.0.0",
+  "slots": [
+    {
+      "entry_path": "extensions/editor-tools/account-slot.tsx",
+      "slot_id": "client.account.after",
+      "target": "web"
+    }
+  ],
+  "subscribed_events": [
+    "identity.logged_in.v1"
+  ],
+  "supported_delivery_modes": [
+    "generated_source"
+  ],
+  "supported_environments": [
+    "test"
+  ],
+  "supported_targets": [
+    "web",
+    "desktop_webview"
+  ],
+  "uninstall_plan": {
+    "steps": [
+      "extension.unregister-routes"
+    ],
+    "strategy": "declarative_v1"
+  },
+  "version": "1.0.0"
+}
