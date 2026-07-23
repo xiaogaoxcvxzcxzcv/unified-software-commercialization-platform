@@ -259,6 +259,30 @@ Hosted Web Vitest: 54 tests passed
 Quality gate passed: mode=Full steps=22
 ```
 
+托管 push run `29976509388` 首次暴露两个与本次 Entitlement HTTP/API 改动无关的既有不稳定测试问题：
+
+- `notification/postgres` 的 `TestSecurityDeliveryPostgresLifecycleUsesDatabaseClockAndRedactsReceipts` 使用 30ms 租约证明活跃 lease，在托管环境中偶发超过边界，导致误判。
+- `hosted-web` 的浏览器进程审计/清理在 Windows 慢机上 5s 等待不足，导致 Hosted Web Vitest 偶发超时或残留 PID 误报。
+
+修复范围：
+
+- `platform/backend/internal/modules/notification/postgres/repository_postgres_test.go`：将 active lease 与 expired lease 场景拆开，active 场景使用长租约，expired 场景轮询数据库时间，不再依赖固定 30ms/50ms 边界或绕过数据库约束。
+- `platform/hosted-web/src/vite-config.test.ts`：提高失败探针测试 timeout，扩大 Windows profile 进程审计/清理等待，并保留失败诊断信息。
+
+补救验证：
+
+```text
+go test -count=10 ./internal/modules/notification/postgres
+ok  	platform.local/capability-platform/backend/internal/modules/notification/postgres	56.155s
+
+npm test（platform/hosted-web）
+Test Files  4 passed (4)
+Tests       54 passed (54)
+
+.\scripts\quality-gate.ps1 -Mode Full -RequirePostgres -ReportPath '.runtime\G2B-02\quality-gate-full-after-ci-flake-fixes.json'
+Quality gate passed: mode=Full steps=22
+```
+
 ## 未完成项
 
 - 完整复杂策略：互斥组、优先级、replace/reject conflict、source tuple revoke。

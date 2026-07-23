@@ -160,7 +160,7 @@ describe("hosted Vite backend boundary", () => {
     await expect(runBrowser(browser!, ["http://127.0.0.1:1/ui/v1/auth?interaction_id=hint_auth_abcdefghijklmnopqrstuvwx"], profile, 1_000)).rejects.toThrow("browser page evidence timed out");
     expect(profileBrowserProcessIDs(profile)).toEqual([]);
     expect(existsSync(profile)).toBe(false);
-  }, 30_000);
+  }, 90_000);
 });
 
 interface BackendFixture {
@@ -685,8 +685,8 @@ function profileBrowserProcessIDs(profile: string): number[] {
   if (process.platform === "win32") {
     const escaped = profile.replace(/'/g, "''");
     const command = `$needle='${escaped}'; Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' OR Name='msedge.exe'\" | Where-Object { $_.CommandLine -like ('*' + $needle + '*') } | ForEach-Object { $_.ProcessId }`;
-    const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", command], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
-    if (result.status !== 0) throw new Error("failed to audit Hosted browser process profile");
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", command], { encoding: "utf8", windowsHide: true, timeout: 30_000 });
+    if (result.status !== 0) throw new Error(`failed to audit Hosted browser process profile (status=${result.status ?? "timeout"}; signal=${result.signal ?? "none"}; stderr=${result.stderr.slice(-200).replace(/\s+/g, " ").trim()})`);
     return result.stdout.split(/\s+/).filter(Boolean).map(Number).filter(Number.isInteger);
   }
   const result = spawnSync("ps", ["-eo", "pid=,args="], { encoding: "utf8", timeout: 10_000 });
@@ -695,7 +695,7 @@ function profileBrowserProcessIDs(profile: string): number[] {
 }
 
 async function terminateProfileProcesses(profile: string, baseline: ReadonlySet<number>): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 120; attempt++) {
     const created = profileBrowserProcessIDs(profile).filter((processID) => !baseline.has(processID));
     if (created.length === 0) return;
     for (const processID of created) terminateProcessTree(processID);

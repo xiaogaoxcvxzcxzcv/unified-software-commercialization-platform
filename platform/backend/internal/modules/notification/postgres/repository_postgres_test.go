@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"platform.local/capability-platform/backend/internal/modules/notification"
 	testpostgres "platform.local/capability-platform/backend/internal/testsupport/postgres"
 )
@@ -99,6 +100,20 @@ func TestSecurityDeliveryPostgresLifecycleUsesDatabaseClockAndRedactsReceipts(t 
 		t.Fatalf("disabled provider deliveries=%d outbox=%d err=%v", disabledDeliveries, disabledOutbox, err)
 	}
 
+	activeLeaseCommand := command
+	activeLeaseCommand.DeliveryID = "delivery-pg-active-lease"
+	activeLeaseCommand.TraceID = "trace-pg-active-lease"
+	if err := service.EnqueueSecurityDelivery(ctx, activeLeaseCommand); err != nil {
+		t.Fatal(err)
+	}
+	activeClaim, err := repository.ClaimSecurityDelivery(ctx, "active-worker-one", time.Minute)
+	if err != nil || activeClaim.DeliveryID != activeLeaseCommand.DeliveryID || activeClaim.AttemptCount != 1 || activeClaim.LeaseOwner != "active-worker-one" || activeClaim.LeaseStartedAt.IsZero() {
+		t.Fatalf("active claim=%+v err=%v", activeClaim, err)
+	}
+	if _, err := repository.ClaimSecurityDelivery(ctx, "active-worker-two", time.Minute); !errors.Is(err, notification.ErrNotFound) {
+		t.Fatalf("active lease claim error=%v", err)
+	}
+
 	if err := service.EnqueueSecurityDelivery(ctx, command); err != nil {
 		t.Fatal(err)
 	}
@@ -107,10 +122,10 @@ func TestSecurityDeliveryPostgresLifecycleUsesDatabaseClockAndRedactsReceipts(t 
 	}
 	var deliveries, outbox int
 	var storedText string
-	if err := database.Pool.QueryRow(ctx, `SELECT count(*),string_agg(encode(payload_ciphertext,'hex')||payload::text,' ') FROM notification.security_deliveries d JOIN notification.outbox_events o USING(delivery_id)`).Scan(&deliveries, &storedText); err != nil {
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*),string_agg(encode(payload_ciphertext,'hex')||payload::text,' ') FROM notification.security_deliveries d JOIN notification.outbox_events o USING(delivery_id) WHERE d.delivery_id=$1`, command.DeliveryID).Scan(&deliveries, &storedText); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM notification.outbox_events`).Scan(&outbox); err != nil {
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM notification.outbox_events WHERE delivery_id=$1`, command.DeliveryID).Scan(&outbox); err != nil {
 		t.Fatal(err)
 	}
 	if deliveries != 1 || outbox != 1 || strings.Contains(storedText, command.Destination) || strings.Contains(storedText, command.Proof) || strings.Contains(storedText, "pg-provider-secret") {
@@ -122,19 +137,16 @@ func TestSecurityDeliveryPostgresLifecycleUsesDatabaseClockAndRedactsReceipts(t 
 		t.Fatalf("conflict error=%v", err)
 	}
 
-	claimed, err := repository.ClaimSecurityDelivery(ctx, "worker-one", 30*time.Millisecond)
+	claimed, err := repository.ClaimSecurityDelivery(ctx, "worker-one", 100*time.Millisecond)
 	if err != nil || claimed.AttemptCount != 1 || claimed.LeaseOwner != "worker-one" || claimed.LeaseStartedAt.IsZero() {
 		t.Fatalf("claimed=%+v err=%v", claimed, err)
 	}
-	if _, err := repository.ClaimSecurityDelivery(ctx, "worker-two", time.Minute); !errors.Is(err, notification.ErrNotFound) {
-		t.Fatalf("active lease claim error=%v", err)
-	}
-	time.Sleep(50 * time.Millisecond)
-	reclaimed, err := repository.ClaimSecurityDelivery(ctx, "worker-two", 30*time.Millisecond)
+	waitForSecurityLeaseExpiry(t, ctx, database.Pool, command.DeliveryID)
+	reclaimed, err := repository.ClaimSecurityDelivery(ctx, "worker-two", 100*time.Millisecond)
 	if err != nil || reclaimed.AttemptCount != 2 || reclaimed.LeaseOwner != "worker-two" {
 		t.Fatalf("reclaimed=%+v err=%v", reclaimed, err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitForSecurityLeaseExpiry(t, ctx, database.Pool, command.DeliveryID)
 	worker, err := notification.NewWorker(repository, protector, digester, pgProvider{}, pgSecretResolver{values: map[string][]byte{"provider-pg": []byte("pg-provider-secret")}}, "worker-three", time.Now)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +174,24 @@ func TestSecurityDeliveryPostgresLifecycleUsesDatabaseClockAndRedactsReceipts(t 
 	var digest []byte
 	if err := database.Pool.QueryRow(ctx, `SELECT provider_message_digest FROM notification.security_delivery_attempts WHERE delivery_id=$1 AND provider_message_digest IS NOT NULL`, command.DeliveryID).Scan(&digest); err != nil || len(digest) != 32 || strings.Contains(string(digest), "pg-message-ref-private") {
 		t.Fatalf("receipt digest length=%d err=%v", len(digest), err)
+	}
+}
+
+func waitForSecurityLeaseExpiry(t *testing.T, ctx context.Context, pool *pgxpool.Pool, deliveryID string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var expired bool
+		if err := pool.QueryRow(ctx, `SELECT lease_expires_at IS NOT NULL AND lease_expires_at <= clock_timestamp() FROM notification.security_deliveries WHERE delivery_id=$1`, deliveryID).Scan(&expired); err != nil {
+			t.Fatal(err)
+		}
+		if expired {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("security delivery lease did not expire for %s", deliveryID)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
