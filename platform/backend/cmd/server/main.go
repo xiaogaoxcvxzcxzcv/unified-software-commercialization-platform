@@ -21,6 +21,9 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/audit"
 	audithttp "platform.local/capability-platform/backend/internal/modules/audit/httptransport"
 	auditpostgres "platform.local/capability-platform/backend/internal/modules/audit/postgres"
+	"platform.local/capability-platform/backend/internal/modules/entitlement"
+	entitlementhttp "platform.local/capability-platform/backend/internal/modules/entitlement/httptransport"
+	entitlementpostgres "platform.local/capability-platform/backend/internal/modules/entitlement/postgres"
 	"platform.local/capability-platform/backend/internal/modules/identity"
 	identityhttp "platform.local/capability-platform/backend/internal/modules/identity/httptransport"
 	identitypostgres "platform.local/capability-platform/backend/internal/modules/identity/postgres"
@@ -326,6 +329,7 @@ func main() {
 	clientRegistrationWorkflow := clientregistration.New(productService, applicationService, hasher, nil)
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
 	productUserAccessService := productuseraccess.NewService(productuseraccesspostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), nil)
+	entitlementService := entitlement.NewService(entitlementpostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), time.Now)
 	accountAccessWorkflow := accountaccess.New(productUserAccessService)
 	accountIdentityAdapter := accountIdentityQueryAdapter{service: adminEndUserService}
 	accountCapabilityChecker := accountCapabilityAdapter{service: productService}
@@ -386,6 +390,7 @@ func main() {
 	productUserAccessHandler := productuseraccesshttp.New(productUserAccessService, adminGuard)
 	accountUserQueryHandler := accountuserqueryhttp.New(accountUserQueryService, adminGuard)
 	accountUserAdminHandler := accountuseradminhttp.New(accountUserAdminService, adminGuard)
+	entitlementHandler := entitlementhttp.New(entitlementService, adminGuard, entitlementUserSessionResolver{base: endUserAdapter})
 	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
@@ -403,6 +408,10 @@ func main() {
 		logger.Error("end-user account route registration failed", "error", err)
 		os.Exit(1)
 	}
+	if err := modules.Register("/api/v1/entitlements/", entitlementHandler); err != nil {
+		logger.Error("entitlement user route registration failed", "error", err)
+		os.Exit(1)
+	}
 	if err := modules.Register("/api/v1/hosted/", hostedRuntime.handler); err != nil {
 		logger.Error("hosted interaction route registration failed", "error", err)
 		db.Close()
@@ -414,7 +423,7 @@ func main() {
 		logger.Error("audit route registration failed", "error", err)
 		os.Exit(1)
 	}
-	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, productUserAccess: productUserAccessHandler, accountUserQuery: accountUserQueryHandler, accountUserAdmin: accountUserAdminHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
+	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, productUserAccess: productUserAccessHandler, accountUserQuery: accountUserQueryHandler, accountUserAdmin: accountUserAdminHandler, entitlement: entitlementHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
 		logger.Error("product administration route registration failed", "error", err)
 		os.Exit(1)
 	}
@@ -441,6 +450,7 @@ func main() {
 	for name, source := range map[string]auditableOutboxSource{
 		"access_control":      accessControlOutboxSource{service: accessService},
 		"assembly":            assemblyOutboxSource{service: assemblyService},
+		"entitlement":         entitlementOutboxSource{service: entitlementService},
 		"product":             productOutboxSource{service: productService},
 		"product_application": productApplicationOutboxSource{service: applicationService},
 		"tenant":              tenantOutboxSource{service: tenantService},

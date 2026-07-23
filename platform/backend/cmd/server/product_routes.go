@@ -28,6 +28,7 @@ type productAdminRouter struct {
 	productUserAccess  http.Handler
 	accountUserQuery   http.Handler
 	accountUserAdmin   http.Handler
+	entitlement        http.Handler
 	clientRegistration http.Handler
 	tenantAdmin        http.Handler
 }
@@ -46,6 +47,8 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.accountUserQuery.ServeHTTP(w, r)
 	case isProductUserAccessRoute(path):
 		h.productUserAccess.ServeHTTP(w, r)
+	case isEntitlementAdminRoute(path) && h.entitlement != nil:
+		h.entitlement.ServeHTTP(w, r)
 	case strings.Contains(path, "/applications/") && strings.Contains(path, "/clients"):
 		h.clientRegistration.ServeHTTP(w, r)
 	case strings.Contains(path, "/applications"):
@@ -59,6 +62,10 @@ func (h productAdminRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 	}
+}
+
+func isEntitlementAdminRoute(path string) bool {
+	return path == "/api/v1/admin/entitlements" || strings.HasPrefix(path, "/api/v1/admin/entitlements/")
 }
 
 func isAccountUserQueryRoute(path string) bool {

@@ -10,6 +10,7 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/accesscontrol"
 	assemblycore "platform.local/capability-platform/backend/internal/modules/assembly/core"
 	"platform.local/capability-platform/backend/internal/modules/audit"
+	"platform.local/capability-platform/backend/internal/modules/entitlement"
 	"platform.local/capability-platform/backend/internal/modules/product"
 	"platform.local/capability-platform/backend/internal/modules/productapplication"
 	"platform.local/capability-platform/backend/internal/modules/tenant"
@@ -192,4 +193,89 @@ func (s tenantOutboxSource) Published(ctx context.Context, event auditableOutbox
 }
 func (s tenantOutboxSource) Failed(ctx context.Context, event auditableOutboxEvent, summary string, next time.Time, dead bool) error {
 	return s.service.MarkOutboxFailed(ctx, event.EventID, summary, next, dead)
+}
+
+type entitlementOutboxSource struct{ service *entitlement.Service }
+
+func (s entitlementOutboxSource) Claim(ctx context.Context, _ time.Time, limit int) ([]auditableOutboxEvent, error) {
+	items, err := s.service.ClaimOutbox(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]auditableOutboxEvent, len(items))
+	for i := range items {
+		event := auditEventFromEntitlementOutbox(items[i])
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = auditableOutboxEvent{EventID: items[i].EventID, Payload: payload, AttemptCount: items[i].AttemptCount}
+	}
+	return result, nil
+}
+
+func (s entitlementOutboxSource) Published(ctx context.Context, event auditableOutboxEvent, _ time.Time) error {
+	return s.service.MarkOutboxPublished(ctx, event.EventID)
+}
+
+func (s entitlementOutboxSource) Failed(ctx context.Context, event auditableOutboxEvent, summary string, next time.Time, dead bool) error {
+	return s.service.MarkOutboxFailed(ctx, event.EventID, summary, next, dead)
+}
+
+func auditEventFromEntitlementOutbox(item entitlement.ClaimedOutboxEvent) audit.Event {
+	payload := item.Payload
+	operation := stringValue(payload["operation"])
+	if operation == "" {
+		operation = item.EventType
+	}
+	productID := stringValue(payload["product_id"])
+	tenantID := stringValue(payload["tenant_id"])
+	grantID := stringValue(payload["grant_id"])
+	auditID := stringValue(payload["audit_id"])
+	if auditID == "" {
+		auditID = item.EventID
+	}
+	traceID := stringValue(payload["trace_id"])
+	if traceID == "" {
+		traceID = item.EventID
+	}
+	return audit.Event{
+		AuditID:    auditID,
+		OccurredAt: item.OccurredAt,
+		ActorID:    stringValue(payload["actor_id"]),
+		Permission: entitlementPermission(operation),
+		ScopeType:  "tenant",
+		ScopeID:    tenantID,
+		ProductID:  productID,
+		TenantID:   tenantID,
+		Action:     "entitlement." + operation,
+		TargetType: "entitlement_grant",
+		TargetID:   grantID,
+		Result:     "succeeded",
+		ReasonCode: stringValue(payload["reason_code"]),
+		TraceID:    traceID,
+		RiskLevel:  "high",
+		RedactedSummary: map[string]any{
+			"user_id":    stringValue(payload["user_id"]),
+			"grant_id":   grantID,
+			"revision":   payload["revision"],
+			"event_type": item.EventType,
+		},
+	}
+}
+
+func entitlementPermission(operation string) string {
+	if operation == string(entitlement.EffectRevoke) {
+		return "entitlement.revoke"
+	}
+	return "entitlement.manage"
+}
+
+func stringValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return ""
+	}
 }

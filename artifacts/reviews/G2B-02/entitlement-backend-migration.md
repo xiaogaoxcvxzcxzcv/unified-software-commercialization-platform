@@ -29,7 +29,7 @@
 - 写操作幂等键 HMAC 摘要、请求体摘要、审计 ID、Grant/Ledger/Outbox ID 生成和服务端 UTC 时间注入。
 - 管理授予、延长、替换、撤销的 `expected_revision` 前置校验；Grant 首次写不要求 expected revision。
 
-当前服务层是 Application Port 与校验层；事务串行化、来源重复返回、Revision 重算、Ledger/Outbox 同事务落库由 PostgreSQL Adapter 承担。HTTP API、权限和审计接入仍在后续 G2B-02 工作内。
+当前服务层是 Application Port 与校验层；事务串行化、来源重复返回、Revision 重算、Ledger/Outbox 同事务落库由 PostgreSQL Adapter 承担。
 
 ## PostgreSQL Adapter 阶段性范围
 
@@ -53,7 +53,32 @@
 
 - `replace_same_group`、`reject_conflict`、优先级和互斥组冲突完整实现。
 - source tuple revoke 的完整语义。
-- 后台权限、审计服务连接和 HTTP API。
+
+## HTTP API、权限和审计阶段性范围
+
+新增 Entitlement HTTP 与运行时接线：
+
+- `platform/backend/internal/modules/entitlement/httptransport/handler.go`
+- `platform/backend/internal/modules/entitlement/httptransport/handler_test.go`
+- `platform/backend/cmd/server/entitlement_routes.go`
+- `platform/backend/cmd/server/main.go`
+- `platform/backend/cmd/server/product_routes.go`
+- `platform/backend/cmd/server/audit_outbox.go`
+- `platform/backend/cmd/server/audit_outbox_test.go`
+- `platform/contracts/openapi/public-api.v1.json`
+
+当前 HTTP/API 已覆盖：
+
+- 用户端 `POST /api/v1/entitlements/check`、`GET /api/v1/entitlements/current`、`GET /api/v1/entitlements/history`。
+- 管理端 `POST /api/v1/admin/entitlements`、`GET /api/v1/admin/entitlements`、`POST /api/v1/admin/entitlements/{grant_id}/extend`、`POST /api/v1/admin/entitlements/{grant_id}/revoke`。
+- 用户端只使用 Bearer 解析出的服务端 `product_id + tenant_id + user_id`，严格 JSON 拒绝客户端提交 scope。
+- 管理端通过 `adminrequest.Guard` 授权 tenant scope：查询使用 `entitlement.read`，授予/延长使用 `entitlement.manage`，撤销使用 `entitlement.revoke`，写操作要求 `Idempotency-Key` 与管理员请求证明。
+- Entitlement outbox 映射到 Audit 事件，保留 actor、tenant scope、permission、grant、revision、reason 和 trace；不暴露 secret/token。
+
+当前 HTTP/API 仍未完成：
+
+- `replace` 独立 HTTP 路由暂未公开；现阶段只公开合同要求的 extend/revoke 最小管理路径。
+- HTTP 仍依赖当前 Service/Adapter 的简化策略语义；完整互斥/优先级/replace/reject conflict 仍待补齐。
 
 ## 迁移覆盖
 
@@ -181,11 +206,62 @@ OpenAPI contract valid: 118 paths, 124 operations, 124 unique operationIds.
 Quality gate passed: mode=Core steps=6
 ```
 
+命令：
+
+```powershell
+cd platform/backend
+$password = Get-Content -Raw '..\..\.runtime\postgres\test-password.txt'
+$password = $password.Trim()
+$encodedPassword = [System.Uri]::EscapeDataString($password)
+$env:TEST_DATABASE_URL = "postgres://platform_test:$encodedPassword@127.0.0.1:15432/platform_test_control?sslmode=disable"
+$env:GOCACHE = (Join-Path (Get-Location).Path '..\..\.runtime\go-build-cache')
+$env:GOMODCACHE = (Join-Path (Get-Location).Path '..\..\.runtime\go-mod-cache')
+$env:GOPROXY = 'https://goproxy.cn,direct'
+$env:GOSUMDB = 'sum.golang.google.cn'
+go test -count=1 ./internal/modules/entitlement/... ./internal/platform/migrations ./cmd/server
+node ..\contracts\openapi\validate.mjs
+```
+
+结果：
+
+```text
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement	0.446s
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement/httptransport	0.644s
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement/postgres	2.269s
+ok  	platform.local/capability-platform/backend/internal/platform/migrations	11.499s
+ok  	platform.local/capability-platform/backend/cmd/server	11.434s
+OpenAPI contract valid: 122 paths, 129 operations, 129 unique operationIds.
+```
+
+命令：
+
+```powershell
+$password = Get-Content -Raw '.runtime\postgres\test-password.txt'
+$password = $password.Trim()
+$encodedPassword = [System.Uri]::EscapeDataString($password)
+$env:TEST_DATABASE_URL = "postgres://platform_test:$encodedPassword@127.0.0.1:15432/platform_test_control?sslmode=disable"
+$env:GOPROXY = 'https://goproxy.cn,direct'
+$env:GOSUMDB = 'sum.golang.google.cn'
+.\scripts\quality-gate.ps1 -Mode Full -RequirePostgres -ReportPath '.runtime\G2B-02\quality-gate-full-http-with-db.json'
+```
+
+结果：
+
+```text
+OpenAPI contract valid: 122 paths, 129 operations, 129 unique operationIds.
+TEST_DATABASE_URL is set; connection details are suppressed
+PostgreSQL integration tests completed with observable skip evidence enabled and no missing-database skip marker
+Client SDK: 37 tests passed
+Client UI: 123 tests passed
+Standard-A template smoke passed for web and desktop_webview
+Admin Vitest: 158 tests passed
+Hosted Web Vitest: 54 tests passed
+Quality gate passed: mode=Full steps=22
+```
+
 ## 未完成项
 
-- check/grant/extend/revoke/query/history HTTP API。
-- 管理权限与审计连接。
 - 完整复杂策略：互斥组、优先级、replace/reject conflict、source tuple revoke。
-- G2B-02 级别 Full 门禁、托管 CI 和 PR required check。
+- 最终托管 CI 和 PR required check。
 
 因此 G2B-02 仍保持 `in_progress`，不得进入 G2B-03。

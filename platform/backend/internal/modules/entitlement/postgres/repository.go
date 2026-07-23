@@ -158,6 +158,12 @@ func (r *Repository) GetCurrentEntitlements(ctx context.Context, query entitleme
 	var planCode *string
 	err := r.pool.QueryRow(ctx, `SELECT product_id,tenant_id,user_id,version,decision_hash,effective_features,plan_code,valid_until,offline_grace_until,updated_at FROM entitlement.revisions WHERE product_id=$1 AND tenant_id=$2 AND user_id=$3`, query.ProductID, query.TenantID, query.UserID).
 		Scan(&summary.ProductID, &summary.TenantID, &summary.UserID, &summary.Revision, &summary.DecisionHash, &features, &planCode, &validUntil, &graceUntil, &summary.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return entitlement.EntitlementSummary{
+			ProductID: query.ProductID, TenantID: query.TenantID, UserID: query.UserID,
+			EffectiveFeatures: map[string]any{},
+		}, nil
+	}
 	if err != nil {
 		return entitlement.EntitlementSummary{}, err
 	}
@@ -460,7 +466,12 @@ func insertLedger(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord
 }
 
 func insertOutbox(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord, after revisionSnapshot) error {
-	payload := map[string]any{"audit_id": record.AuditID, "product_id": record.ProductID, "tenant_id": record.TenantID, "user_id": record.UserID, "grant_id": record.GrantID, "revision": after.Revision, "trace_id": record.TraceID, "occurred_at": record.Now}
+	payload := map[string]any{
+		"audit_id": record.AuditID, "product_id": record.ProductID, "tenant_id": record.TenantID,
+		"user_id": record.UserID, "grant_id": record.GrantID, "revision": after.Revision,
+		"operation": record.Operation, "actor_type": record.Actor.Type, "actor_id": record.Actor.ID,
+		"reason_code": record.ReasonCode, "trace_id": record.TraceID, "occurred_at": record.Now,
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
