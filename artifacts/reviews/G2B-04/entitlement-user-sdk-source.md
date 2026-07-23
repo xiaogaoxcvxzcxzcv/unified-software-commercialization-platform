@@ -2,7 +2,7 @@
 
 日期：2026-07-23
 
-当前结论：`implemented_local_full_passed`，不得标记为 `verified`。
+当前结论：`implemented_local_remote_ci_passed`，不得标记为 `verified`。
 
 ## 当前关口
 
@@ -43,27 +43,29 @@ G2B-04：用户前台、SDK 和源码。
 - `platform/hosted-web`: `npm test -- --run src/HostedApp.test.tsx`、`npm run build`，27 tests passed。
 - Full 门禁：`scripts/quality-gate.ps1 -Mode Full -RequirePostgres -ReportPath artifacts/reviews/G2B-04/quality-gate-full-postgres-local.json`，22 steps passed。
 
-Full 门禁报告：
+Full 门禁与远端证据：
 
 - `artifacts/reviews/G2B-04/quality-gate-full-postgres-local.json`
-- 报告记录当前工作区不干净，`reproducible_commit=false`；因此该报告是本地工作区证据，不是某个提交的可复现证据。
+- 提交：`731721026c81f15bbcacc71b37d70b8bf12a04ff`
+- push run `29992876224`：`windows-tls` 与 `quality-gate` 均成功。
+- pull_request run `29993171659`：`windows-tls` 与 `quality-gate` 均成功。
+- 本地 Full 报告生成时记录工作区不干净，`reproducible_commit=false`；远端 CI 已在提交 `7317210` 上重新执行同一共享门禁。
 
 ## 子代理审查
 
-- 前端/SDK 子代理结论：实现方向成立；剩余 Full、浏览器、证据、提交、push、required check。
+- 前端/SDK 子代理结论：实现方向成立；原剩余 Full、证据、提交、push、required check 已补齐，浏览器专项仍未完成。
 - 后端审查子代理结论：P0 无；原能力禁用 P1 已修复；允许进入 Full/浏览器验收阶段。
 
 ## 未完成项
 
 G2B-04 仍不得标记 `verified`，原因：
 
-1. 尚未形成 clean commit、push 和 GitHub required check 证据。
-2. 尚未完成 G2B-04 专用真实浏览器 E2E：需要证明真实个人中心通过 Hosted account 看到当前权益，并覆盖禁用、无权益、到期、撤销和缓存边界。
-3. `package.entitlement` 仍为 `contracted`，不能进入 experimental `verified candidate`；G2B-05 仍为下一关。
+1. 尚未完成 G2B-04 专用真实浏览器 E2E：需要证明真实个人中心通过 Hosted account 看到当前权益，并覆盖禁用、无权益、到期、撤销和缓存边界。
+2. `package.entitlement` 仍为 `contracted`，不能进入 experimental `verified candidate`；G2B-05 仍为下一关。
 
 ## 当前裁决
 
-可以提交为 G2B-04 本地 checkpoint。
+可以作为 G2B-04 远端 CI 通过的 checkpoint；下一步只能补 G2B-04 专用真实浏览器 E2E，不能跳关。
 
 不得：
 
