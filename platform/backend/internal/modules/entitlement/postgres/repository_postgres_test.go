@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -166,28 +167,218 @@ func TestRepositoryExpectedRevisionRevokeAndIsolation(t *testing.T) {
 	}
 }
 
+func TestRepositoryRejectConflictWritesLedgerAndKeepsRevision(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	seedPolicyEx(t, database, policySeed{ProductID: "product-a", TenantID: "tenant-a", PolicyID: "policy-basic", PolicyCode: "basic", Version: 1, FeatureCode: "pro.member", FeatureValue: true, StackingRule: "union_latest_expiry", MutualExclusionGroup: "membership", Priority: 0})
+	seedPolicyEx(t, database, policySeed{ProductID: "product-a", TenantID: "tenant-a", PolicyID: "policy-exclusive", PolicyCode: "exclusive", Version: 1, FeatureCode: "pro.member", FeatureValue: true, StackingRule: "reject_conflict", MutualExclusionGroup: "membership", Priority: 10})
+	service := entitlement.NewService(entitlementpostgres.New(database.Pool), &sequenceIDs{}, digestKey, fixedNow)
+	admin := entitlement.AdminScope{AdminID: "admin-a", ProductID: "product-a", TenantID: "tenant-a"}
+	user := entitlement.UserContext{UserID: "user-a"}
+	if _, err := service.GrantEntitlement(ctx, entitlement.GrantEntitlementCommand{
+		Admin:          admin,
+		User:           user,
+		Policy:         entitlement.PolicyRef{PolicyID: "policy-basic", Version: 1},
+		Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: time.Hour},
+		Source:         entitlement.SourceRef{Type: entitlement.SourceAdmin, SourceID: "manual-basic", SourceEffectID: "effect-basic"},
+		IdempotencyKey: "idempotency-grant-basic",
+		TraceID:        "trace-grant-basic",
+	}); err != nil {
+		t.Fatalf("initial grant error=%v", err)
+	}
+	if _, err := service.GrantEntitlement(ctx, entitlement.GrantEntitlementCommand{
+		Admin:          admin,
+		User:           user,
+		Policy:         entitlement.PolicyRef{PolicyID: "policy-exclusive", Version: 1},
+		Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: time.Hour},
+		Source:         entitlement.SourceRef{Type: entitlement.SourceAdmin, SourceID: "manual-exclusive", SourceEffectID: "effect-exclusive"},
+		IdempotencyKey: "idempotency-exclusive",
+		TraceID:        "trace-exclusive",
+	}); !errors.Is(err, entitlement.ErrPolicyConflict) {
+		t.Fatalf("exclusive grant error=%v, want ErrPolicyConflict", err)
+	}
+	current, err := service.GetCurrentEntitlements(ctx, entitlement.ProductContext{ProductID: "product-a"}, entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"}, user)
+	if err != nil || current.Revision != 1 || current.PlanCode != "basic" {
+		t.Fatalf("current after conflict=%+v error=%v", current, err)
+	}
+	var conflictLedger, grants int
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM entitlement.ledger WHERE operation_type='policy_conflict' AND trace_id='trace-exclusive'`).Scan(&conflictLedger); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM entitlement.grants WHERE product_id='product-a' AND user_id='user-a'`).Scan(&grants); err != nil {
+		t.Fatal(err)
+	}
+	if conflictLedger != 1 || grants != 1 {
+		t.Fatalf("conflict ledger/grants=%d/%d, want 1/1", conflictLedger, grants)
+	}
+}
+
+func TestRepositoryReplaceSameGroupChoosesPriorityThenCreateOrder(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	seedPolicyEx(t, database, policySeed{ProductID: "product-a", TenantID: "tenant-a", PolicyID: "policy-silver", PolicyCode: "silver", Version: 1, FeatureCode: "plan.level", FeatureValue: float64(1), StackingRule: "replace_same_group", MutualExclusionGroup: "membership", Priority: 10})
+	seedPolicyEx(t, database, policySeed{ProductID: "product-a", TenantID: "tenant-a", PolicyID: "policy-gold", PolicyCode: "gold", Version: 1, FeatureCode: "plan.level", FeatureValue: float64(2), StackingRule: "replace_same_group", MutualExclusionGroup: "membership", Priority: 20})
+	seedPolicyEx(t, database, policySeed{ProductID: "product-a", TenantID: "tenant-a", PolicyID: "policy-gold-later", PolicyCode: "gold-later", Version: 1, FeatureCode: "plan.level", FeatureValue: float64(3), StackingRule: "replace_same_group", MutualExclusionGroup: "membership", Priority: 20})
+	service := entitlement.NewService(entitlementpostgres.New(database.Pool), &sequenceIDs{}, digestKey, fixedNow)
+	admin := entitlement.AdminScope{AdminID: "admin-a", ProductID: "product-a", TenantID: "tenant-a"}
+	user := entitlement.UserContext{UserID: "user-a"}
+	grant := func(policyID, sourceID, effectID, key string) {
+		t.Helper()
+		_, err := service.GrantEntitlement(ctx, entitlement.GrantEntitlementCommand{
+			Admin:          admin,
+			User:           user,
+			Policy:         entitlement.PolicyRef{PolicyID: policyID, Version: 1},
+			Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: time.Hour},
+			Source:         entitlement.SourceRef{Type: entitlement.SourceAdmin, SourceID: sourceID, SourceEffectID: effectID},
+			IdempotencyKey: key,
+			TraceID:        "trace-" + key,
+		})
+		if err != nil {
+			t.Fatalf("grant %s error=%v", policyID, err)
+		}
+	}
+	grant("policy-silver", "manual-silver", "effect-silver", "idempotency-silver")
+	current, err := service.GetCurrentEntitlements(ctx, entitlement.ProductContext{ProductID: "product-a"}, entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"}, user)
+	if err != nil || current.EffectiveFeatures["plan.level"] != float64(1) {
+		t.Fatalf("silver current=%+v error=%v", current, err)
+	}
+	grant("policy-gold", "manual-gold", "effect-gold", "idempotency-gold")
+	current, err = service.GetCurrentEntitlements(ctx, entitlement.ProductContext{ProductID: "product-a"}, entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"}, user)
+	if err != nil || current.EffectiveFeatures["plan.level"] != float64(2) {
+		t.Fatalf("gold current=%+v error=%v", current, err)
+	}
+	grant("policy-gold-later", "manual-gold-later", "effect-gold-later", "idempotency-gold-later")
+	current, err = service.GetCurrentEntitlements(ctx, entitlement.ProductContext{ProductID: "product-a"}, entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"}, user)
+	if err != nil || current.EffectiveFeatures["plan.level"] != float64(3) || current.Revision != 3 {
+		t.Fatalf("tie current=%+v error=%v", current, err)
+	}
+}
+
+func TestRepositoryRevokeBySourceTupleOnlyRemovesThatSource(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	seedPolicy(t, database, "product-a", "tenant-a", "policy-pro", "pro", 1, "pro.member")
+	service := entitlement.NewService(entitlementpostgres.New(database.Pool), &sequenceIDs{}, digestKey, fixedNow)
+	admin := entitlement.AdminScope{AdminID: "admin-a", ProductID: "product-a", TenantID: "tenant-a"}
+	user := entitlement.UserContext{UserID: "user-a"}
+	if _, err := service.GrantEntitlement(ctx, entitlement.GrantEntitlementCommand{
+		Admin:          admin,
+		User:           user,
+		Policy:         entitlement.PolicyRef{PolicyID: "policy-pro", Version: 1},
+		Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: time.Hour},
+		Source:         entitlement.SourceRef{Type: entitlement.SourceTrial, SourceID: "trial-a", SourceEffectID: "trial-effect"},
+		IdempotencyKey: "idempotency-trial",
+		TraceID:        "trace-trial",
+	}); err != nil {
+		t.Fatalf("trial grant error=%v", err)
+	}
+	if _, err := service.GrantEntitlement(ctx, entitlement.GrantEntitlementCommand{
+		Admin:          admin,
+		User:           user,
+		Policy:         entitlement.PolicyRef{PolicyID: "policy-pro", Version: 1},
+		Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: 2 * time.Hour},
+		Source:         entitlement.SourceRef{Type: entitlement.SourceGift, SourceID: "gift-a", SourceEffectID: "gift-effect"},
+		IdempotencyKey: "idempotency-gift",
+		TraceID:        "trace-gift",
+	}); err != nil {
+		t.Fatalf("gift grant error=%v", err)
+	}
+	revoke, err := service.RevokeEntitlement(ctx, entitlement.MutateEntitlementCommand{
+		Admin:            admin,
+		User:             user,
+		Source:           entitlement.SourceRef{Type: entitlement.SourceTrial, SourceID: "trial-a", SourceEffectID: "trial-effect"},
+		IdempotencyKey:   "idempotency-revoke-trial",
+		ExpectedRevision: 2,
+		TraceID:          "trace-revoke-trial",
+	})
+	if err != nil || revoke.Revision != 3 || !revoke.Decision.Allowed {
+		t.Fatalf("source revoke=%+v error=%v", revoke, err)
+	}
+	decision, err := service.CheckEntitlement(ctx, entitlement.CheckEntitlementCommand{
+		Product:           entitlement.ProductContext{ProductID: "product-a"},
+		Tenant:            entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"},
+		User:              user,
+		RequestedFeatures: []string{"pro.member"},
+	})
+	if err != nil || !decision.Allowed || decision.Revision != 3 {
+		t.Fatalf("decision after source revoke=%+v error=%v", decision, err)
+	}
+	var activeSources int
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM entitlement.grants g
+		WHERE g.product_id='product-a' AND g.tenant_id='tenant-a' AND g.user_id='user-a'
+		  AND g.effect IN ('grant','extend','replace')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM entitlement.grants r
+		    WHERE r.product_id=g.product_id AND r.tenant_id=g.tenant_id AND r.user_id=g.user_id
+		      AND r.effect='revoke'
+		      AND (r.source_id=g.grant_id OR (r.source_type=g.source_type AND r.source_id=g.source_id AND r.source_effect_id=g.source_effect_id))
+		  )`).Scan(&activeSources); err != nil {
+		t.Fatal(err)
+	}
+	if activeSources != 1 {
+		t.Fatalf("active sources after source tuple revoke=%d, want 1", activeSources)
+	}
+}
+
+type policySeed struct {
+	ProductID            string
+	TenantID             string
+	PolicyID             string
+	PolicyCode           string
+	Version              int64
+	FeatureCode          string
+	FeatureValue         any
+	StackingRule         string
+	MutualExclusionGroup string
+	Priority             int
+}
+
 func seedPolicy(t *testing.T, database testpostgres.Database, productID, tenantID, policyID, policyCode string, version int64, featureCode string) {
+	t.Helper()
+	seedPolicyEx(t, database, policySeed{ProductID: productID, TenantID: tenantID, PolicyID: policyID, PolicyCode: policyCode, Version: version, FeatureCode: featureCode, FeatureValue: true, StackingRule: "union_latest_expiry"})
+}
+
+func seedPolicyEx(t *testing.T, database testpostgres.Database, seed policySeed) {
 	t.Helper()
 	now := fixedNow()
 	if _, err := database.Pool.Exec(context.Background(), `
 		INSERT INTO entitlement.features(feature_id, product_id, feature_code, kind, display_name, status, created_at)
 		VALUES ($1, $2, $3, 'boolean', $3, 'active', $4)
 		ON CONFLICT DO NOTHING
-	`, "feature-"+policyID, productID, featureCode, now); err != nil {
+	`, "feature-"+seed.PolicyID, seed.ProductID, seed.FeatureCode, now); err != nil {
 		t.Fatalf("seed feature: %v", err)
+	}
+	stackingRule := seed.StackingRule
+	if stackingRule == "" {
+		stackingRule = "union_latest_expiry"
+	}
+	var group any
+	if seed.MutualExclusionGroup != "" {
+		group = seed.MutualExclusionGroup
 	}
 	if _, err := database.Pool.Exec(context.Background(), `
 		INSERT INTO entitlement.policies(
 			policy_id, product_id, tenant_id, policy_code, version, status, features,
-			validity_rule, validity_seconds, stacking_rule, priority, revoke_scope,
+			validity_rule, validity_seconds, stacking_rule, mutual_exclusion_group, priority, revoke_scope,
 			offline_grace_max_seconds, published_at, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, 'active',
-		          jsonb_build_array(jsonb_build_object('feature_code', $6::text, 'value', true)),
-		          'fixed_duration', 3600, 'union_latest_expiry', 0, 'source_only',
-		          300, $7, $7, $7)
-	`, policyID, productID, tenantID, policyCode, version, featureCode, now); err != nil {
+		          jsonb_build_array(jsonb_build_object('feature_code', $6::text, 'value', $7::jsonb)),
+		          'fixed_duration', 3600, $8, $9, $10, 'source_only',
+		          300, $11, $11, $11)
+	`, seed.PolicyID, seed.ProductID, seed.TenantID, seed.PolicyCode, seed.Version, seed.FeatureCode, jsonValue(t, seed.FeatureValue), stackingRule, group, seed.Priority, now); err != nil {
 		t.Fatalf("seed policy: %v", err)
 	}
+}
+
+func jsonValue(t *testing.T, value any) string {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func fixedNow() time.Time { return time.Date(2026, 7, 23, 9, 0, 0, 123456000, time.UTC) }

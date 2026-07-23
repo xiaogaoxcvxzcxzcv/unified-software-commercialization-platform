@@ -46,13 +46,14 @@
 - Revision 行锁定、`expected_revision` 冲突拒绝、Revision 重算。
 - Grant、Revision、Ledger、Outbox 同一数据库事务提交。
 - target grant revoke 的最小重算路径。
+- source tuple revoke：按 `source_type + source_id + source_effect_id` 定位原始来源效果，新增独立 `effect=revoke` 记录，避免触发 Grant 来源唯一约束，并只移除目标来源。
+- `reject_conflict`：同一互斥组已有有效来源时失败关闭，返回 `ENTITLEMENT_POLICY_CONFLICT`，写入 `policy_conflict` Ledger，不写业务 Grant，不推进 Revision。
+- `replace_same_group`：同一互斥组按 Policy priority 选取最高者，同优先级按服务端创建顺序确定；不同 feature 继续 union。
+- 同一 feature 聚合时取最高限制值；lifetime 与有限期叠加时保留无到期结论。
 - Outbox claim / publish / fail 交付状态。
 - 产品隔离：Product B 不读取 Product A 的 grant/revision。
 
-当前 Adapter 仍未完成所有复杂权益策略：
-
-- `replace_same_group`、`reject_conflict`、优先级和互斥组冲突完整实现。
-- source tuple revoke 的完整语义。
+当前 Adapter 复杂权益策略已补齐并通过真实 PostgreSQL 专项与 Full 门禁；仍需提交、push 与托管 required check 后才能作为可复现交付证据。
 
 ## HTTP API、权限和审计阶段性范围
 
@@ -283,9 +284,98 @@ Tests       54 passed (54)
 Quality gate passed: mode=Full steps=22
 ```
 
+复杂策略补齐验证：
+
+```powershell
+go test -count=1 ./internal/modules/entitlement/...
+```
+
+结果：
+
+```text
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement	5.593s
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement/httptransport	5.310s
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement/postgres	3.762s
+```
+
+新增真实 PostgreSQL 覆盖：
+
+- `TestRepositoryRejectConflictWritesLedgerAndKeepsRevision`：`reject_conflict` 失败关闭、写 `policy_conflict` Ledger、Revision 保持不变、不写第二条业务 Grant。
+- `TestRepositoryReplaceSameGroupChoosesPriorityThenCreateOrder`：互斥组按 priority 替换，priority 相同时按服务端创建顺序裁决。
+- `TestRepositoryRevokeBySourceTupleOnlyRemovesThatSource`：按来源三元组撤销 trial 来源，gift 来源继续生效，当前权益仍 allowed。
+
+命令：
+
+```powershell
+cd platform/backend
+$env:GOCACHE=(Join-Path (Get-Location).Path '..\..\.runtime\go-build-cache')
+$env:GOMODCACHE=(Join-Path (Get-Location).Path '..\..\.runtime\go-mod-cache')
+$env:GOPROXY='https://goproxy.cn,direct'
+$env:GOSUMDB='sum.golang.google.cn'
+go test -count=1 ./internal/modules/entitlement/... ./internal/platform/migrations ./cmd/server
+node ..\contracts\openapi\validate.mjs
+```
+
+结果：
+
+```text
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement	4.168s
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement/httptransport	7.658s
+ok  	platform.local/capability-platform/backend/internal/modules/entitlement/postgres	5.970s
+ok  	platform.local/capability-platform/backend/internal/platform/migrations	6.745s
+ok  	platform.local/capability-platform/backend/cmd/server	0.266s
+OpenAPI contract valid: 122 paths, 129 operations, 129 unique operationIds.
+```
+
+命令：
+
+```powershell
+.\scripts\quality-gate.ps1 -Mode Core -ReportPath '.runtime\G2B-02\quality-gate-core-complex-strategies.json'
+```
+
+结果：
+
+```text
+Strict UTF-8 valid: 777 text files
+Migration pairs valid: 26 versions
+Local documentation links valid: 131 Markdown files
+OpenAPI contract valid: 122 paths, 129 operations, 129 unique operationIds.
+Quality gate passed: mode=Core steps=6
+```
+
+首次 Full 复验没有设置 `TEST_DATABASE_URL`，因此 `-RequirePostgres` 正确失败关闭，证明脚本不会把跳过数据库测试误判为通过：
+
+```text
+Quality gate report: .runtime\G2B-02\quality-gate-full-complex-strategies.json
+quality gate failed: PostgreSQL test environment, Go test
+```
+
+带真实 PostgreSQL的 Full 复验：
+
+```powershell
+$password = (Get-Content -Raw '.runtime\postgres\test-password.txt').Trim()
+$encodedPassword = [System.Uri]::EscapeDataString($password)
+$env:TEST_DATABASE_URL = "postgres://platform_test:$encodedPassword@127.0.0.1:15432/platform_test_control?sslmode=disable"
+$env:GOPROXY='https://goproxy.cn,direct'
+$env:GOSUMDB='sum.golang.google.cn'
+.\scripts\quality-gate.ps1 -Mode Full -RequirePostgres -ReportPath '.runtime\G2B-02\quality-gate-full-complex-strategies-final.json'
+```
+
+结果：
+
+```text
+TEST_DATABASE_URL is set; connection details are suppressed
+PostgreSQL integration tests completed with observable skip evidence enabled and no missing-database skip marker
+Client SDK: 37 tests passed
+Client UI: 123 tests passed
+Standard-A template smoke passed for web and desktop_webview
+Admin Vitest: 158 tests passed
+Hosted Web Vitest: 54 tests passed
+Quality gate passed: mode=Full steps=22
+```
+
 ## 未完成项
 
-- 完整复杂策略：互斥组、优先级、replace/reject conflict、source tuple revoke。
 - 最终托管 CI 和 PR required check。
 
 因此 G2B-02 仍保持 `in_progress`，不得进入 G2B-03。

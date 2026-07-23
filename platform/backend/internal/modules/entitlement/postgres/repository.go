@@ -115,6 +115,27 @@ func (r *Repository) write(ctx context.Context, record entitlement.WriteRecord) 
 			return entitlement.GrantResult{}, err
 		}
 	}
+	if err := validateWritePolicy(ctx, tx, record); err != nil {
+		return entitlement.GrantResult{}, err
+	}
+	if record.Operation != entitlement.EffectRevoke {
+		conflict, err := hasRejectConflict(ctx, tx, record)
+		if err != nil {
+			return entitlement.GrantResult{}, err
+		}
+		if conflict {
+			if err := insertPolicyConflictLedger(ctx, tx, record, before); err != nil {
+				return entitlement.GrantResult{}, err
+			}
+			if err := failIdempotency(ctx, tx, record); err != nil {
+				return entitlement.GrantResult{}, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return entitlement.GrantResult{}, err
+			}
+			return entitlement.GrantResult{}, entitlement.ErrPolicyConflict
+		}
+	}
 	if err := insertGrant(ctx, tx, record); err != nil {
 		if isUniqueViolation(err) {
 			replay, replayErr := replayDuplicateSource(ctx, tx, record)
@@ -347,8 +368,8 @@ func hydrateRevokeTarget(ctx context.Context, tx pgx.Tx, record *entitlement.Wri
 		return nil
 	}
 	var sourceType entitlement.SourceType
-	var sourceID, sourceEffectID string
-	query := `SELECT policy_id,policy_version,source_type,source_id,source_effect_id FROM entitlement.grants WHERE product_id=$1 AND tenant_id=$2 AND user_id=$3`
+	var sourceID, sourceEffectID, targetGrantID string
+	query := `SELECT grant_id,policy_id,policy_version,source_type,source_id,source_effect_id FROM entitlement.grants WHERE product_id=$1 AND tenant_id=$2 AND user_id=$3`
 	args := []any{record.ProductID, record.TenantID, record.UserID}
 	if record.TargetGrantID != "" {
 		query += ` AND grant_id=$4`
@@ -358,17 +379,63 @@ func hydrateRevokeTarget(ctx context.Context, tx pgx.Tx, record *entitlement.Wri
 		args = append(args, record.Source.Type, record.Source.SourceID, record.Source.SourceEffectID)
 	}
 	query += ` ORDER BY created_at DESC LIMIT 1`
-	if err := tx.QueryRow(ctx, query, args...).Scan(&record.PolicyID, &record.PolicyVersion, &sourceType, &sourceID, &sourceEffectID); err != nil {
+	if err := tx.QueryRow(ctx, query, args...).Scan(&targetGrantID, &record.PolicyID, &record.PolicyVersion, &sourceType, &sourceID, &sourceEffectID); err != nil {
 		return err
 	}
-	if record.Source.Type == "" {
-		record.Source.Type = sourceType
-		record.Source.SourceID = record.TargetGrantID
-		record.Source.SourceEffectID = record.GrantID
-	}
+	record.TargetGrantID = targetGrantID
+	record.Source.Type = sourceType
+	record.Source.SourceID = targetGrantID
+	record.Source.SourceEffectID = record.GrantID
 	_ = sourceID
 	_ = sourceEffectID
 	return nil
+}
+
+func validateWritePolicy(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord) error {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM entitlement.policies
+		  WHERE policy_id=$1 AND version=$2 AND product_id=$3 AND tenant_id=$4 AND status='active'
+		)`, record.PolicyID, record.PolicyVersion, record.ProductID, record.TenantID).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return entitlement.ErrInvalidArgument
+	}
+	return nil
+}
+
+func hasRejectConflict(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord) (bool, error) {
+	var group *string
+	var stacking string
+	if err := tx.QueryRow(ctx, `SELECT mutual_exclusion_group,stacking_rule FROM entitlement.policies WHERE policy_id=$1 AND version=$2`, record.PolicyID, record.PolicyVersion).Scan(&group, &stacking); err != nil {
+		return false, err
+	}
+	if group == nil || *group == "" {
+		return false, nil
+	}
+	var count int
+	err := tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM entitlement.grants g
+		JOIN entitlement.policies p ON p.policy_id=g.policy_id AND p.version=g.policy_version
+		WHERE g.product_id=$1 AND g.tenant_id=$2 AND g.user_id=$3
+		  AND g.effect IN ('grant','extend','replace')
+		  AND (g.valid_until IS NULL OR g.valid_until > $4)
+		  AND p.mutual_exclusion_group=$5
+		  AND ($6 = 'reject_conflict' OR p.stacking_rule = 'reject_conflict')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM entitlement.grants r
+		    WHERE r.product_id=g.product_id AND r.tenant_id=g.tenant_id AND r.user_id=g.user_id
+		      AND r.effect='revoke'
+		      AND (r.source_id=g.grant_id OR (r.source_type=g.source_type AND r.source_id=g.source_id AND r.source_effect_id=g.source_effect_id))
+		  )`, record.ProductID, record.TenantID, record.UserID, record.Now, *group, stacking).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func insertGrant(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord) error {
@@ -384,9 +451,10 @@ func insertGrant(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord)
 
 func recomputeRevision(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord, before revisionSnapshot, existed bool) (revisionSnapshot, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT g.grant_id,g.policy_id,p.policy_code,p.features,g.valid_until,p.offline_grace_max_seconds,g.created_at
+		SELECT g.grant_id,g.policy_id,p.policy_code,p.features,g.valid_until,p.offline_grace_max_seconds,g.created_at,
+		       p.stacking_rule,p.mutual_exclusion_group,p.priority
 		FROM entitlement.grants g
-		JOIN entitlement.policies p ON p.policy_id=g.policy_id
+		JOIN entitlement.policies p ON p.policy_id=g.policy_id AND p.version=g.policy_version
 		WHERE g.product_id=$1 AND g.tenant_id=$2 AND g.user_id=$3
 		  AND g.effect IN ('grant','extend','replace')
 		  AND (g.valid_until IS NULL OR g.valid_until > $4)
@@ -401,42 +469,24 @@ func recomputeRevision(ctx context.Context, tx pgx.Tx, record entitlement.WriteR
 		return revisionSnapshot{}, err
 	}
 	defer rows.Close()
-	features := map[string]any{}
-	var planCode string
-	var validUntil *time.Time
-	var graceUntil *time.Time
+	active := make([]activeGrant, 0)
 	for rows.Next() {
-		var grantID, policyID, policyCode string
+		var item activeGrant
 		var rawFeatures []byte
-		var grantValidUntil *time.Time
-		var graceSeconds int64
-		var createdAt time.Time
-		if err := rows.Scan(&grantID, &policyID, &policyCode, &rawFeatures, &grantValidUntil, &graceSeconds, &createdAt); err != nil {
+		var group *string
+		if err := rows.Scan(&item.GrantID, &item.PolicyID, &item.PolicyCode, &rawFeatures, &item.ValidUntil, &item.OfflineGraceSeconds, &item.CreatedAt, &item.StackingRule, &group, &item.Priority); err != nil {
 			return revisionSnapshot{}, err
 		}
-		_ = grantID
-		_ = policyID
-		_ = createdAt
-		if planCode == "" {
-			planCode = policyCode
+		if group != nil {
+			item.MutualExclusionGroup = *group
 		}
-		mergeFeatures(features, rawFeatures)
-		if grantValidUntil == nil {
-			validUntil = nil
-		} else if validUntil == nil || grantValidUntil.After(*validUntil) {
-			copied := grantValidUntil.UTC()
-			validUntil = &copied
-		}
-		if grantValidUntil != nil && graceSeconds > 0 {
-			grace := grantValidUntil.Add(time.Duration(graceSeconds) * time.Second).UTC()
-			if graceUntil == nil || grace.After(*graceUntil) {
-				graceUntil = &grace
-			}
-		}
+		item.Features = parseFeatures(rawFeatures)
+		active = append(active, item)
 	}
 	if err := rows.Err(); err != nil {
 		return revisionSnapshot{}, err
 	}
+	features, planCode, validUntil, graceUntil := resolveActiveGrants(active)
 	raw, err := json.Marshal(features)
 	if err != nil {
 		return revisionSnapshot{}, err
@@ -462,6 +512,16 @@ func insertLedger(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO entitlement.ledger(ledger_id,product_id,tenant_id,user_id,operation_type,operation_id,source_type,source_id,grant_id,before_revision,after_revision,before_decision_hash,after_decision_hash,audit_id,trace_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		record.LedgerID, record.ProductID, record.TenantID, record.UserID, record.Operation, record.GrantID, record.Source.Type, record.Source.SourceID, record.GrantID, beforeRevision, after.Revision, nullableBytes(before.DecisionHash), after.DecisionHash, record.AuditID, record.TraceID, record.Now)
+	return err
+}
+
+func insertPolicyConflictLedger(ctx context.Context, tx pgx.Tx, record entitlement.WriteRecord, before revisionSnapshot) error {
+	var beforeRevision any
+	if before.Revision > 0 {
+		beforeRevision = before.Revision
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO entitlement.ledger(ledger_id,product_id,tenant_id,user_id,operation_type,operation_id,source_type,source_id,grant_id,before_revision,after_revision,before_decision_hash,after_decision_hash,audit_id,trace_id,created_at) VALUES($1,$2,$3,$4,'policy_conflict',$5,$6,$7,NULL,$8,$8,$9,$9,$10,$11,$12)`,
+		record.LedgerID, record.ProductID, record.TenantID, record.UserID, record.GrantID, record.Source.Type, record.Source.SourceID, beforeRevision, nullableBytes(before.DecisionHash), record.AuditID, record.TraceID, record.Now)
 	return err
 }
 
@@ -511,10 +571,74 @@ func resultFrom(record entitlement.WriteRecord, after revisionSnapshot) entitlem
 	}
 }
 
-func mergeFeatures(target map[string]any, raw []byte) {
+type activeGrant struct {
+	GrantID              string
+	PolicyID             string
+	PolicyCode           string
+	Features             map[string]any
+	ValidUntil           *time.Time
+	OfflineGraceSeconds  int64
+	CreatedAt            time.Time
+	StackingRule         string
+	MutualExclusionGroup string
+	Priority             int
+}
+
+func resolveActiveGrants(active []activeGrant) (map[string]any, string, *time.Time, *time.Time) {
+	winners := make([]activeGrant, 0, len(active))
+	groupWinners := map[string]activeGrant{}
+	for _, item := range active {
+		if item.MutualExclusionGroup == "" || item.StackingRule != string(entitlement.StackReplaceSameGroup) {
+			winners = append(winners, item)
+			continue
+		}
+		current, ok := groupWinners[item.MutualExclusionGroup]
+		if !ok || item.Priority > current.Priority || (item.Priority == current.Priority && createdAfter(item, current)) {
+			groupWinners[item.MutualExclusionGroup] = item
+		}
+	}
+	for _, item := range groupWinners {
+		winners = append(winners, item)
+	}
+	features := map[string]any{}
+	var planCode string
+	var validUntil *time.Time
+	var hasLifetime bool
+	var graceUntil *time.Time
+	for _, item := range winners {
+		if planCode == "" {
+			planCode = item.PolicyCode
+		}
+		mergeFeatureValues(features, item.Features)
+		if item.ValidUntil == nil {
+			hasLifetime = true
+			validUntil = nil
+		} else if !hasLifetime && (validUntil == nil || item.ValidUntil.After(*validUntil)) {
+			copied := item.ValidUntil.UTC()
+			validUntil = &copied
+		}
+		if item.ValidUntil != nil && item.OfflineGraceSeconds > 0 {
+			grace := item.ValidUntil.Add(time.Duration(item.OfflineGraceSeconds) * time.Second).UTC()
+			if graceUntil == nil || grace.After(*graceUntil) {
+				graceUntil = &grace
+			}
+		}
+	}
+	return features, planCode, validUntil, graceUntil
+}
+
+func createdAfter(left, right activeGrant) bool {
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		return left.CreatedAt.After(right.CreatedAt)
+	}
+	return left.GrantID > right.GrantID
+}
+
+func parseFeatures(raw []byte) map[string]any {
+	result := map[string]any{}
 	var items []map[string]any
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return
+		return result
 	}
 	for _, item := range items {
 		code, _ := item["feature_code"].(string)
@@ -522,10 +646,55 @@ func mergeFeatures(target map[string]any, raw []byte) {
 			continue
 		}
 		if value, ok := item["value"]; ok {
-			target[code] = value
+			result[code] = value
 		} else {
-			target[code] = true
+			result[code] = true
 		}
+	}
+	return result
+}
+
+func mergeFeatureValues(target map[string]any, source map[string]any) {
+	for code, value := range source {
+		current, exists := target[code]
+		if !exists {
+			target[code] = value
+			continue
+		}
+		target[code] = maxFeatureValue(current, value)
+	}
+}
+
+func maxFeatureValue(left, right any) any {
+	leftNumber, leftOK := asFloat(left)
+	rightNumber, rightOK := asFloat(right)
+	if leftOK && rightOK {
+		if rightNumber > leftNumber {
+			return right
+		}
+		return left
+	}
+	if leftBool, ok := left.(bool); ok {
+		if rightBool, rightOK := right.(bool); rightOK {
+			return leftBool || rightBool
+		}
+	}
+	return right
+}
+
+func asFloat(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	default:
+		return 0, false
 	}
 }
 
