@@ -24,6 +24,7 @@ const ProductsPage = lazy(() => import("../pages/ProductsPage").then((module) =>
 const SettingsPage = lazy(() => import("../pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const UsersPage = lazy(() => import("../pages/UsersPage").then((module) => ({ default: module.UsersPage })));
 const UserDetailPage = lazy(() => import("../pages/UserDetailPage").then((module) => ({ default: module.UserDetailPage })));
+const EntitlementsPage = lazy(() => import("../pages/EntitlementsPage").then((module) => ({ default: module.EntitlementsPage })));
 
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { productId } = useParams();
@@ -70,6 +71,7 @@ function AuthenticatedRoutes() {
     <Route path="/products/:productId/audit" element={<ProductRoute><AuditPage /></ProductRoute>} />
     <Route path="/products/:productId/users" element={<ProductRoute><UsersPage /></ProductRoute>} />
     <Route path="/products/:productId/users/:userId" element={<ProductRoute><UserDetailPage /></ProductRoute>} />
+    <Route path="/products/:productId/entitlements" element={<ProductRoute><EntitlementsPage /></ProductRoute>} />
     <Route path="/products/:productId/:feature" element={<ProductRoute><CapabilityPendingPage /></ProductRoute>} />
     <Route path="*" element={<Navigate replace to={session ? getDefaultAdminPath(session) : "/login"} />} />
   </Routes></AppProvider>;

@@ -12,6 +12,7 @@ type Repository interface {
 	ReplaceEntitlement(ctx context.Context, record WriteRecord) (GrantResult, error)
 	RevokeEntitlement(ctx context.Context, record WriteRecord) (GrantResult, error)
 	GetCurrentEntitlements(ctx context.Context, query CurrentQuery) (EntitlementSummary, error)
+	ListCurrentEntitlements(ctx context.Context, query AdminListQuery) ([]EntitlementSummary, error)
 	ListHistory(ctx context.Context, query HistoryQuery) ([]LedgerEntry, error)
 	ClaimOutbox(ctx context.Context, now time.Time, limit int) ([]ClaimedOutboxEvent, error)
 	MarkOutboxPublished(ctx context.Context, eventID string, now time.Time) error
@@ -32,6 +33,14 @@ type CurrentQuery struct {
 	ProductID string
 	TenantID  string
 	UserID    string
+}
+
+type AdminListQuery struct {
+	ProductID string
+	TenantID  string
+	UserID    string
+	Limit     int
+	Cursor    string
 }
 
 type HistoryQuery struct {

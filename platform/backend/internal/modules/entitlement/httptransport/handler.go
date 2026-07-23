@@ -40,6 +40,7 @@ type Service interface {
 	ReplaceEntitlement(context.Context, entitlement.MutateEntitlementCommand) (entitlement.GrantResult, error)
 	RevokeEntitlement(context.Context, entitlement.MutateEntitlementCommand) (entitlement.GrantResult, error)
 	GetCurrentEntitlements(context.Context, entitlement.ProductContext, entitlement.TenantContext, entitlement.UserContext) (entitlement.EntitlementSummary, error)
+	ListCurrentEntitlements(context.Context, entitlement.AdminListQuery) ([]entitlement.EntitlementSummary, error)
 	ListHistory(context.Context, entitlement.HistoryQuery) ([]entitlement.LedgerEntry, error)
 }
 
@@ -83,6 +84,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.userHistory(w, r)
 	case r.URL.Path == "/api/v1/admin/entitlements":
 		h.adminEntitlements(w, r)
+	case r.URL.Path == "/api/v1/admin/entitlements/history":
+		h.adminHistory(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/v1/admin/entitlements/"):
 		h.adminMutation(w, r)
 	default:
@@ -171,10 +174,33 @@ func (h *Handler) adminEntitlements(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.adminGrant(w, r)
 	case http.MethodGet:
-		h.adminHistory(w, r)
+		h.adminList(w, r)
 	default:
 		httpx.MethodNotAllowed(w, r, "GET, POST")
 	}
+}
+
+func (h *Handler) adminList(w http.ResponseWriter, r *http.Request) {
+	if !requireEmptyBody(w, r) {
+		return
+	}
+	if err := validateKeys(r.URL.Query(), "product_id", "tenant_id", "user_id", "page_size", "cursor"); err != nil {
+		httpx.Error(w, r, http.StatusBadRequest, "entitlement.invalid_query", "query parameters are invalid")
+		return
+	}
+	productID, tenantID, userID := r.URL.Query().Get("product_id"), r.URL.Query().Get("tenant_id"), r.URL.Query().Get("user_id")
+	if _, ok := h.authorizeAdmin(w, r, readPermission, productID, tenantID, false); !ok {
+		return
+	}
+	items, err := h.service.ListCurrentEntitlements(r.Context(), entitlement.AdminListQuery{
+		ProductID: productID, TenantID: tenantID, UserID: userID,
+		Limit: parsePageSize(r.URL.Query().Get("page_size")), Cursor: r.URL.Query().Get("cursor"),
+	})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, summaryPageResponse(items))
 }
 
 type grantRequest struct {
@@ -640,6 +666,14 @@ func summaryResponse(value entitlement.EntitlementSummary) map[string]any {
 		response["plan_code"] = nil
 	}
 	return response
+}
+
+func summaryPageResponse(items []entitlement.EntitlementSummary) map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, summaryResponse(item))
+	}
+	return map[string]any{"items": out, "next_cursor": nil}
 }
 
 func historyResponse(items []entitlement.LedgerEntry) map[string]any {

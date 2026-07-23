@@ -160,6 +160,19 @@ func (s *Service) GetCurrentEntitlements(ctx context.Context, product ProductCon
 	return s.repository.GetCurrentEntitlements(ctx, CurrentQuery{ProductID: product.ProductID, TenantID: tenant.TenantID, UserID: user.UserID})
 }
 
+func (s *Service) ListCurrentEntitlements(ctx context.Context, query AdminListQuery) ([]EntitlementSummary, error) {
+	if s == nil || s.repository == nil || !validID(query.ProductID) || !validID(query.TenantID) || query.Limit < 1 || query.Limit > 200 {
+		return nil, ErrInvalidArgument
+	}
+	if query.UserID != "" && !validID(query.UserID) {
+		return nil, ErrInvalidArgument
+	}
+	if query.Cursor != "" && !validID(query.Cursor) {
+		return nil, ErrInvalidArgument
+	}
+	return s.repository.ListCurrentEntitlements(ctx, query)
+}
+
 func (s *Service) ListHistory(ctx context.Context, query HistoryQuery) ([]LedgerEntry, error) {
 	if s == nil || s.repository == nil || !validID(query.ProductID) || !validID(query.TenantID) || !validID(query.UserID) || query.Limit < 1 || query.Limit > 200 {
 		return nil, ErrInvalidArgument

@@ -199,6 +199,48 @@ func (r *Repository) GetCurrentEntitlements(ctx context.Context, query entitleme
 	return summary, nil
 }
 
+func (r *Repository) ListCurrentEntitlements(ctx context.Context, query entitlement.AdminListQuery) ([]entitlement.EntitlementSummary, error) {
+	if r == nil || r.pool == nil {
+		return nil, entitlement.ErrInvalidArgument
+	}
+	sql := `SELECT product_id,tenant_id,user_id,version,decision_hash,effective_features,plan_code,valid_until,offline_grace_until,updated_at FROM entitlement.revisions WHERE product_id=$1 AND tenant_id=$2`
+	args := []any{query.ProductID, query.TenantID}
+	if query.UserID != "" {
+		sql += ` AND user_id=$3`
+		args = append(args, query.UserID)
+	}
+	sql += ` ORDER BY updated_at DESC,user_id LIMIT $` + fmt.Sprint(len(args)+1)
+	args = append(args, query.Limit)
+	rows, err := r.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]entitlement.EntitlementSummary, 0)
+	for rows.Next() {
+		var summary entitlement.EntitlementSummary
+		var features []byte
+		var validUntil, graceUntil *time.Time
+		var planCode *string
+		if err := rows.Scan(&summary.ProductID, &summary.TenantID, &summary.UserID, &summary.Revision, &summary.DecisionHash, &features, &planCode, &validUntil, &graceUntil, &summary.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(features, &summary.EffectiveFeatures); err != nil {
+			return nil, err
+		}
+		if planCode != nil {
+			summary.PlanCode = *planCode
+		}
+		summary.ValidUntil = validUntil
+		summary.OfflineGraceUntil = graceUntil
+		result = append(result, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (r *Repository) ListHistory(ctx context.Context, query entitlement.HistoryQuery) ([]entitlement.LedgerEntry, error) {
 	if r == nil || r.pool == nil {
 		return nil, entitlement.ErrInvalidArgument

@@ -19,6 +19,7 @@ type serviceStub struct {
 	grantCommand   entitlement.GrantEntitlementCommand
 	mutateCommand  entitlement.MutateEntitlementCommand
 	historyQuery   entitlement.HistoryQuery
+	listQuery      entitlement.AdminListQuery
 	currentProduct entitlement.ProductContext
 	currentTenant  entitlement.TenantContext
 	currentUser    entitlement.UserContext
@@ -57,9 +58,34 @@ func (s *serviceStub) GetCurrentEntitlements(_ context.Context, product entitlem
 	return entitlement.EntitlementSummary{ProductID: product.ProductID, TenantID: tenant.TenantID, UserID: user.UserID, Revision: 3, EffectiveFeatures: map[string]any{"pro.member": true}, UpdatedAt: time.Date(2026, 7, 23, 10, 1, 0, 0, time.UTC)}, s.err
 }
 
+func (s *serviceStub) ListCurrentEntitlements(_ context.Context, query entitlement.AdminListQuery) ([]entitlement.EntitlementSummary, error) {
+	s.listQuery = query
+	return []entitlement.EntitlementSummary{{ProductID: query.ProductID, TenantID: query.TenantID, UserID: "user-a", Revision: 3, PlanCode: "pro", EffectiveFeatures: map[string]any{"pro.member": true}, UpdatedAt: time.Date(2026, 7, 23, 10, 1, 0, 0, time.UTC)}}, s.err
+}
+
 func (s *serviceStub) ListHistory(_ context.Context, query entitlement.HistoryQuery) ([]entitlement.LedgerEntry, error) {
 	s.historyQuery = query
 	return []entitlement.LedgerEntry{{LedgerID: "ledger-a", OperationType: entitlement.EffectGrant, OperationID: "grant-a", GrantID: "grant-a", AfterRevision: 1, AuditID: "audit-a", TraceID: "trace-a", CreatedAt: time.Date(2026, 7, 23, 10, 2, 0, 0, time.UTC)}}, s.err
+}
+
+func TestAdminListCurrentEntitlementsUsesReadPermissionAndTenantScope(t *testing.T) {
+	service := &serviceStub{}
+	authorizer := &authorizerStub{allowed: true}
+	handler := New(service, adminrequest.New(authStub{}, authorizer, denialStub{}), nil)
+	recorder := serve(handler, http.MethodGet, "/api/v1/admin/entitlements?product_id=product-a&tenant_id=tenant-a&user_id=user-a&page_size=20", "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if authorizer.permission != readPermission || authorizer.target.ProductID != "product-a" || authorizer.target.TenantID != "tenant-a" {
+		t.Fatalf("authorization target=%+v permission=%s", authorizer.target, authorizer.permission)
+	}
+	if service.listQuery.UserID != "user-a" || service.listQuery.Limit != 20 {
+		t.Fatalf("list query=%+v", service.listQuery)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil || len(decoded["items"].([]any)) != 1 {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
 }
 
 func grantResult(grantID string) entitlement.GrantResult {

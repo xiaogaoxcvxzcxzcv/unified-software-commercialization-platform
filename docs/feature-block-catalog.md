@@ -22,9 +22,9 @@
 | identity.admin-session-menu | 管理员会话与账号菜单 | identity | inline | 当前管理会话 | 脱敏管理员、有效范围、刷新/退出结果 | not_ready | `admin-web/src/components/Shell.tsx`、`app/AuthContext.tsx`（正式前端已接认证；完整 E2E 未验证） | identity + access-control contracts | AdminSessionService | 后台启动、右上角账号、退出 |
 | identity.user-table | 用户列表与筛选 | identity | inline | 可信 platform/product/tenant scope、`query`、账号/准入状态、cursor | 脱敏用户分页、全局版本、范围准入投影、会话计数 | ready | `admin-web/src/pages/UsersPage.tsx` | account + identity + product-user-access contracts / public API v1 | AccountUserQueryWorkflow | 用户管理 |
 | identity.user-detail | 用户详情 | identity | navigate | 可信 scope、user_id | 脱敏账号/资料/范围准入/会话摘要及高风险操作结果 | ready | `admin-web/src/pages/UserDetailPage.tsx` | account + identity + product-user-access + audit contracts / public API v1 | AccountUserAdminWorkflow | 用户管理、权益管理 |
-| entitlement.table | 权益列表与筛选 | entitlement | inline | 产品、租户、筛选 | 权益分页 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（演示 Client） | entitlement contract | EntitlementService | 权益管理 |
-| entitlement.grant-panel | 权益授予面板 | entitlement | side_panel | 用户、产品、权益模板 | 权益与审计编号 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（演示 Client） | entitlement contract | EntitlementService | 用户详情、权益管理 |
-| entitlement.history | 权益流水 | entitlement | inline | 用户、产品 | 权益变更记录 | not_ready | 待实现 | entitlement contract | EntitlementService | 用户详情 |
+| entitlement.table | 权益列表与筛选 | entitlement | inline | 产品、租户、筛选 | 权益分页 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（G2B-03 真实 API Client 候选，待浏览器/CI 验收） | entitlement contract | EntitlementService | 权益管理 |
+| entitlement.grant-panel | 权益授予面板 | entitlement | side_panel | 用户、产品、权益模板 | 权益与审计编号 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（G2B-03 真实 API Client 候选，待浏览器/CI 验收） | entitlement contract | EntitlementService | 用户详情、权益管理 |
+| entitlement.history | 权益流水 | entitlement | inline | 用户、产品 | 权益变更记录 | not_ready | `admin-web/src/pages/EntitlementsPage.tsx`（G2B-03 真实 API Client 候选，待浏览器/CI 验收） | entitlement contract | EntitlementService | 用户详情 |
 | audit.event-table | 审计事件列表与筛选 | audit | inline | 产品、租户、操作者、时间 | 审计事件分页 | not_ready | `admin-web/src/pages/AuditPage.tsx`（演示 Client） | audit contract | AuditService | 操作审计、写操作结果 |
 | ai.model-route-table | AI 模型与路由表 | ai_gateway | inline | 产品、环境、Provider 筛选 | 路由版本分页 | not_ready | 待实现 | ai-gateway contract | AiModelRouteService | AI 模型管理 |
 | usage.price-editor | AI 价格版本编辑器 | usage | side_panel | 模型、维度、成本价、售价、生效时间 | 新价格版本 | not_ready | 待实现 | usage contract | PricingService | 计费配置 |

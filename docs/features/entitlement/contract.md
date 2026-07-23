@@ -237,9 +237,9 @@ Check Decision 是公开检查结论，不等于 Grant 原始记录。
 ### 查询与历史
 
 - 用户 API：`GET /api/v1/entitlements/current`、`GET /api/v1/entitlements/history`
-- 管理 API：`GET /api/v1/admin/entitlements`、`GET /api/v1/admin/entitlements/{entitlement_id}/history`
-- 输入：可信 UserContext 或 AdminScope、筛选、游标
-- 输出：当前 Revision 投影、Grant 摘要和 Ledger 分页
+- 管理 API：`GET /api/v1/admin/entitlements`、`GET /api/v1/admin/entitlements/history`
+- 输入：可信 UserContext 或 AdminScope、`product_id`、`tenant_id`、可选 `user_id`、筛选、游标
+- 输出：`GET /api/v1/admin/entitlements` 返回当前 Revision 投影分页，用于统一后台 `entitlement.table`；`GET /api/v1/admin/entitlements/history` 返回不可变 Ledger 分页，用于 `entitlement.history`
 - 安全：管理员查询必须服务端授权到相同 Product/Tenant 范围；用户查询只能返回自己的数据。
 
 ## 后续迁移状态表

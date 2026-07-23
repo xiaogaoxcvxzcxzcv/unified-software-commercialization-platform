@@ -161,6 +161,10 @@ func (f *fakeRepository) GetCurrentEntitlements(context.Context, CurrentQuery) (
 	return EntitlementSummary{}, nil
 }
 
+func (f *fakeRepository) ListCurrentEntitlements(context.Context, AdminListQuery) ([]EntitlementSummary, error) {
+	return nil, nil
+}
+
 func (f *fakeRepository) ListHistory(context.Context, HistoryQuery) ([]LedgerEntry, error) {
 	return nil, nil
 }

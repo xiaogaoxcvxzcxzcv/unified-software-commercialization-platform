@@ -59,6 +59,8 @@
 
 ## 最近验证（2026-07-23）
 
+- G2B-03：`in_progress`。已补齐 Entitlement 管理查询契约、OpenAPI、后端 `ListCurrentEntitlements`、真实管理 API Client、`/products/:productId/entitlements` 路由和页面，替换原演示 Client；页面支持服务端范围查询、授予、延长、撤销、Ledger 历史、幂等键、审计编号和撤销二次确认。本地 `go test ./internal/modules/entitlement/... ./cmd/server`、OpenAPI 123/130、Admin 164/164、Admin build、Core 6/6、Full `-RequirePostgres` 22/22 已通过；尚缺真实浏览器验收、提交、push 和 GitHub required check，因此 `entitlement.table`、`entitlement.grant-panel`、`entitlement.history` 仍不得标为 ready，G2B-04 仍不得开始。证据草案：`artifacts/reviews/G2B-03/entitlement-admin-blocks.md`。
+
 - G2B-02：`verified`。Entitlement `000026_entitlement` 迁移、Domain/Application、PostgreSQL Adapter、HTTP API、管理权限、Outbox/Audit 接线、幂等、expected revision、source tuple revoke、`reject_conflict`、`replace_same_group`、priority 和互斥组裁决已实现；新增真实 PostgreSQL 覆盖策略冲突、互斥替换和来源三元组撤销。本地 `go test -count=1 ./internal/modules/entitlement/... ./internal/platform/migrations ./cmd/server`、OpenAPI 122/129、Core 6/6、Full `-RequirePostgres` 22/22 通过；提交 `0c4a8f4` 已 push；PR #14 push run `29980428061` 与 pull_request run `29980430210` 的 `quality-gate` 和 `windows-tls` 均成功。`package.entitlement` 仍只是 contracted，下一唯一关口为 G2B-03 统一后台 Entitlement Blocks。证据：`artifacts/reviews/G2B-02/entitlement-backend-migration.md`。
 
 ## 最近验证（2026-07-22）
