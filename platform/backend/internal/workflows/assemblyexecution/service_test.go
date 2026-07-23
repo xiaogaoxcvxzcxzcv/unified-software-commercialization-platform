@@ -113,10 +113,38 @@ func (s *capabilityServiceStub) ReplaceCapabilitySet(_ context.Context, command 
 	return product.CapabilitySet{ProductID: command.Plan.ProductID, Version: 1, SourcePlanID: command.Plan.SourcePlanID}, nil
 }
 
-type rendererStub struct{ result generation.Result }
+type rendererStub struct {
+	result generation.Result
+	err    error
+}
 
 func (s rendererStub) Render(context.Context, generation.Input) (generation.Result, error) {
+	if s.err != nil {
+		return generation.Result{}, s.err
+	}
 	return s.result, nil
+}
+
+func TestRendererForScopeUsesOnlyServerSelectedCatalogScope(t *testing.T) {
+	ordinary := rendererStub{}
+	experimental := rendererStub{}
+	service := New(nil, nil, nil, nil, nil, ordinary, nil, nil, WithExperimentalRenderer(experimental))
+
+	if selected, err := service.rendererForScope("ordinary"); err != nil || selected == nil {
+		t.Fatalf("ordinary renderer = %#v, %v", selected, err)
+	}
+	if selected, err := service.rendererForScope("experimental"); err != nil || selected == nil {
+		t.Fatalf("experimental renderer = %#v, %v", selected, err)
+	}
+	if _, err := service.rendererForScope(""); !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("empty scope error = %v", err)
+	}
+	if _, err := service.rendererForScope("production"); !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("unknown scope error = %v", err)
+	}
+	if _, err := New(nil, nil, nil, nil, nil, ordinary, nil, nil).rendererForScope("experimental"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing experimental renderer error = %v", err)
+	}
 }
 
 func TestExecuteRunsProvisionGenerationAndCompletionChain(t *testing.T) {

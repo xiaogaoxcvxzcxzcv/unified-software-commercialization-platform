@@ -47,14 +47,15 @@ type CapabilityService interface {
 }
 
 type Service struct {
-	assembly     AssemblyService
-	products     ProductProvisioner
-	applications ApplicationService
-	capabilities CapabilityService
-	workspaces   *generation.WorkspaceCatalog
-	renderer     generation.Renderer
-	contracts    generation.ArtifactContractValidator
-	now          func() time.Time
+	assembly             AssemblyService
+	products             ProductProvisioner
+	applications         ApplicationService
+	capabilities         CapabilityService
+	workspaces           *generation.WorkspaceCatalog
+	renderer             generation.Renderer
+	experimentalRenderer generation.Renderer
+	contracts            generation.ArtifactContractValidator
+	now                  func() time.Time
 }
 
 type Command struct {
@@ -78,6 +79,7 @@ type planDocument struct {
 	Environment      string `json:"environment"`
 	CatalogSnapshot  struct {
 		Revision string `json:"revision"`
+		Scope    string `json:"scope"`
 		Checksum string `json:"checksum"`
 	} `json:"catalog_snapshot"`
 	Applications []struct {
@@ -88,11 +90,25 @@ type planDocument struct {
 	} `json:"applications"`
 }
 
-func New(assembly AssemblyService, products ProductProvisioner, applications ApplicationService, capabilities CapabilityService, workspaces *generation.WorkspaceCatalog, renderer generation.Renderer, contracts generation.ArtifactContractValidator, now func() time.Time) *Service {
+type Option func(*Service)
+
+func WithExperimentalRenderer(renderer generation.Renderer) Option {
+	return func(s *Service) {
+		s.experimentalRenderer = renderer
+	}
+}
+
+func New(assembly AssemblyService, products ProductProvisioner, applications ApplicationService, capabilities CapabilityService, workspaces *generation.WorkspaceCatalog, renderer generation.Renderer, contracts generation.ArtifactContractValidator, now func() time.Time, options ...Option) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{assembly: assembly, products: products, applications: applications, capabilities: capabilities, workspaces: workspaces, renderer: renderer, contracts: contracts, now: now}
+	service := &Service{assembly: assembly, products: products, applications: applications, capabilities: capabilities, workspaces: workspaces, renderer: renderer, contracts: contracts, now: now}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) Execute(ctx context.Context, command Command) (core.Run, error) {
@@ -213,7 +229,11 @@ func (s *Service) Execute(ctx context.Context, command Command) (core.Run, error
 	if err != nil {
 		return s.failRun(ctx, command, run, "step.generate", "diagnostic.artifact-store", false, err)
 	}
-	executor, err := generation.NewExecutor(s.renderer, generation.NewFileCommitter(), artifactStore, s.contracts)
+	renderer, err := s.rendererForScope(planValue.CatalogSnapshot.Scope)
+	if err != nil {
+		return s.failRun(ctx, command, run, "step.generate", "diagnostic.generator-unavailable", false, err)
+	}
+	executor, err := generation.NewExecutor(renderer, generation.NewFileCommitter(), artifactStore, s.contracts)
 	if err != nil {
 		return s.failRun(ctx, command, run, "step.generate", "diagnostic.generator-unavailable", false, err)
 	}
@@ -248,6 +268,23 @@ func (s *Service) Execute(ctx context.Context, command Command) (core.Run, error
 		ManifestDocument: outcome.Bundle.AssemblyManifest, LockDocument: outcome.Bundle.GeneratedLock,
 		ActorID: command.ActorID, IdempotencyKey: derivedKey(command.IdempotencyKey, "complete"), TraceID: command.TraceID,
 	})
+}
+
+func (s *Service) rendererForScope(scope string) (generation.Renderer, error) {
+	switch scope {
+	case "ordinary":
+		if s.renderer == nil {
+			return nil, ErrUnavailable
+		}
+		return s.renderer, nil
+	case "experimental":
+		if s.experimentalRenderer == nil {
+			return nil, ErrUnavailable
+		}
+		return s.experimentalRenderer, nil
+	default:
+		return nil, ErrPrecondition
+	}
 }
 
 type transitionSpec struct {

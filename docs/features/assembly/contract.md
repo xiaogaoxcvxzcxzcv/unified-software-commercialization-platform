@@ -24,6 +24,7 @@
 - 普通工具根固定为 `platform/tools/generators/` 与 `platform/tools/sdks/`；受控实验工具根固定为 `platform/experimental/tools/generators/` 与 `platform/experimental/tools/sdks/`。目录布局统一为 `<tool_id>/<strict-semver>/manifest.json`，不得与 SDK 开发源码目录混用。
 - Catalog Scope 只能由服务端 wiring 选择为 `ordinary` 或 `experimental`，并进入不可变 Catalog Snapshot。Blueprint、HTTP 请求和前端状态都不能提交 scope、目录路径、Manifest/内容/制品摘要、执行入口、adapter ID、shell 命令或宿主绝对路径。
 - 单个 Snapshot 和 Plan 只能属于一个 scope，禁止 ordinary/experimental 混合、同 ID/版本跨 scope 回退或普通入口探测实验条目。普通根只接受 `ordinary + available`，实验根只接受 `experimental + verified`。
+- Worker 执行时必须继续使用 Plan 中 `catalog_snapshot.scope` 对应的服务端 Renderer/SourceStore；`experimental` Plan 不得回退到 ordinary Renderer，ordinary Plan 也不得读取实验目录。缺少对应服务端 Renderer 或未知 scope 必须在生成前失败关闭。
 - Tool Manifest 必须锁定 `tool_kind`、ID、严格 SemVer、目标端、交付形态、环境、协议版本、平台机器契约版本范围、执行描述、证据摘要、完整 `content_files`、`content_tree_sha256` 与 `manifest_sha256`。
 - 执行描述只允许两类：服务端注册的 `builtin_adapter`，或 Manifest 内容树中锁定路径和 SHA-256 的 `node/native` 入口。当前内置注册表只包含 Generator 的 `assembly.pure-renderer` 和 SDK 的 `assembly.client-sdk`。客户端不能提供参数或命令；加载器拒绝未知内置适配器、绝对路径、未列入口、摘要漂移、额外文件、大小写碰撞、symlink/junction/reparse 和非普通文件。
 - G1 v1 的 Blueprint 选择一个 Generator 和一个 SDK；二者必须同时兼容蓝图中的每个 Application 的 target、delivery mode、environment 以及当前机器契约主版本。任一 Application 不兼容即整体失败，不从其他 scope 或未知版本回退。

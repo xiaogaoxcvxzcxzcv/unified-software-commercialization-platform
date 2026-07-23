@@ -75,6 +75,7 @@ artifacts/reviews/G2C-01/*
 artifacts/reviews/G2C-02/*
 !artifacts/reviews/G2C-02/quality-gate-core-handoff-checkpoint.json
 !artifacts/reviews/G2C-02/quality-gate-core-experimental-plan-route.json
+!artifacts/reviews/G2C-02/quality-gate-core-experimental-renderer-scope.json
 
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*

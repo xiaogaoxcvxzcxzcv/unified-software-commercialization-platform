@@ -320,6 +320,7 @@ func main() {
 	assemblyExecutionWorkflow := assemblyexecution.New(
 		assemblyService, provisioningWorkflow, applicationService, productService, assemblyWorkspaces,
 		assemblygeneration.NewPureRenderer(assemblyCatalog), assemblyContracts, nil,
+		assemblyexecution.WithExperimentalRenderer(assemblygeneration.NewPureRenderer(experimentalAssemblyCatalog)),
 	)
 	assemblyWorkerID, err := securevalue.ID("assembly_worker_")
 	if err != nil {
