@@ -1,6 +1,6 @@
 # G2B-01 Entitlement model contract evidence
 
-Status: implemented locally; remote PR required checks pending before marking G2B-01 verified.
+Status: verified on 2026-07-22.
 
 ## Scope
 
@@ -43,3 +43,9 @@ Remote PR required checks are still required before changing the work package to
 - No admin Entitlement page is promoted from demo.
 - No client Entitlement block, SDK method or generated source is implemented.
 - `package.entitlement` remains non-ordinary and non-available.
+## Remote evidence
+
+- Commit: `01e425d docs(g2b01): seal entitlement package contract`.
+- Push run: `29936790987`; `quality-gate` job `88980825555` success; `windows-tls` job `88980316935` success.
+- Pull request run: `29936794373`; `quality-gate` job `88980868502` success; `windows-tls` job `88980328090` success.
+- PR: #14 on `codex/g2a-041-contract-published`.
