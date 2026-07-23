@@ -19,6 +19,7 @@ func TestProductAdminRouterForwardsAssemblyTopLevelCatalogRoutes(t *testing.T) {
 		"/api/v1/admin/assembly-output-targets?environment=development",
 		"/api/v1/admin/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test",
 		"/api/v1/admin/experimental/assembly-catalog-options?target=web&delivery_mode=generated_source&environment=test",
+		"/api/v1/admin/experimental/blueprints/bp_video-brain/plan",
 		"/api/v1/admin/assemblies/assembly-1/upgrade-plans",
 		"/api/v1/admin/assemblies/assembly-1/eject-plans",
 		"/api/v1/admin/assembly-lifecycle-plans/lifecycle-plan-1",

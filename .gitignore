@@ -76,6 +76,10 @@ artifacts/reviews/G2C-02/*
 !artifacts/reviews/G2C-02/quality-gate-core-handoff-checkpoint.json
 !artifacts/reviews/G2C-02/quality-gate-core-experimental-plan-route.json
 !artifacts/reviews/G2C-02/quality-gate-core-experimental-renderer-scope.json
+!artifacts/reviews/G2C-02/quality-gate-core-experimental-access.json
+!artifacts/reviews/G2C-02/quality-gate-core-g2c02-http-preflight.json
+!artifacts/reviews/G2C-02/experimental-access-and-local-runtime.md
+!artifacts/reviews/G2C-02/g2c02-http-preflight-software-a-*.json
 
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*

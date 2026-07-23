@@ -21,6 +21,8 @@ $DatabasePasswordFile = Join-Path $RuntimeRoot 'postgres\test-password.txt'
 $TokenPepperFile = Join-Path $RuntimeRoot 'admin-token-pepper.txt'
 $TargetRoot = Join-Path $RuntimeRoot 'local-assembly-output'
 $ArtifactRoot = Join-Path $RuntimeRoot 'local-assembly-artifacts'
+$G2C02TargetRoot = Join-Path $TargetRoot 'g2c02-a'
+$G2C02ArtifactRoot = Join-Path $ArtifactRoot 'g2c02-a'
 $InstanceName = "backend-local-$Port"
 $CurrentExecutable = Join-Path $RuntimeRoot "$InstanceName.exe"
 $NextExecutable = Join-Path $RuntimeRoot "$InstanceName-next.exe"
@@ -120,9 +122,11 @@ function Start-ManagedBackend {
     }
     Assert-RuntimeFile -Path $DatabasePasswordFile
     Assert-RuntimeFile -Path $TokenPepperFile
-    New-Item -ItemType Directory -Force -Path $TargetRoot, $ArtifactRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $TargetRoot, $ArtifactRoot, $G2C02TargetRoot, $G2C02ArtifactRoot | Out-Null
     if (-not (Test-PathWithin -Path $TargetRoot -Root $RuntimeRoot) -or
-        -not (Test-PathWithin -Path $ArtifactRoot -Root $RuntimeRoot)) {
+        -not (Test-PathWithin -Path $ArtifactRoot -Root $RuntimeRoot) -or
+        -not (Test-PathWithin -Path $G2C02TargetRoot -Root $RuntimeRoot) -or
+        -not (Test-PathWithin -Path $G2C02ArtifactRoot -Root $RuntimeRoot)) {
         throw 'Assembly output directories must stay inside the repository runtime root.'
     }
 
@@ -131,15 +135,30 @@ function Start-ManagedBackend {
     $password = ([IO.File]::ReadAllText($DatabasePasswordFile)).Trim()
     $pepper = ([IO.File]::ReadAllText($TokenPepperFile)).Trim()
     $encodedPassword = [Uri]::EscapeDataString($password)
-    $targets = ConvertTo-Json -InputObject @(@{
-        ref = 'workspace.default'
-        environment = 'development'
-        display_name = 'Local development workspace'
-        summary = 'Server-managed local source and evidence output'
-        is_default = $true
-        target_root = $TargetRoot.Replace('\', '/')
-        artifact_root = $ArtifactRoot.Replace('\', '/')
-    }) -Compress
+    $normalizedTargetRoot = $TargetRoot.Replace('\', '/')
+    $normalizedArtifactRoot = $ArtifactRoot.Replace('\', '/')
+    $normalizedG2C02TargetRoot = $G2C02TargetRoot.Replace('\', '/')
+    $normalizedG2C02ArtifactRoot = $G2C02ArtifactRoot.Replace('\', '/')
+    $targets = ConvertTo-Json -InputObject @(
+        @{
+            ref = 'workspace.default'
+            environment = 'development'
+            display_name = 'Local development workspace'
+            summary = 'Server-managed local source and evidence output'
+            is_default = $true
+            target_root = $normalizedTargetRoot
+            artifact_root = $normalizedArtifactRoot
+        },
+        @{
+            ref = 'workspace.g2c02.a'
+            environment = 'test'
+            display_name = 'G2C-02 software A workspace'
+            summary = 'Server-managed G2C-02 acceptance output'
+            is_default = $true
+            target_root = $normalizedG2C02TargetRoot
+            artifact_root = $normalizedG2C02ArtifactRoot
+        }
+    ) -Compress
     $variableNames = @(
         'PLATFORM_ENVIRONMENT', 'PLATFORM_HTTP_ADDRESS', 'PLATFORM_DATABASE_URL',
         'PLATFORM_ADMIN_TOKEN_PEPPER', 'PLATFORM_ADMIN_ALLOWED_ORIGINS',

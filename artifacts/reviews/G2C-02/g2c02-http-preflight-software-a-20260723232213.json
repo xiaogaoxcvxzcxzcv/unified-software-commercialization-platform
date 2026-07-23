@@ -1,0 +1,26 @@
+{
+  "evidence_type": "http_preflight_not_final_browser_click",
+  "generated_at": "2026-07-23T15:22:15.3030519Z",
+  "product_code": "video-brain",
+  "login_status": 200,
+  "authorization_version": 6,
+  "has_experimental_permission": true,
+  "ordinary_catalog_status": 200,
+  "experimental_catalog_status": 200,
+  "output_targets_status": 200,
+  "blueprint_status": 201,
+  "plan_status": 201,
+  "assemble_status": 202,
+  "run_id": "run_05119c56b3290b8ad7e46fa22a9e979d",
+  "run_status": "completed",
+  "manifest_status": 200,
+  "lock_status": 200,
+  "generated_root": ".runtime\\local-assembly-output\\g2c02-a\\generated-products\\video-brain",
+  "generated_checks": {
+    "generated_root": true,
+    "agents": true,
+    "handoff": true,
+    "package_json": true,
+    "web_src": true
+  }
+}

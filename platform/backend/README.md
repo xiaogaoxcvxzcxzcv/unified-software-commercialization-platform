@@ -35,6 +35,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\admin-local-ru
 
 脚本只读取 Git 忽略的 `.runtime/postgres/test-password.txt` 与 `.runtime/admin-token-pepper.txt`，只连接本机 `platform_local`，只允许停止工作区 `.runtime` 下且文件名以 `backend-` 开头的 8080 监听进程；每次启动都会从当前源码构建并等待 `/health/ready`。Assembly 的源码根和制品根固定进入互不重叠的 `.runtime/local-assembly-output` 与 `.runtime/local-assembly-artifacts`。
 
+G2C-02 浏览器验收需要显式启用受控实验目录。先用 `bootstrap-admin` 输出的 `admin_user_id` 执行：
+
+```powershell
+go run ./cmd/grant-g2c02-experimental-access --acceptance-g2c02 --admin-user-id <admin_user_id>
+```
+
+该命令只允许 `PLATFORM_ENVIRONMENT=local`、loopback `platform_local` 或隔离验收库 `platform_g2c02_acceptance`，且目标用户必须已经存在管理员授权版本；它创建独立 `g2c02_experimental_operator` 绑定并只授予 `assembly.experimental.use`，不会把实验权限并入 bootstrap `super_admin` 默认权限。
+
 真实浏览器 refresh 验收可临时缩短 access TTL；脚本只接受 1–900 秒，并把每个端口的非敏感设置记录到 Git 忽略的 `.runtime/backend-local-<port>-settings.json`。可执行文件、PID 和日志也按端口隔离。验收后不传该参数重新启动即可恢复 15 分钟默认值：
 
 ```powershell

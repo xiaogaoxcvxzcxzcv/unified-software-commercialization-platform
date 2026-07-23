@@ -95,6 +95,7 @@
 
 - 普通入口固定使用 `GET /api/v1/admin/assembly-catalog-options?target={target}&delivery_mode={delivery_mode}&environment={environment}`，要求 platform scope 的 `assembly.plan`。服务端只读取 ordinary 目录并只投影 `available` 条目；空目录必须返回 200 和稳定空数组，不能回填 fixture、实验模板或演示数据。
 - 受控实验入口固定使用独立路径 `GET /api/v1/admin/experimental/assembly-catalog-options?target={target}&delivery_mode={delivery_mode}&environment={environment}`，要求 platform scope 的 `assembly.experimental.use`。该权限不默认授予 bootstrap 平台管理员；未经显式绑定返回 403。服务端只读取 experimental 目录并只投影 `verified` 条目。
+- 本机 G2C-02 验收只能通过受控命令 `platform/backend/cmd/grant-g2c02-experimental-access --acceptance-g2c02 --admin-user-id <admin_user_id>` 给已有管理员授权版本的 active 管理员新增独立 `g2c02_experimental_operator` platform 绑定；该命令只允许 `PLATFORM_ENVIRONMENT=local` 且数据库为 loopback `platform_local` 或隔离验收库 `platform_g2c02_acceptance`，不得把 `assembly.experimental.use` 加入 bootstrap `super_admin` 默认权限。
 - 两个入口都只接受且必须接受一次 `target`、`delivery_mode`、`environment`；额外 query、重复参数、请求体、scope query、scope header 和 Blueprint 中的 scope/readiness 字段均拒绝。目录 scope 只能来自服务端路由 wiring，普通请求不能探测或开启实验目录。
 - 响应固定包含服务端 scope、稳定 `catalog_revision`、筛选条件，以及按 ID/版本稳定排序的 `packages`、`templates`、`generators`、`sdks`。包只公开 ID、版本、名称、用户价值、依赖/冲突和兼容模板引用；模板只公开 ID、版本、名称和支持 Block；工具只公开 ID、版本和名称。响应不得包含目录根、宿主路径、Manifest/内容摘要、执行入口、adapter、命令、证据路径或 readiness 注入字段。
 - 目录投影只用于浏览器构建候选选择，不能替代 Plan。创建 Blueprint 时仍只提交精确 ID/版本；Plan 必须重新从当前服务端目录解析依赖、兼容、工具和快照，目录变化后旧投影不能授权执行。
