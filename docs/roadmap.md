@@ -22,7 +22,7 @@
 
 目标：能够创建一个不含软件独有业务内容的基础软件蓝图，并安全、可重复地产生前台框架和装配结果。
 
-F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-08 已通过；G2A-08 最终提交 `8e8dd7e` 的 PR #14 required check 已成功。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；当前唯一严格关口为 `in_progress` 的 G2B-02 Entitlement 后端与迁移。生产 OIDC/微信 Provider E2E 和 G2C 装配回归没有冒充完成；`package.account` 仅进入 experimental verified candidate，ordinary 目录仍不可见，当前仍没有 `available` 完整能力包。
+F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-08 已通过；G2A-08 最终提交 `8e8dd7e` 的 PR #14 required check 已成功。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；G2B-02 Entitlement 后端、迁移、API、Outbox 和复杂策略已通过本地真实 PostgreSQL Full 与托管 required check。当前唯一严格关口为 G2B-03 统一后台 Entitlement Blocks。生产 OIDC/微信 Provider E2E 和 G2C 装配回归没有冒充完成；`package.account` 仅进入 experimental verified candidate，ordinary 目录仍不可见，当前仍没有 `available` 完整能力包。
 
 范围：
 

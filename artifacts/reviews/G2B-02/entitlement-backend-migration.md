@@ -374,8 +374,18 @@ Hosted Web Vitest: 54 tests passed
 Quality gate passed: mode=Full steps=22
 ```
 
+最终提交与托管 required check：
+
+```text
+commit: 0c4a8f4 feat(g2b02): complete entitlement strategy semantics
+push run: 29980428061
+pull_request run: 29980430210
+windows-tls: pass
+quality-gate: pass
+```
+
 ## 未完成项
 
-- 最终托管 CI 和 PR required check。
+- 统一后台 Entitlement Blocks、用户前台、SDK/源码、包内九面和 G2C 装配回归尚未完成。
 
-因此 G2B-02 仍保持 `in_progress`，不得进入 G2B-03。
+因此 G2B-02 可作为 `verified` 收口；下一唯一关口是 G2B-03，仍不得跳到 G2B-04/G2B-05/G2C。
