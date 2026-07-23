@@ -80,6 +80,16 @@
         "responses": { "201": { "$ref": "#/components/responses/AssemblyPlan" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
+    "/api/v1/admin/experimental/blueprints/{blueprint_id}/plan": {
+      "parameters": [{ "$ref": "#/components/parameters/BlueprintId" }],
+      "post": {
+        "tags": ["Assembly"], "operationId": "createExperimentalAssemblyPlan", "summary": "Resolve an immutable experimental-candidate assembly plan", "description": "Separate platform-scope route fixed to the experimental verified catalog. It requires assembly.experimental.use and cannot be enabled by ordinary requests, query parameters, headers, Blueprint fields or request-body catalog scope.",
+        "security": [{ "AdminAccessCookie": [] }, { "AdminBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/AdminCsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAssemblyPlanRequest" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/AssemblyPlan" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/api/v1/admin/blueprints/{blueprint_id}/assemble": {
       "parameters": [{ "$ref": "#/components/parameters/BlueprintId" }],
       "post": {

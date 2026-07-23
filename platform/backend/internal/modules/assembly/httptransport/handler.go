@@ -30,6 +30,7 @@ const (
 	outputTargetsPath              = "/api/v1/admin/assembly-output-targets"
 	catalogOptionsPath             = "/api/v1/admin/assembly-catalog-options"
 	experimentalCatalogOptionsPath = "/api/v1/admin/experimental/assembly-catalog-options"
+	experimentalBlueprintsPath     = "/api/v1/admin/experimental/blueprints"
 	assemblyReadPermission         = "assembly.read"
 	blueprintManagePermission      = "assembly.blueprint.manage"
 	assemblyPlanPermission         = "assembly.plan"
@@ -170,6 +171,7 @@ type CreatePlanCommand struct {
 	BlueprintID      string
 	BlueprintVersion int64
 	Environment      string
+	CatalogScope     string
 	ActorID          string
 	IdempotencyKey   string
 	TraceID          string
@@ -400,7 +402,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			httpx.MethodNotAllowed(w, r, http.MethodPost)
 			return
 		}
-		h.createPlan(w, r, route.resourceID)
+		h.createPlan(w, r, route.resourceID, false)
+	case routeExperimentalPlanForBlueprint:
+		if r.Method != http.MethodPost {
+			httpx.MethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		h.createPlan(w, r, route.resourceID, true)
 	case routeAssembleBlueprint:
 		if r.Method != http.MethodPost {
 			httpx.MethodNotAllowed(w, r, http.MethodPost)
@@ -619,8 +627,12 @@ type createPlanRequest struct {
 	Environment      string `json:"environment"`
 }
 
-func (h *Handler) createPlan(w http.ResponseWriter, r *http.Request, blueprintID string) {
-	principal, ok := h.authorize(w, r, assemblyPlanPermission, false)
+func (h *Handler) createPlan(w http.ResponseWriter, r *http.Request, blueprintID string, experimental bool) {
+	permission := assemblyPlanPermission
+	if experimental {
+		permission = assemblyExperimentalPermission
+	}
+	principal, ok := h.authorize(w, r, permission, false)
 	if !ok {
 		return
 	}
@@ -640,9 +652,13 @@ func (h *Handler) createPlan(w http.ResponseWriter, r *http.Request, blueprintID
 	if !ok {
 		return
 	}
+	catalogScope := "ordinary"
+	if experimental {
+		catalogScope = "experimental"
+	}
 	result, err := h.service.CreatePlan(r.Context(), CreatePlanCommand{
 		BlueprintID: blueprintID, BlueprintVersion: *body.BlueprintVersion,
-		Environment: body.Environment, ActorID: principal.AdminUserID,
+		Environment: body.Environment, CatalogScope: catalogScope, ActorID: principal.AdminUserID,
 		IdempotencyKey: idempotencyKey, TraceID: traceID,
 	})
 	if err != nil {
@@ -1619,6 +1635,7 @@ const (
 	routeBlueprints routeKind = iota + 1
 	routeBlueprint
 	routePlanForBlueprint
+	routeExperimentalPlanForBlueprint
 	routeAssembleBlueprint
 	routePlan
 	routeRuns
@@ -1660,6 +1677,13 @@ func parseRoute(r *http.Request) (parsedRoute, bool) {
 	}
 	if r.URL.Path == experimentalCatalogOptionsPath {
 		return parsedRoute{kind: routeExperimentalCatalogOptions}, true
+	}
+	if strings.HasPrefix(r.URL.Path, experimentalBlueprintsPath+"/") {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, experimentalBlueprintsPath+"/"), "/")
+		if len(parts) == 2 && validIdentifier(parts[0]) && parts[1] == "plan" {
+			return parsedRoute{kind: routeExperimentalPlanForBlueprint, resourceID: parts[0]}, true
+		}
+		return parsedRoute{}, false
 	}
 	if r.URL.Path == runsPath {
 		return parsedRoute{kind: routeRuns}, true

@@ -243,6 +243,7 @@ func main() {
 	assemblyService := assemblycore.NewService(
 		assemblyRepository, assemblyValidator, planning.New(assemblyCatalog), securevalue.ID, nil,
 		assemblycore.WithOutputTargetVerifier(newCoreOutputTargetVerifier(configuredOutputTargets...)),
+		assemblycore.WithExperimentalPlanner(planning.New(experimentalAssemblyCatalog)),
 	)
 	assemblyLifecycleContext, err := assemblylifecycle.NewTrustedContextResolver(assemblyRepository, assemblyWorkspaces, assemblyCatalog, experimentalAssemblyCatalog)
 	if err != nil {

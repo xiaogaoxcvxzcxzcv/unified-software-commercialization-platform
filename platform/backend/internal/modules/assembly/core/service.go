@@ -26,18 +26,23 @@ var (
 type IDGenerator func(string) (string, error)
 
 type Service struct {
-	repository    Repository
-	validator     DocumentValidator
-	planner       Planner
-	outputTargets OutputTargetVerifier
-	idGenerator   IDGenerator
-	now           func() time.Time
+	repository          Repository
+	validator           DocumentValidator
+	planner             Planner
+	experimentalPlanner Planner
+	outputTargets       OutputTargetVerifier
+	idGenerator         IDGenerator
+	now                 func() time.Time
 }
 
 type ServiceOption func(*Service)
 
 func WithOutputTargetVerifier(verifier OutputTargetVerifier) ServiceOption {
 	return func(service *Service) { service.outputTargets = verifier }
+}
+
+func WithExperimentalPlanner(planner Planner) ServiceOption {
+	return func(service *Service) { service.experimentalPlanner = planner }
 }
 
 func NewService(repository Repository, validator DocumentValidator, planner Planner, idGenerator IDGenerator, now func() time.Time, options ...ServiceOption) *Service {
@@ -122,6 +127,7 @@ func (s *Service) GetBlueprint(ctx context.Context, blueprintID string, revision
 type CreatePlanCommand struct {
 	BlueprintID, Environment, ActorID, IdempotencyKey, TraceID string
 	BlueprintVersion                                           int64
+	CatalogScope                                               string
 }
 
 func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Plan, error) {
@@ -135,7 +141,22 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 	if err != nil {
 		return Plan{}, err
 	}
-	planned, err := s.planner.BuildPlan(ctx, blueprint, command.Environment)
+	scope := command.CatalogScope
+	if scope == "" {
+		scope = "ordinary"
+	}
+	planner := s.planner
+	switch scope {
+	case "ordinary":
+	case "experimental":
+		if s.experimentalPlanner == nil {
+			return Plan{}, ErrPlanUnavailable
+		}
+		planner = s.experimentalPlanner
+	default:
+		return Plan{}, ErrInvalidCommand
+	}
+	planned, err := planner.BuildPlan(ctx, blueprint, command.Environment)
 	if err != nil {
 		return Plan{}, fmt.Errorf("%w: %v", ErrPlanUnavailable, err)
 	}
@@ -158,12 +179,13 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 		Environment      string `json:"environment"`
 		CatalogSnapshot  struct {
 			Revision string `json:"revision"`
+			Scope    string `json:"scope"`
 			Checksum string `json:"checksum"`
 		} `json:"catalog_snapshot"`
 		Capabilities []product.CapabilityItem `json:"capabilities"`
 		Executable   bool                     `json:"executable"`
 	}
-	if err := json.Unmarshal(validated.CanonicalJSON, &body); err != nil || body.PlanID == "" || body.BlueprintID != blueprint.BlueprintID || body.BlueprintVersion != blueprint.Revision || body.Environment != command.Environment || body.CatalogSnapshot.Revision == "" || !digestPattern.MatchString(body.CatalogSnapshot.Checksum) {
+	if err := json.Unmarshal(validated.CanonicalJSON, &body); err != nil || body.PlanID == "" || body.BlueprintID != blueprint.BlueprintID || body.BlueprintVersion != blueprint.Revision || body.Environment != command.Environment || body.CatalogSnapshot.Revision == "" || body.CatalogSnapshot.Scope != scope || !digestPattern.MatchString(body.CatalogSnapshot.Checksum) {
 		return Plan{}, ErrDocumentInvalid
 	}
 	capabilities, err := normalizeCapabilities(planned.Capabilities)
@@ -185,7 +207,7 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 		return Plan{}, err
 	}
 	plan := Plan{PlanID: body.PlanID, ProductID: blueprint.ProductID, BlueprintID: blueprint.BlueprintID, BlueprintRevision: blueprint.Revision, Version: 1, Environment: body.Environment, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, BlueprintSHA256: blueprint.ContentSHA256, CatalogRevision: body.CatalogSnapshot.Revision, CatalogSnapshotSHA256: body.CatalogSnapshot.Checksum, PlanSHA256: planChecksum, ConfirmationChecksum: confirmationChecksum, Review: review, Executable: body.Executable, Capabilities: capabilities, CreatedBy: command.ActorID, CreatedAt: now, UpdatedAt: now, AuditID: auditID}
-	idem, err := makeIdempotency("assembly.create_plan", command.ActorID, blueprint.BlueprintID, command.IdempotencyKey, struct{ BlueprintSHA256, Environment string }{blueprint.ContentSHA256, command.Environment}, now)
+	idem, err := makeIdempotency("assembly.create_plan", command.ActorID, blueprint.BlueprintID, command.IdempotencyKey, struct{ BlueprintSHA256, Environment, CatalogScope string }{blueprint.ContentSHA256, command.Environment, scope}, now)
 	if err != nil {
 		return Plan{}, err
 	}

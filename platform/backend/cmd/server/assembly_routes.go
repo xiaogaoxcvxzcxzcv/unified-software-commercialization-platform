@@ -147,7 +147,7 @@ func (a assemblyAdminAdapter) GetBlueprint(ctx context.Context, command assembly
 func (a assemblyAdminAdapter) CreatePlan(ctx context.Context, command assemblyhttp.CreatePlanCommand) (assemblyhttp.Plan, error) {
 	value, err := a.service.CreatePlan(ctx, core.CreatePlanCommand{
 		BlueprintID: command.BlueprintID, BlueprintVersion: command.BlueprintVersion, Environment: command.Environment,
-		ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
+		CatalogScope: command.CatalogScope, ActorID: command.ActorID, IdempotencyKey: command.IdempotencyKey, TraceID: command.TraceID,
 	})
 	return assemblyPlan(value), mapAssemblyError(err)
 }

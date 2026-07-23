@@ -38,9 +38,11 @@ func TestRunTerminalStatesCannotEvolveInPlace(t *testing.T) {
 type plannerStub struct {
 	document PlannedDocument
 	err      error
+	calls    int
 }
 
-func (p plannerStub) BuildPlan(context.Context, Blueprint, string) (PlannedDocument, error) {
+func (p *plannerStub) BuildPlan(context.Context, Blueprint, string) (PlannedDocument, error) {
+	p.calls++
 	return p.document, p.err
 }
 
@@ -186,11 +188,85 @@ func TestCreatePlanFailsClosedAndRejectsZeroBlueprintRevision(t *testing.T) {
 	if !errors.Is(err, ErrPlanUnavailable) {
 		t.Fatalf("nil planner error=%v", err)
 	}
-	service.planner = plannerStub{}
+	service.planner = &plannerStub{}
 	_, err = service.CreatePlan(context.Background(), CreatePlanCommand{BlueprintID: "bp_service-test", BlueprintVersion: 0, Environment: "test", ActorID: "admin", IdempotencyKey: "plan-create-key-02", TraceID: "trace"})
 	if !errors.Is(err, ErrInvalidCommand) || repository.createPlanCalls != 0 {
 		t.Fatalf("zero revision error=%v calls=%d", err, repository.createPlanCalls)
 	}
+}
+
+func TestCreatePlanSelectsServerSideCatalogPlanner(t *testing.T) {
+	repository := &repositoryStub{blueprint: Blueprint{BlueprintID: "bp_service-test", Revision: 1, ContentSHA256: testDigestA}}
+	ordinary := &plannerStub{document: plannedDocumentForScope(t, "ordinary")}
+	experimental := &plannerStub{document: plannedDocumentForScope(t, "experimental")}
+	service := NewService(repository, validatorStub{}, ordinary, sequenceIDs(), fixedClock(), WithExperimentalPlanner(experimental))
+	created, err := service.CreatePlan(context.Background(), CreatePlanCommand{BlueprintID: "bp_service-test", BlueprintVersion: 1, Environment: "test", CatalogScope: "experimental", ActorID: "admin", IdempotencyKey: "plan-create-key-exp", TraceID: "trace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.CatalogRevision != "catalog-experimental" || ordinary.calls != 0 || experimental.calls != 1 {
+		t.Fatalf("created=%+v ordinary=%d experimental=%d", created, ordinary.calls, experimental.calls)
+	}
+	_, err = service.CreatePlan(context.Background(), CreatePlanCommand{BlueprintID: "bp_service-test", BlueprintVersion: 1, Environment: "test", CatalogScope: "ordinary", ActorID: "admin", IdempotencyKey: "plan-create-key-ord", TraceID: "trace"})
+	if err != nil || ordinary.calls != 1 {
+		t.Fatalf("ordinary plan error=%v calls=%d", err, ordinary.calls)
+	}
+}
+
+func TestCreatePlanRejectsCatalogScopeDriftFromPlanner(t *testing.T) {
+	repository := &repositoryStub{blueprint: Blueprint{BlueprintID: "bp_service-test", Revision: 1, ContentSHA256: testDigestA}}
+	experimental := &plannerStub{document: plannedDocumentForScope(t, "ordinary")}
+	service := NewService(repository, validatorStub{}, &plannerStub{document: plannedDocumentForScope(t, "ordinary")}, sequenceIDs(), fixedClock(), WithExperimentalPlanner(experimental))
+	_, err := service.CreatePlan(context.Background(), CreatePlanCommand{BlueprintID: "bp_service-test", BlueprintVersion: 1, Environment: "test", CatalogScope: "experimental", ActorID: "admin", IdempotencyKey: "plan-create-key-exp", TraceID: "trace"})
+	if !errors.Is(err, ErrDocumentInvalid) || repository.createPlanCalls != 0 {
+		t.Fatalf("scope drift error=%v calls=%d", err, repository.createPlanCalls)
+	}
+}
+
+func plannedDocumentForScope(t *testing.T, scope string) PlannedDocument {
+	t.Helper()
+	confirmationChecksum, err := ConfirmationSummaryChecksum(0, 0, []string{"Confirm locked plan."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := map[string]any{
+		"schema_version":    "1.0.0",
+		"plan_id":           "plan.scope-test",
+		"plan_checksum":     testDigestB,
+		"blueprint_id":      "bp_service-test",
+		"blueprint_version": float64(1),
+		"environment":       "test",
+		"catalog_snapshot":  map[string]any{"revision": "catalog-" + scope, "scope": scope, "checksum": testDigestA},
+		"packages":          []any{},
+		"applications":      []any{map[string]any{"application_id": "application.web", "target": "web", "channel": "official", "environment": "test", "delivery_mode": "generated_source", "template": map[string]any{"template_id": "standard-a", "version": "1.0.0", "checksum": testDigestA}}},
+		"extensions":        []any{},
+		"generator":         map[string]any{"generator_id": "platform.generator", "version": "1.0.0", "checksum": testDigestA},
+		"sdks":              []any{map[string]any{"sdk_id": "platform.sdk", "version": "1.0.0", "checksum": testDigestA}},
+		"capabilities":      []product.CapabilityItem{},
+		"dependencies":      []any{},
+		"expected_outputs":  []any{},
+		"required_secrets":  []any{},
+		"risks":             []any{},
+		"conflicts":         []any{},
+		"confirmation":      map[string]any{"required": true, "blocking_conflict_count": float64(0), "risk_count": float64(0), "statements": []string{"Confirm locked plan."}, "summary_checksum": confirmationChecksum},
+		"rollback_strategy": map[string]any{"mode": "restore_previous_lock", "requires_snapshot": true},
+		"executable":        true,
+		"generated_at":      fixedClock()().Format(time.RFC3339Nano),
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checksum, err := machinecontract.DigestWithoutTopLevelField(raw, "plan_checksum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document["plan_checksum"] = checksum
+	raw, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return PlannedDocument{Document: raw, Capabilities: []product.CapabilityItem{}}
 }
 
 func TestConfirmAndStartRequireLockedConfirmationChecksum(t *testing.T) {
@@ -201,7 +277,7 @@ func TestConfirmAndStartRequireLockedConfirmationChecksum(t *testing.T) {
 	}
 	planDocument := json.RawMessage(`{"conflicts":[],"risks":[{"risk_id":"risk.locked-plan"}],"confirmation":{"required":true,"blocking_conflict_count":0,"risk_count":1,"statements":["Confirm locked plan."],"summary_checksum":"` + confirmationChecksum + `"}}`)
 	repository := &repositoryStub{plan: Plan{PlanID: "plan.service-test", Version: 1, Executable: true, PlanSHA256: testDigestB, Document: planDocument, ConfirmedAt: &now}}
-	service := NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock(), WithOutputTargetVerifier(OutputTargetVerifierFunc(
+	service := NewService(repository, validatorStub{}, &plannerStub{}, sequenceIDs(), fixedClock(), WithOutputTargetVerifier(OutputTargetVerifierFunc(
 		func(context.Context, string, string) error { return nil },
 	)))
 	_, err = service.ConfirmPlan(context.Background(), ConfirmPlanCommand{PlanID: repository.plan.PlanID, ConfirmationChecksum: testDigestB, ExpectedVersion: 1, ActorID: "admin", IdempotencyKey: "confirm-plan-key1", TraceID: "trace"})
@@ -238,13 +314,13 @@ func TestStartAssemblyFailsClosedThroughServerOutputTargetVerifier(t *testing.T)
 	}
 
 	repository := newRepository()
-	service := NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock())
+	service := NewService(repository, validatorStub{}, &plannerStub{}, sequenceIDs(), fixedClock())
 	if _, err := service.StartAssembly(context.Background(), command); !errors.Is(err, ErrOutputTargetUnavailable) || repository.startCalls != 0 {
 		t.Fatalf("missing verifier error=%v starts=%d", err, repository.startCalls)
 	}
 
 	repository = newRepository()
-	service = NewService(repository, validatorStub{}, plannerStub{}, sequenceIDs(), fixedClock(), WithOutputTargetVerifier(OutputTargetVerifierFunc(
+	service = NewService(repository, validatorStub{}, &plannerStub{}, sequenceIDs(), fixedClock(), WithOutputTargetVerifier(OutputTargetVerifierFunc(
 		func(_ context.Context, environment, outputTargetRef string) error {
 			if environment != "production" || outputTargetRef != "workspace.default" {
 				return ErrOutputTargetUnavailable

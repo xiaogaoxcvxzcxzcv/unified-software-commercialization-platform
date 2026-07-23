@@ -355,8 +355,37 @@ func TestHandlerCreatesServerGeneratedPlanWithoutClientPlanDocument(t *testing.T
 	if service.createPlanCalls != 1 || command.BlueprintID != "bp-video" || command.BlueprintVersion != 3 || command.Environment != "test" || command.ActorID != "admin-1" || command.TraceID != "request-assembly-0001" {
 		t.Fatalf("calls=%d command=%+v", service.createPlanCalls, command)
 	}
+	if command.CatalogScope != "ordinary" {
+		t.Fatalf("catalog scope=%q", command.CatalogScope)
+	}
 	if authorization.permission != assemblyPlanPermission || authorization.target.Type != "platform" {
 		t.Fatalf("permission=%q target=%+v", authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerCreatesExperimentalPlanThroughSeparatePermission(t *testing.T) {
+	service := &serviceStub{plan: validPlanResult("plan-1", "bp-video")}
+	handler, _, authorization := allowedHandler(service)
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/experimental/blueprints/bp-video/plan", `{"blueprint_version":3,"environment":"test"}`, writeHeaders("assembly-plan-key-0001"))
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	command := service.createPlan
+	if service.createPlanCalls != 1 || command.BlueprintID != "bp-video" || command.CatalogScope != "experimental" {
+		t.Fatalf("calls=%d command=%+v", service.createPlanCalls, command)
+	}
+	if authorization.permission != assemblyExperimentalPermission || authorization.target.Type != "platform" {
+		t.Fatalf("permission=%q target=%+v", authorization.permission, authorization.target)
+	}
+}
+
+func TestHandlerRejectsExperimentalPlanScopeInjectionOnOrdinaryRoute(t *testing.T) {
+	service := &serviceStub{plan: validPlanResult("plan-1", "bp-video")}
+	handler, _, _ := allowedHandler(service)
+	recorder := perform(handler, http.MethodPost, "https://api.example.test/api/v1/admin/blueprints/bp-video/plan", `{"blueprint_version":3,"environment":"test","catalog_scope":"experimental"}`, writeHeaders("assembly-plan-key-0001"))
+	assertProblem(t, recorder, http.StatusBadRequest, "assembly.invalid_request")
+	if service.createPlanCalls != 0 {
+		t.Fatalf("client catalog scope reached service: %+v", service.createPlan)
 	}
 }
 

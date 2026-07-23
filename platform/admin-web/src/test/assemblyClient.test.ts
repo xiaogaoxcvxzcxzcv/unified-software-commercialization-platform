@@ -213,6 +213,19 @@ describe("assemblyClient request contract", () => {
     });
   });
 
+  it("uses the separate experimental plan route without putting catalog scope in the body", async () => {
+    authenticatedRequest.mockResolvedValue(planResponse);
+    const controller = new AbortController();
+    await assemblyClient.createExperimentalPlan("blueprint-1", { blueprint_version: 2, environment: "test" }, { idempotencyKey: "intent-key-00001", signal: controller.signal });
+    expect(authenticatedRequest).toHaveBeenCalledWith("/api/v1/admin/experimental/blueprints/blueprint-1/plan", {
+      method: "POST",
+      headers: { "Idempotency-Key": "intent-key-00001" },
+      body: JSON.stringify({ blueprint_version: 2, environment: "test" }),
+      signal: controller.signal,
+    });
+    expect(String(authenticatedRequest.mock.calls[0][1].body)).not.toContain("catalog_scope");
+  });
+
   it("uses stable encoded read paths and forwards AbortSignal", async () => {
     const manifestResponse = { assembly_id: "assembly:1", product_id: "product-1", run_id: "run-1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", created_at: "2026-07-16T01:00:00Z" };
     const lockResponse = { lock_id: "lock:1", product_id: "product-1", run_id: "run-1", assembly_id: "assembly:1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", created_at: "2026-07-16T01:00:00Z" };

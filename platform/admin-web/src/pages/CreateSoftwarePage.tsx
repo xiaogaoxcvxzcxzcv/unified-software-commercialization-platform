@@ -267,7 +267,7 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
     setFieldErrors({});
     try {
       const blueprint = await assemblyClient.createBlueprint(document, { idempotencyKey, timeoutMs: 30_000 });
-      navigate(`/create/blueprints/${encodeURIComponent(blueprint.blueprint_id)}`);
+      navigate(`${catalogScope === "experimental" ? "/create/experimental/blueprints" : "/create/blueprints"}/${encodeURIComponent(blueprint.blueprint_id)}`);
     } catch (reason) {
       const failure = assemblyRequestFailure(reason, "validate_blueprint");
       dispatch({ type: "request_failed", operationToken, failure });
@@ -281,11 +281,12 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
     const idempotencyKey = createIntentKey("plan");
     dispatch({ type: "plan_requested", operationToken, idempotencyKey });
     try {
-      const plan = await assemblyClient.createPlan(state.blueprint.blueprint_id, {
+      const createScopedPlan = catalogScope === "experimental" ? assemblyClient.createExperimentalPlan : assemblyClient.createPlan;
+      const plan = await createScopedPlan(state.blueprint.blueprint_id, {
         blueprint_version: state.blueprint.version,
         environment: draft.environment,
       }, { idempotencyKey, timeoutMs: 45_000 });
-      navigate(`/create/plans/${encodeURIComponent(plan.plan_id)}`);
+      navigate(`${catalogScope === "experimental" ? "/create/experimental/plans" : "/create/plans"}/${encodeURIComponent(plan.plan_id)}`);
     } catch (reason) {
       dispatch({ type: "request_failed", operationToken, failure: assemblyRequestFailure(reason, "create_plan") });
     }
@@ -351,14 +352,15 @@ export function CreateSoftwarePage({ catalogScope = "ordinary" }: { catalogScope
         const blueprint = await assemblyClient.createBlueprint(state.draft, {
           idempotencyKey: state.validationIdempotencyKey, timeoutMs: 30_000,
         });
-        navigate(`/create/blueprints/${encodeURIComponent(blueprint.blueprint_id)}`);
+        navigate(`${catalogScope === "experimental" ? "/create/experimental/blueprints" : "/create/blueprints"}/${encodeURIComponent(blueprint.blueprint_id)}`);
         return;
       }
       if (intent === "create_plan" && state.planIdempotencyKey && state.blueprint) {
-        const plan = await assemblyClient.createPlan(state.blueprint.blueprint_id, {
+        const createScopedPlan = catalogScope === "experimental" ? assemblyClient.createExperimentalPlan : assemblyClient.createPlan;
+        const plan = await createScopedPlan(state.blueprint.blueprint_id, {
           blueprint_version: state.blueprint.version, environment: draft.environment,
         }, { idempotencyKey: state.planIdempotencyKey, timeoutMs: 45_000 });
-        navigate(`/create/plans/${encodeURIComponent(plan.plan_id)}`);
+        navigate(`${catalogScope === "experimental" ? "/create/experimental/plans" : "/create/plans"}/${encodeURIComponent(plan.plan_id)}`);
         return;
       }
       if (intent === "start_assembly" && state.executionIdempotencyKey && state.blueprint && state.plan && outputTargetRef) {

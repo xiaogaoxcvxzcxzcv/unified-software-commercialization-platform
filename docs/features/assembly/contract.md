@@ -41,7 +41,7 @@
 
 ## 解析装配计划
 
-- API：`POST /api/v1/admin/blueprints/{blueprint_id}/plan`
+- API：普通入口固定使用 `POST /api/v1/admin/blueprints/{blueprint_id}/plan`；受控实验入口固定使用 `POST /api/v1/admin/experimental/blueprints/{blueprint_id}/plan`
 - 输入：蓝图版本、目标环境
 - 输出：只读 Assembly Plan，包含多 Application 解析结果、锁定 CapabilitySet、完整 Provider 配置、将创建/启用/生成/测试的内容、带 ownership/source 的预期输出、风险、规范化输入摘要和不可变目录快照
 - 幂等：相同规范化蓝图、目录快照和生成器版本得到字节级等价计划；运行 ID、当前时间、时区和宿主信息不进入计划内容
@@ -81,7 +81,7 @@
 ### 查询服务端授权输出目标
 
 - API：`GET /api/v1/admin/assembly-output-targets?environment={environment}`
-- 权限：`assembly.plan`，platform scope；这是创建前资源，不接受客户端 `product_id` 或 `tenant_id`
+- 权限：普通计划使用 `assembly.plan`，受控实验计划使用 `assembly.experimental.use`，均为 platform scope；这是创建前资源，不接受客户端 `product_id`、`tenant_id` 或 `catalog_scope`
 - 输入：必填且唯一的 `environment`，只允许 `development | test | staging | production`
 - 输出：`environment`、固定为 `explicit` 的 `default_policy`、可空的 `default_output_target_ref`，以及只含 `{output_target_ref, display_name, summary, is_default}` 的列表
 - 脱敏：响应不得包含源码根、制品根、宿主绝对/相对路径、磁盘、UNC、用户名、环境变量或内部目录结构；展示字段来自受控服务端配置，不能由 Blueprint 或浏览器提交

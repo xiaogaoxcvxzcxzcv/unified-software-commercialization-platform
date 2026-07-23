@@ -56,7 +56,9 @@ function AuthenticatedRoutes() {
     <Route path="/create" element={<GlobalRoute><CreateSoftwarePage /></GlobalRoute>} />
     <Route path="/create/experimental" element={<GlobalRoute><CreateSoftwarePage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/create/blueprints/:blueprintId" element={<GlobalRoute><CreateBlueprintRecoveryPage /></GlobalRoute>} />
+    <Route path="/create/experimental/blueprints/:blueprintId" element={<GlobalRoute><CreateBlueprintRecoveryPage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/create/plans/:planId" element={<GlobalRoute><CreatePlanRecoveryPage /></GlobalRoute>} />
+    <Route path="/create/experimental/plans/:planId" element={<GlobalRoute><CreatePlanRecoveryPage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/assemblies" element={<GlobalRoute><AssemblyRunsPage /></GlobalRoute>} />
     <Route path="/assemblies/:runId" element={<GlobalRoute><AssemblyRunPage /></GlobalRoute>} />
     <Route path="/assemblies/:runId/lifecycle" element={<GlobalRoute><AssemblyLifecycleEntryPage /></GlobalRoute>} />

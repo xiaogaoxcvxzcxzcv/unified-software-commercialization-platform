@@ -765,6 +765,15 @@ export const assemblyClient = {
     return parsePlan(result);
   },
 
+  async createExperimentalPlan(blueprintId: string, input: CreatePlanInput, options: AssemblyWriteOptions) {
+    assertIdentifier(blueprintId, "blueprintId");
+    const result = await authenticatedAdminRequest<unknown>(
+      `/api/v1/admin/experimental/blueprints/${encodeURIComponent(blueprintId)}/plan`,
+      writeInit(input as unknown as JsonValue, options),
+    );
+    return parsePlan(result);
+  },
+
   async getPlan(planId: string, options: AssemblyRequestOptions = {}) {
     assertIdentifier(planId, "planId");
     return parsePlan(await authenticatedAdminRequest<unknown>(`/api/v1/admin/assembly-plans/${encodeURIComponent(planId)}`, readInit(options)));
