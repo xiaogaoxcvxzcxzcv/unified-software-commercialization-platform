@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthApiError } from "../api/authClient";
 import { entitlementAdminClient, type EntitlementSummary } from "../api/entitlementAdminClient";
 import { EntitlementsPage } from "../pages/EntitlementsPage";
 
@@ -19,6 +20,11 @@ function resetContext(enabled = true, permissions = ["entitlement.read", "entitl
   mocks.auth = { session: { authorization: { permissions, scopes: [{ scope_type: "platform", scope_id: null, product_id: null, tenant_id: null }] }, admin: { display_name: "管理员" } }, logout: vi.fn(async () => {}) };
 }
 function renderPage() { return render(<MemoryRouter initialEntries={["/products/product-1/entitlements"]}><EntitlementsPage/></MemoryRouter>); }
+function LocationProbe() {
+  const location = useLocation();
+  const state = location.state as { from?: string } | null;
+  return <output aria-label="location">{location.pathname}|{state?.from ?? ""}</output>;
+}
 
 beforeEach(() => { vi.restoreAllMocks(); resetContext(); });
 
@@ -70,5 +76,28 @@ describe("entitlement admin blocks", () => {
     await user.click(within(screen.getByRole("dialog", { name: "撤销权益" })).getByRole("checkbox"));
     await user.click(within(screen.getByRole("dialog", { name: "撤销权益" })).getByRole("button", { name: "确认提交" }));
     await waitFor(() => expect(revoke).toHaveBeenCalledWith({ productId: "product-1", tenantId: "tenant-1" }, "grant-1", expect.objectContaining({ userId: "user-1", expectedRevision: 2 }), expect.anything()));
+  });
+
+  it("高风险操作需要重新认证时提供重新登录并返回当前页", async () => {
+    vi.spyOn(entitlementAdminClient, "listCurrent").mockResolvedValue({ items: [], nextCursor: null });
+    vi.spyOn(entitlementAdminClient, "listHistory").mockResolvedValue({ items: [], nextCursor: null });
+    vi.spyOn(entitlementAdminClient, "grant").mockRejectedValue(new AuthApiError("Forbidden", { status: 403, code: "admin_auth.reauthentication_required", retryable: false }));
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/products/product-1/entitlements"]}>
+      <Routes>
+        <Route path="/products/:productId/entitlements" element={<><EntitlementsPage/><LocationProbe/></>} />
+        <Route path="/login" element={<LocationProbe/>} />
+      </Routes>
+    </MemoryRouter>);
+    await screen.findByText("当前范围没有权益记录");
+    await user.type(screen.getByLabelText("筛选用户 ID"), "user-1");
+    await user.click(screen.getByRole("button", { name: "授予权益" }));
+    const dialog = screen.getByRole("dialog", { name: "授予权益" });
+    await user.click(within(dialog).getByRole("button", { name: "确认提交" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("近期重新认证");
+    expect(within(dialog).getByRole("button", { name: "确认提交" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "重新登录并返回此页" }));
+    await waitFor(() => expect(mocks.auth.logout).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("/login|/products/product-1/entitlements"));
   });
 });

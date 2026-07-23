@@ -1,10 +1,12 @@
 import { IconCirclePlus, IconHistory, IconRefresh, IconShieldX } from "@tabler/icons-react";
 import { FormEvent, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   createEntitlementIntentKey,
   entitlementAdminClient,
   entitlementErrorMessage,
   entitlementHasVersionConflict,
+  entitlementRequiresReauthentication,
   type EntitlementLedgerEntry,
   type EntitlementSummary,
   type EntitlementValidityInput,
@@ -26,7 +28,9 @@ function hasPermission(permissions: string[], permission: string) { return permi
 
 export function EntitlementsPage() {
   const { currentProduct, currentTenant, enabledPackageIds } = useAppContext();
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const permissions = session?.authorization.permissions ?? [];
   const capabilityEnabled = enabledPackageIds.has("package.entitlement");
   const canRead = hasPermission(permissions, "entitlement.read");
@@ -40,6 +44,8 @@ export function EntitlementsPage() {
   const [mutation, setMutation] = useState<MutationKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reauthenticationRequired, setReauthenticationRequired] = useState(false);
+  const [preparingLogin, setPreparingLogin] = useState(false);
   const [result, setResult] = useState<{ message: string; auditId: string; grantId: string; revision: number } | null>(null);
   const [policyId, setPolicyId] = useState("policy-pro");
   const [policyVersion, setPolicyVersion] = useState(1);
@@ -83,7 +89,19 @@ export function EntitlementsPage() {
     setSelectedGrantId(item ? "" : selectedGrantId);
     setReasonCode(kind === "grant" ? "manual_grant" : kind === "extend" ? "manual_extend" : "manual_revoke");
     setSubmitError(null);
+    setReauthenticationRequired(false);
     setRevokeConfirm(false);
+  };
+  const beginReauthentication = async () => {
+    if (preparingLogin) return;
+    setPreparingLogin(true);
+    try {
+      await logout();
+      navigate("/login", { replace: true, state: { from: `${location.pathname}${location.search}` } });
+    } catch {
+      setSubmitError("重新登录前退出当前会话失败，请重试");
+      setPreparingLogin(false);
+    }
   };
   const submitMutation = async (event: FormEvent) => {
     event.preventDefault();
@@ -95,6 +113,7 @@ export function EntitlementsPage() {
     if (mutation === "revoke" && !revokeConfirm) { setSubmitError("撤销是高风险操作，请先勾选二次确认"); return; }
     setSubmitting(true);
     setSubmitError(null);
+    setReauthenticationRequired(false);
     try {
       const source = { sourceType, sourceId, sourceEffectId };
       const response = mutation === "grant"
@@ -108,6 +127,7 @@ export function EntitlementsPage() {
       historyQuery.retry();
     } catch (reason) {
       setSubmitError(entitlementErrorMessage(reason, "权益操作失败，请重试"));
+      if (entitlementRequiresReauthentication(reason)) setReauthenticationRequired(true);
       if (entitlementHasVersionConflict(reason)) {
         listQuery.retry();
         historyQuery.retry();
@@ -141,7 +161,8 @@ export function EntitlementsPage() {
         <label>原因码<input required value={reasonCode} onChange={(event) => setReasonCode(event.target.value)} /></label>
         {mutation === "revoke" && <label className="checkbox-line"><input type="checkbox" checked={revokeConfirm} onChange={(event) => setRevokeConfirm(event.target.checked)} />我确认撤销会改变用户当前权益，并已核对产品、租户、用户和 grant_id</label>}
         {submitError && <p className="form-error" role="alert">{submitError}</p>}
-        <footer><button className="secondary-button" type="button" disabled={submitting} onClick={() => setMutation(null)}>取消</button><button className={mutation === "revoke" ? "primary-button danger-primary" : "primary-button"} type="submit" disabled={submitting || (mutation === "grant" && !filterUserId.trim())}>{submitting ? "提交中..." : "确认提交"}</button></footer>
+        {reauthenticationRequired && <button className="secondary-button" type="button" disabled={preparingLogin} onClick={() => void beginReauthentication()}>{preparingLogin ? "正在退出当前会话..." : "重新登录并返回此页"}</button>}
+        <footer><button className="secondary-button" type="button" disabled={submitting || preparingLogin} onClick={() => setMutation(null)}>取消</button><button className={mutation === "revoke" ? "primary-button danger-primary" : "primary-button"} type="submit" disabled={submitting || preparingLogin || reauthenticationRequired || (mutation === "grant" && !filterUserId.trim())}>{submitting ? "提交中..." : "确认提交"}</button></footer>
       </form>
     </Modal>
   </Shell>;

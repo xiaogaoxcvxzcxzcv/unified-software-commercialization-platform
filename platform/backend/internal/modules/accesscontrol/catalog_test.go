@@ -23,6 +23,8 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 		"assembly.read",
 		"audit.read",
 		"entitlement.manage",
+		"entitlement.read",
+		"entitlement.revoke",
 		"identity.manage",
 		"identity.security.manage",
 		"identity.user.read",
@@ -45,7 +47,7 @@ func TestCurrentPermissionCatalogIsVersionedUniqueAndStable(t *testing.T) {
 	if err := catalog.ValidateRequiredPermissions(got); err != nil {
 		t.Fatalf("current catalog does not validate: %v", err)
 	}
-	const wantChecksum = "sha256:6284f82371bfe67000b7ef7788ddbcb990c7e85bb6033ae38aa36f1728e9e537"
+	const wantChecksum = "sha256:f3fb78343bed9689cabff770afd309f6fa9258ef8875767ed7b5fc239c2709df"
 	if checksum := catalog.Checksum(); checksum != wantChecksum {
 		t.Fatalf("checksum = %q, want %q", checksum, wantChecksum)
 	}
@@ -68,6 +70,34 @@ func TestAccountPermissionsSeparateGlobalSecurityFromScopedAdmission(t *testing.
 	}
 	if len(want) != 0 {
 		t.Fatalf("account permissions missing from catalog: %v", want)
+	}
+}
+
+func TestEntitlementPermissionsSeparateReadManageAndRevoke(t *testing.T) {
+	catalog := CurrentPermissionCatalog()
+	want := map[string]PermissionRisk{
+		"entitlement.read":   PermissionRiskNormal,
+		"entitlement.manage": PermissionRiskHigh,
+		"entitlement.revoke": PermissionRiskHigh,
+	}
+	for _, definition := range catalog.Definitions() {
+		risk, ok := want[definition.Code]
+		if !ok {
+			continue
+		}
+		if definition.Risk != risk {
+			t.Errorf("permission %q risk = %q, want %q", definition.Code, definition.Risk, risk)
+		}
+		if !definition.GrantsPlatformSuperAdminOnBootstrap() {
+			t.Errorf("permission %q is not granted to the bootstrap platform super administrator", definition.Code)
+		}
+		delete(want, definition.Code)
+	}
+	if len(want) != 0 {
+		t.Fatalf("entitlement permissions missing from catalog: %v", want)
+	}
+	if err := catalog.ValidateRequiredPermissions([]string{"entitlement.read", "entitlement.manage", "entitlement.revoke"}); err != nil {
+		t.Fatalf("entitlement permission declarations do not validate: %v", err)
 	}
 }
 

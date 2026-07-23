@@ -148,3 +148,4 @@ export function entitlementErrorMessage(reason: unknown, fallback: string) {
   return reason.detail || reason.message || fallback;
 }
 export function entitlementHasVersionConflict(reason: unknown) { return reason instanceof AuthApiError && reason.status === 409; }
+export function entitlementRequiresReauthentication(reason: unknown) { return reason instanceof AuthApiError && reason.code === "admin_auth.reauthentication_required"; }
