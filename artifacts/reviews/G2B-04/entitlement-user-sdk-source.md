@@ -58,7 +58,7 @@ Full 门禁与远端证据：
 - push run `29992876224`：`windows-tls` 与 `quality-gate` 均成功。
 - pull_request run `29993171659`：`windows-tls` 与 `quality-gate` 均成功。
 - 证据修正提交：`aeffc8c1e0319f2cac3bd24be8850a93ac197e33`，push run `29994268909` 与 pull_request run `29994272834` 均成功。
-- 浏览器补证据当前仍在本地工作区，最终提交和托管 CI 待本批次提交后补记。
+- 最终浏览器补证据提交：`f5efb28a4c81857e80a34c602ec6e26d9835af1a`，push run `29998596036` 与 pull_request run `29998597965` 均成功。
 
 ## 子代理审查
 
