@@ -213,8 +213,47 @@ describe("assemblyClient request contract", () => {
     });
   });
 
+  it("uses the separate experimental plan route without putting catalog scope in the body", async () => {
+    authenticatedRequest.mockResolvedValue(planResponse);
+    const controller = new AbortController();
+    await assemblyClient.createExperimentalPlan("blueprint-1", { blueprint_version: 2, environment: "test" }, { idempotencyKey: "intent-key-00001", signal: controller.signal });
+    expect(authenticatedRequest).toHaveBeenCalledWith("/api/v1/admin/experimental/blueprints/blueprint-1/plan", {
+      method: "POST",
+      headers: { "Idempotency-Key": "intent-key-00001" },
+      body: JSON.stringify({ blueprint_version: 2, environment: "test" }),
+      signal: controller.signal,
+    });
+    expect(String(authenticatedRequest.mock.calls[0][1].body)).not.toContain("catalog_scope");
+  });
+
+  it("accepts stable nullable run step timestamps from the backend projection", async () => {
+    authenticatedRequest.mockResolvedValue({
+      ...runResponse,
+      steps: [{
+        step_id: "step.provision",
+        kind: "provision",
+        status: "pending",
+        attempt: 0,
+        compensation_status: "pending",
+        started_at: null,
+        finished_at: null,
+        diagnostic_ids: [],
+      }],
+    });
+
+    const result = await assemblyClient.getRun("run-1");
+
+    expect(result.steps[0]).toMatchObject({
+      step_id: "step.provision",
+      started_at: null,
+      finished_at: null,
+    });
+  });
+
   it("uses stable encoded read paths and forwards AbortSignal", async () => {
-    authenticatedRequest.mockImplementation(async (path?: string) => String(path).includes("/assembly-runs/") ? runResponse : String(path).includes("/assembly-plans/") ? planResponse : String(path).includes("/blueprints/") ? blueprintResponse : {});
+    const manifestResponse = { assembly_id: "assembly:1", product_id: "product-1", run_id: "run-1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", created_at: "2026-07-16T01:00:00Z" };
+    const lockResponse = { lock_id: "lock:1", product_id: "product-1", run_id: "run-1", assembly_id: "assembly:1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", created_at: "2026-07-16T01:00:00Z" };
+    authenticatedRequest.mockImplementation(async (path?: string) => String(path).includes("/assembly-runs/") ? runResponse : String(path).includes("/assembly-plans/") ? planResponse : String(path).includes("/blueprints/") ? blueprintResponse : String(path).includes("/assembly-manifests/") ? manifestResponse : String(path).includes("/generated-project-locks/") ? lockResponse : {});
     const controller = new AbortController();
     const options = { signal: controller.signal };
 
@@ -294,6 +333,11 @@ describe("assemblyClient request contract", () => {
     expect(authenticatedRequest).toHaveBeenNthCalledWith(2, "/api/v1/admin/assembly-runs/run-1/retry", expect.objectContaining({
       method: "POST", headers: { "Idempotency-Key": "assembly-retry-00001" }, body: JSON.stringify({ expected_version: 2 }),
     }));
+  });
+
+  it("accepts the persisted cancelled run terminal state", async () => {
+    authenticatedRequest.mockResolvedValue({ ...runResponse, status: "cancelled", version: 2, completed_at: "2026-07-16T01:01:00Z" });
+    await expect(assemblyClient.getRun("run-1")).resolves.toMatchObject({ status: "cancelled", version: 2 });
   });
 
   it("rejects unknown fields and host paths in diagnostic projections", async () => {

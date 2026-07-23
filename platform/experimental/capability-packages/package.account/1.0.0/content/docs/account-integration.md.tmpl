@@ -1,0 +1,17 @@
+# Account integration
+
+This file is generated from package.account@1.0.0. Change product-specific behavior under custom/ and do not edit generated account files directly.
+
+## Runtime
+
+Create the public SDK through createAccountRuntime after the host has established its trusted Client Session. Account access and refresh tokens remain inside the SDK. Browser applications use the Hosted HttpOnly session flow for refresh recovery; desktop hosts may inject an AccountSessionVault backed by operating-system secure storage.
+
+Use createAccountRoutes with the six public Client UI Block prop contracts, then pass the returned route descriptors to the selected UI template router. The package exports only Account public routes and does not own the template shell or product business routes.
+
+## Configuration
+
+Pass the deployment or assembly runtime projection through defineAccountRuntimeConfig. The projection matches the package config schema but does not read a non-existent Blueprint field. It contains public API and Hosted origins, password and recovery policy, pre-registered return target codes, Provider availability, and secret reference identifiers. It must never contain a secret value, final return URI, credential, proof, token, host absolute path, or real user record.
+
+## Verification
+
+Run the generated account.generated.test.ts through the product test harness. The test establishes a trusted Client Session, starts registration verification, and calls the public sdk.account surface for registration, login, Vault restoration, profile update, and logout without implementing another authentication state machine.

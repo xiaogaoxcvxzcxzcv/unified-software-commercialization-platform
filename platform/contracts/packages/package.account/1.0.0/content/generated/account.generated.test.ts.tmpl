@@ -1,0 +1,334 @@
+import { describe, expect, test } from "vitest";
+import {
+  type AccountSessionRecord,
+  type AccountSessionVault,
+  type CreateClientSessionInput,
+  type FetchLike,
+} from "@capability-platform/client-sdk";
+import { verifyAccountIntegration } from "./integration.example.js";
+import { createAccountRuntime } from "./client.js";
+import { createAccountRoutes } from "./routes.js";
+
+import {
+  type AccountGeneratedRuntimeConfig,
+  defineAccountRuntimeConfig,
+} from "./runtime-config.js";
+const futureAccess = "2099-07-20T10:00:00Z";
+const futureRefresh = "2099-08-20T10:00:00Z";
+const clientToken = "client-session-".padEnd(48, "c");
+const accessToken = "access-session-".padEnd(48, "a");
+const refreshToken = "refresh-session-".padEnd(48, "r");
+
+function jsonResponse(body: unknown, status = 200, noStore = false): Response {
+  return new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(noStore ? { "Cache-Control": "private, no-store" } : {}),
+    },
+  });
+}
+
+describe("generated Account integration", () => {
+  test("runs through ClientSdk.account with trusted bearer and Vault boundaries", async () => {
+    const requests: Array<{ readonly path: string; readonly authorization: string | null }> = [];
+    const user = {
+      user_id: "user-fixture", account_status: "active", display_name: "Generated Account",
+      product_id: "product-fixture", tenant_id: "tenant-fixture", access_version: 1,
+      product_access_status: "active", tenant_access_status: "active",
+    };
+    const credentials = {
+      access_token: accessToken, refresh_token: refreshToken,
+      access_expires_at: futureAccess, refresh_expires_at: futureRefresh, user,
+    };
+    const responses = [
+      jsonResponse({
+        client_session_token: clientToken,
+        expires_at: futureAccess,
+        product_context: { product_id: "product-fixture", product_code: "fixture", environment: "test" },
+        application_context: {
+          product_id: "product-fixture", environment: "test", application_id: "application-fixture",
+          application_code: "web", platform: "web", distribution_channel: "test",
+          client_id: "client-fixture", client_version: "1.0.0", release_track: "internal", context_version: 1,
+        },
+        tenant_context: {
+          product_id: "product-fixture", tenant_id: "tenant-fixture", tenant_type: "official",
+          tenant_status: "active", resolved_by: "official_channel", context_version: 1,
+        },
+      }, 201, true),
+      jsonResponse({ accepted: true, continuation_id: "continuation.fixture" }, 202, true),
+      jsonResponse(credentials, 201, true),
+      jsonResponse(undefined, 204),
+      jsonResponse(credentials, 200, true),
+      jsonResponse({
+        user_id: "user-fixture", version: 1, display_name: "Generated Account",
+        avatar_url: null, locale: "en", timezone: "UTC",
+      }),
+      jsonResponse({
+        user_id: "user-fixture", version: 2, display_name: "Generated Account",
+        avatar_url: null, locale: "en", timezone: "UTC",
+      }),
+      jsonResponse(undefined, 204),
+    ];
+    const fetch: FetchLike = async (input, init) => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected generated Account request");
+      requests.push({
+        path: new URL(String(input)).pathname,
+        authorization: new Headers(init?.headers).get("Authorization"),
+      });
+      return response;
+    };
+    let stored: AccountSessionRecord | undefined;
+    let vaultLoadCount = 0;
+    const createVault = (): AccountSessionVault => ({
+      load: async () => { vaultLoadCount += 1; return stored; },
+      save: async (record) => { stored = record; },
+      clear: async () => { stored = undefined; },
+    });
+    const primaryVault = createVault();
+    const restoredVault = createVault();
+    const runtimeOptions = {
+      baseUrl: "https://api.example.test",
+      fetch,
+      accountSessionVault: primaryVault,
+      maxRetries: 0,
+      requestIdFactory: () => "request-generated-account",
+    } as const;
+    const { sdk, account } = createAccountRuntime(runtimeOptions);
+    const { account: restoredAccount } = createAccountRuntime({
+      ...runtimeOptions,
+      accountSessionVault: restoredVault,
+    });
+    const clientInput: CreateClientSessionInput = {
+      clientId: "client-fixture",
+      credentialId: "credential-fixture",
+      clientVersion: "1.0.0",
+      requestNonce: "nonce-generated-account",
+      clientProof: {
+        schema_version: 1,
+        type: "hmac_sha256_v1",
+        value: "proof-value".padEnd(64, "p"),
+        timestamp: "2026-07-20T00:00:00Z",
+      },
+    };
+
+    await sdk.establishSession(clientInput);
+    await verifyAccountIntegration(account, restoredAccount, {
+      identifier: "generated-account@example.test",
+      credential: "fixture-only-credential",
+      verificationIdempotencyKey: "verification.fixture",
+      verificationProof: "proof.fixture.0001",
+      registrationIdempotencyKey: "register.fixture",
+      profileIdempotencyKey: "profile.fixture.01",
+      displayName: "Generated Account",
+    });
+
+    expect(requests.map((request) => request.path)).toEqual([
+      "/api/v1/client/session",
+      "/api/v1/auth/verification/start",
+      "/api/v1/auth/register",
+      "/api/v1/auth/logout",
+      "/api/v1/auth/login",
+      "/api/v1/account/profile",
+      "/api/v1/account/profile",
+      "/api/v1/auth/logout",
+    ]);
+    expect(requests[1]?.authorization).toBe("Bearer " + clientToken);
+    expect(requests[2]?.authorization).toBe("Bearer " + clientToken);
+    expect(requests[3]?.authorization).toBe("Bearer " + accessToken);
+    expect(requests[4]?.authorization).toBe("Bearer " + clientToken);
+    expect(requests.slice(5).every((request) => request.authorization === "Bearer " + accessToken)).toBe(true);
+    expect(primaryVault).not.toBe(restoredVault);
+    expect(vaultLoadCount).toBe(1);
+    expect(stored).toBeUndefined();
+    expect(account.session).toBeNull();
+    expect(restoredAccount.session).toBeNull();
+
+    const validRuntimeConfig: AccountGeneratedRuntimeConfig = {
+      api_origin: "https://api.example.test",
+      package_config: {
+        password_policy: {
+          minimum_length: 12,
+          revoke_other_sessions_on_change: true,
+        },
+        recovery: {
+          security_notification_provider_ref: "notification.security",
+          challenge_ttl_seconds: 600,
+        },
+        hosted: {
+          origin: "https://account.example.test",
+          return_target_codes: { auth: "auth.default", account: "account.default" },
+        },
+        external_providers: {
+          oidc: { enabled: false },
+          wechat: { enabled: false },
+        },
+      },
+    };
+    const runtimeConfig = defineAccountRuntimeConfig(validRuntimeConfig);
+    expect(Object.isFrozen(runtimeConfig)).toBe(true);
+    expect(Object.isFrozen(runtimeConfig.package_config)).toBe(true);
+    expect(Object.isFrozen(runtimeConfig.package_config.hosted)).toBe(true);
+    expect(Object.isFrozen(runtimeConfig.package_config.external_providers.oidc)).toBe(true);
+    const originalHostedOrigin = runtimeConfig.package_config.hosted.origin;
+    expect(() => {
+      (runtimeConfig.package_config.hosted as { origin: string }).origin = "https://changed.example.test";
+    }).toThrow(TypeError);
+    expect(runtimeConfig.package_config.hosted.origin).toBe(originalHostedOrigin);
+    const loopbackRuntimeConfig = defineAccountRuntimeConfig({
+      ...validRuntimeConfig,
+      api_origin: "http://127.0.0.1:5174",
+      package_config: {
+        ...validRuntimeConfig.package_config,
+        hosted: {
+          ...validRuntimeConfig.package_config.hosted,
+          origin: "http://[::1]:5175",
+        },
+        external_providers: {
+          ...validRuntimeConfig.package_config.external_providers,
+          oidc: {
+            enabled: true,
+            provider_application_ref: "oidc.primary",
+            client_secret_ref: "secret.oidc.primary",
+            issuer: "http://localhost:5556/issuer",
+            return_target_codes: ["account.callback"],
+          },
+        },
+      },
+    });
+    expect(loopbackRuntimeConfig.api_origin).toBe("http://127.0.0.1:5174");
+    const oidcTargets = loopbackRuntimeConfig.package_config.external_providers.oidc.return_target_codes;
+    expect(Object.isFrozen(oidcTargets)).toBe(true);
+    expect(() => (oidcTargets as unknown as string[]).push("changed.callback")).toThrow(TypeError);
+    expect(oidcTargets).toEqual(["account.callback"]);
+
+    const invalidConfigs: unknown[] = [
+      { ...validRuntimeConfig, api_origin: "http://api.example.test" },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          hosted: { ...validRuntimeConfig.package_config.hosted, origin: "https://account.example.test/path" },
+        },
+      },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          hosted: {
+            ...validRuntimeConfig.package_config.hosted,
+            return_target_codes: { auth: "https://app.example.test/callback", account: "account.default" },
+          },
+        },
+      },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          external_providers: {
+            ...validRuntimeConfig.package_config.external_providers,
+            wechat: { enabled: false, client_secret_ref: "secret.wechat.primary" },
+          },
+        },
+      },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          external_providers: {
+            ...validRuntimeConfig.package_config.external_providers,
+            wechat: { enabled: true, provider_application_ref: "wechat.primary", return_target_codes: ["account.callback"] },
+          },
+        },
+      },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          external_providers: {
+            ...validRuntimeConfig.package_config.external_providers,
+            oidc: {
+              enabled: true,
+              provider_application_ref: "oidc.primary",
+              client_secret_ref: "secret.oidc.primary",
+              return_target_codes: ["account.callback"],
+            },
+          },
+        },
+      },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          external_providers: {
+            ...validRuntimeConfig.package_config.external_providers,
+            oidc: {
+              enabled: true,
+              provider_application_ref: "oidc.primary",
+              client_secret_ref: "secret.oidc.primary",
+              issuer: "http://identity.example.test/issuer",
+              return_target_codes: ["account.callback"],
+            },
+          },
+        },
+      },
+      {
+        ...validRuntimeConfig,
+        package_config: {
+          ...validRuntimeConfig.package_config,
+          external_providers: {
+            ...validRuntimeConfig.package_config.external_providers,
+            oidc: {
+              enabled: false,
+              issuer: "https://id.example/%zz",
+            },
+          },
+        },
+      },
+      { ...validRuntimeConfig, unexpected: true },
+    ];
+    for (const candidate of invalidConfigs) {
+      expect(() => defineAccountRuntimeConfig(candidate as AccountGeneratedRuntimeConfig)).toThrow(
+        "Invalid Account runtime configuration",
+      );
+    }
+    const routes = createAccountRoutes({
+      login: { state: "ready", actions: {} },
+      register: { state: "ready", step: "request_verification", actions: {} },
+      recovery: { state: "ready", step: "identify", actions: {} },
+      center: {
+        state: "ready",
+        user: { displayName: "Generated Account" },
+        security: { passwordConfigured: true, activeSessionCount: 1, externalIdentityCount: 0 },
+        actions: {},
+      },
+      profile: {
+        state: "ready",
+        value: {
+          displayName: "Generated Account",
+          locale: "en",
+          timezone: "UTC",
+          version: 2,
+        },
+        actions: {},
+      },
+      security: {
+        state: "ready",
+        sessions: [],
+        passwordChangeAllowed: false,
+        actions: {},
+      },
+    });
+    expect(routes.map((route) => route.blockId)).toEqual([
+      "auth.login",
+      "auth.register",
+      "auth.recovery",
+      "account.center",
+      "account.profile",
+      "account.security",
+    ]);
+    expect(routes.every((route) => route.path.startsWith("/account"))).toBe(true);
+    expect(routes.every((route) => typeof route.Component === "function")).toBe(true);
+  });
+});

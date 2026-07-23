@@ -1,0 +1,50 @@
+# 软件开发交接说明
+
+本文由统一能力底座装配生成，供未参与装配过程的 AI 或开发人员独立接手本软件正文开发。
+
+## 装配摘要
+
+```json
+{{json:blueprint.product}}
+```
+
+```json
+{{json:plan}}
+```
+
+## 已提供能力
+
+本次装配已选择并锁定 `package.account`、`package.entitlement`、`standard-a`、受信 Generator 和 SDK。生成源码包含前台 Shell、公共账号入口、个人中心、权益摘要、SDK 接入示例、测试入口、Assembly Manifest 和 Generated Project Lock。
+
+统一后台能力不复制到本仓库。管理员应在统一后台对应 Product 工作区使用用户查询、用户详情、权益授予、延长、撤销和流水能力。
+
+## 正文开发边界
+
+本仓库的正文业务开发从 custom 或已登记 Extension 范围开始。允许开发：
+
+- 软件独有首页、目录页、工作台和核心业务页面。
+- 软件独有数据模型、API 和事件，但必须位于 Extension Manifest 声明的数据命名空间。
+- 调用公共 SDK/API 的业务入口和完成事件。
+
+禁止开发：
+
+- 第二套登录、注册、找回密码、个人中心或权益状态机。
+- 绕过 SDK/API 的数据库直连、Provider 直连或跨模块 Repository 访问。
+- 修改 Generated Project Lock 登记的 generated 文件来规避平台升级。
+
+## 启动和测试
+
+先按生成的 `package.json` 安装依赖并运行本仓库测试。公共能力调用必须使用服务端签发的 Product/Application/Tenant 可信上下文；不得手写 `product_id`、`tenant_id`、Authorization、Cookie、价格、支付结果或权益结论。
+
+## 升级、回滚和 eject
+
+重生成、升级、回滚和 eject 必须回到统一后台 Assembly lifecycle 入口，由服务端根据当前 Assembly Manifest、Generated Project Lock、目标快照和目录版本生成不可变计划。不要手动覆盖 generated 文件。
+
+## 公共能力不足时
+
+如果正文开发发现当前公共能力缺失，停止对共享层的直接修改，提交以下信息：
+
+1. 缺失的公共能力或交付面。
+2. 影响的目标端、能力包、UI 模板和 SDK/API。
+3. 是否会被多款软件复用。
+4. 需要的契约、迁移、测试和回滚影响。

@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"platform.local/capability-platform/backend/internal/modules/audit"
 )
@@ -74,4 +76,20 @@ func (r *Repository) Query(ctx context.Context, query audit.RepositoryQuery) ([]
 		return nil, err
 	}
 	return events, nil
+}
+
+func (r *Repository) GetByID(ctx context.Context, auditID string) (audit.Event, bool, error) {
+	row := r.pool.QueryRow(ctx, `SELECT audit_id,occurred_at,actor_id,COALESCE(permission,''),COALESCE(scope_type,''),COALESCE(scope_id,''),COALESCE(product_id,''),COALESCE(tenant_id,''),action,target_type,target_id,result,COALESCE(reason_code,''),trace_id,risk_level,redacted_summary FROM audit.events WHERE audit_id=$1`, auditID)
+	var event audit.Event
+	var summary []byte
+	if err := row.Scan(&event.AuditID, &event.OccurredAt, &event.ActorID, &event.Permission, &event.ScopeType, &event.ScopeID, &event.ProductID, &event.TenantID, &event.Action, &event.TargetType, &event.TargetID, &event.Result, &event.ReasonCode, &event.TraceID, &event.RiskLevel, &summary); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return audit.Event{}, false, nil
+		}
+		return audit.Event{}, false, err
+	}
+	if err := json.Unmarshal(summary, &event.RedactedSummary); err != nil {
+		return audit.Event{}, false, err
+	}
+	return event, true, nil
 }

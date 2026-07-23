@@ -68,6 +68,46 @@ func TestRepositoryBootstrapSnapshotVersionAndExpiry(t *testing.T) {
 	}
 }
 
+func TestResolveSnapshotAggregatesMultipleActivePlatformRoles(t *testing.T) {
+	database := testpostgres.Open(t)
+	repository := accesspostgres.New(database.Pool)
+	now := time.Date(2026, 7, 23, 8, 0, 0, 0, time.UTC)
+	service := accesscontrol.NewService(repository, func() time.Time { return now })
+
+	if err := service.BootstrapPlatformAdmin(context.Background(), accesscontrol.BootstrapCommand{BindingID: "binding-bootstrap", RoleID: "role-bootstrap", AdminUserID: "admin-multi", Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Pool.Exec(context.Background(), `INSERT INTO access_control.admin_roles(role_id,role_code,display_name,status,created_at,updated_at) VALUES('role-g2c02-extra','g2c02_experimental_operator','G2C-02 Experimental Operator','active',$1,$1)`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Pool.Exec(context.Background(), `INSERT INTO access_control.admin_permissions(permission_code,description,risk_level) VALUES('assembly.experimental.use','Read and use the isolated experimental software assembly catalog','normal') ON CONFLICT(permission_code) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Pool.Exec(context.Background(), `INSERT INTO access_control.admin_role_permissions(role_id,permission_code) VALUES('role-g2c02-extra','assembly.experimental.use')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Pool.Exec(context.Background(), `INSERT INTO access_control.admin_scope_bindings(binding_id,admin_user_id,role_id,scope_type,status,effective_from,created_at,updated_at) VALUES('binding-g2c02-extra','admin-multi','role-g2c02-extra','platform','active',$1,$1,$1)`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Pool.Exec(context.Background(), `INSERT INTO access_control.admin_authorization_versions(admin_user_id,authorization_version,updated_at) VALUES('admin-multi',1,$1) ON CONFLICT(admin_user_id) DO UPDATE SET authorization_version=access_control.admin_authorization_versions.authorization_version+1,updated_at=EXCLUDED.updated_at`, now); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := service.ResolveAdminAccessSnapshot(context.Background(), "admin-multi", "session-1")
+	if err != nil {
+		t.Fatalf("ResolveAdminAccessSnapshot() error = %v", err)
+	}
+	if !containsString(snapshot.Roles, "super_admin") || !containsString(snapshot.Roles, "g2c02_experimental_operator") {
+		t.Fatalf("roles = %#v, want both super_admin and g2c02_experimental_operator", snapshot.Roles)
+	}
+	if !containsString(snapshot.Permissions, "assembly.plan") || !containsString(snapshot.Permissions, "assembly.experimental.use") {
+		t.Fatalf("permissions = %#v, want bootstrap plus experimental permissions", snapshot.Permissions)
+	}
+	if len(snapshot.Scopes) != 1 || snapshot.Scopes[0].Type != "platform" {
+		t.Fatalf("scopes = %#v, want deduped platform scope", snapshot.Scopes)
+	}
+}
+
 func TestBindAdminScopeIsIdempotentScopedAndVersioned(t *testing.T) {
 	database := testpostgres.Open(t)
 	repository := accesspostgres.New(database.Pool)
@@ -128,6 +168,15 @@ func TestBindAdminScopeIsIdempotentScopedAndVersioned(t *testing.T) {
 	if _, err := service.BindAdminScope(context.Background(), duplicate); !errors.Is(err, accesscontrol.ErrScopeBindingConflict) {
 		t.Fatalf("duplicate binding error = %v", err)
 	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBindAdminScopeRejectsDisabledRoleAndOutboxRetries(t *testing.T) {

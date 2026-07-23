@@ -1,0 +1,37 @@
+# 装配软件开发规则
+
+本仓库由统一能力底座装配生成。后续 AI 或开发人员必须先阅读本文、`docs/software-development-handoff.md`、Assembly Manifest 和 Generated Project Lock，再开始开发软件独有业务。
+
+## 当前装配事实
+
+- Product Blueprint：`{{json:blueprint.product}}`
+- Assembly Plan：`{{json:plan.plan_id}}`
+- 目录范围：`{{json:plan.catalog_snapshot}}`
+- 已选择能力包：`{{json:plan.packages}}`
+- 已选择 UI 模板：`{{json:plan.applications}}`
+- 已锁定 SDK：`{{json:plan.sdks}}`
+
+## 已由平台提供的公共能力
+
+本软件已经通过公共能力包接入账号、个人中心和权益能力。登录、注册、找回密码、个人资料、会话安全、当前权益和权益历史必须使用生成源码、公共 SDK/API 与统一后台中的已装配能力，不得在 custom 区重新实现一套公共状态机。
+
+## 文件所有权
+
+- `generated`：由平台生成器拥有。只有 Generated Project Lock 允许更新时才能重生成。
+- `integration`：只允许按稳定 generated region 或结构化契约合并。
+- `custom`：软件独有业务拥有。平台生成器不得覆盖。
+- 未登记文件默认视为 `custom`。
+
+## 允许开发的位置
+
+软件正文首页、目录、工作台、核心业务流程和独有数据只能写入 custom 或已登记 Extension Manifest 拥有的路径。需要接入公共能力时，使用交接说明登记的 SDK/API、Feature Block、事件和扩展槽。
+
+## 禁止事项
+
+- 不修改共享平台仓库。
+- 不读取或写入其他模块数据库表或 Repository。
+- 不复制登录、账号、权益、支付、用量等公共状态机。
+- 不提交密码、Token、密钥、真实数据库地址或真实用户数据。
+- 不覆盖 generated、未授权 integration、forked 或未知来源文件。
+
+公共能力不足时，停止软件正文开发，提交公共能力缺口与影响分析。

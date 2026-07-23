@@ -118,6 +118,7 @@ const (
 	RunStatusValidating   RunStatus = "validating"
 	RunStatusCompleted    RunStatus = "completed"
 	RunStatusFailed       RunStatus = "failed"
+	RunStatusCancelled    RunStatus = "cancelled"
 	RunStatusRollingBack  RunStatus = "rolling_back"
 	RunStatusRolledBack   RunStatus = "rolled_back"
 )
@@ -223,26 +224,28 @@ type Dispatch struct {
 }
 
 type Manifest struct {
-	AssemblyID     string          `json:"assembly_id"`
-	ProductID      string          `json:"product_id"`
-	RunID          string          `json:"run_id"`
-	SchemaVersion  string          `json:"schema_version"`
-	Document       json.RawMessage `json:"document"`
-	DocumentSHA256 string          `json:"document_sha256"`
-	ManifestSHA256 string          `json:"manifest_sha256"`
-	CreatedAt      time.Time       `json:"created_at"`
+	AssemblyID           string          `json:"assembly_id"`
+	ProductID            string          `json:"product_id"`
+	RunID                string          `json:"run_id,omitempty"`
+	LifecycleOperationID string          `json:"lifecycle_operation_id,omitempty"`
+	SchemaVersion        string          `json:"schema_version"`
+	Document             json.RawMessage `json:"document"`
+	DocumentSHA256       string          `json:"document_sha256"`
+	ManifestSHA256       string          `json:"manifest_sha256"`
+	CreatedAt            time.Time       `json:"created_at"`
 }
 
 type GeneratedProjectLock struct {
-	LockID         string          `json:"lock_id"`
-	ProductID      string          `json:"product_id"`
-	RunID          string          `json:"run_id"`
-	AssemblyID     string          `json:"assembly_id"`
-	SchemaVersion  string          `json:"schema_version"`
-	Document       json.RawMessage `json:"document"`
-	DocumentSHA256 string          `json:"document_sha256"`
-	LockSHA256     string          `json:"lock_sha256"`
-	CreatedAt      time.Time       `json:"created_at"`
+	LockID               string          `json:"lock_id"`
+	ProductID            string          `json:"product_id"`
+	RunID                string          `json:"run_id,omitempty"`
+	LifecycleOperationID string          `json:"lifecycle_operation_id,omitempty"`
+	AssemblyID           string          `json:"assembly_id"`
+	SchemaVersion        string          `json:"schema_version"`
+	Document             json.RawMessage `json:"document"`
+	DocumentSHA256       string          `json:"document_sha256"`
+	LockSHA256           string          `json:"lock_sha256"`
+	CreatedAt            time.Time       `json:"created_at"`
 }
 
 type Idempotency struct {

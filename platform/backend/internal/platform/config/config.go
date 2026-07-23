@@ -2,6 +2,9 @@ package config
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,18 +22,21 @@ import (
 type LookupEnv func(string) (string, bool)
 
 type Config struct {
-	Environment        string
-	HTTPAddress        string
-	LogLevel           slog.Level
-	HealthCheckTimeout time.Duration
-	ReadHeaderTimeout  time.Duration
-	ReadTimeout        time.Duration
-	WriteTimeout       time.Duration
-	IdleTimeout        time.Duration
-	ShutdownTimeout    time.Duration
-	Database           Database
-	AdminAuth          AdminAuth
-	Assembly           Assembly
+	Environment          string
+	HTTPAddress          string
+	LogLevel             slog.Level
+	HealthCheckTimeout   time.Duration
+	ReadHeaderTimeout    time.Duration
+	ReadTimeout          time.Duration
+	WriteTimeout         time.Duration
+	IdleTimeout          time.Duration
+	ShutdownTimeout      time.Duration
+	Database             Database
+	AdminAuth            AdminAuth
+	UserAuth             UserAuth
+	HostedInteraction    HostedInteraction
+	SecurityNotification SecurityNotification
+	Assembly             Assembly
 }
 
 type Database struct {
@@ -52,16 +58,57 @@ type AdminAuth struct {
 	BearerEnabled        bool
 }
 
+type UserAuth struct {
+	TokenPepper             string
+	AccessTTL               time.Duration
+	RefreshTTL              time.Duration
+	AbsoluteTTL             time.Duration
+	RefreshRecoveryWindow   time.Duration
+	LoginWindow             time.Duration
+	LoginBlockDuration      time.Duration
+	LoginMaximumAttempts    int
+	BcryptCost              int
+	RecoveryTTL             time.Duration
+	RecoveryMaximumAttempts int
+	RecentAuthTTL           time.Duration
+}
+
+type SecurityNotification struct {
+	Enabled            bool
+	ProviderRef        string
+	ProviderURL        string
+	ProviderSecret     string
+	ProviderIdempotent bool
+	PayloadKey         string
+	DigestKey          string
+}
+
+type HostedInteraction struct {
+	BaseURL        string
+	AllowedOrigin  string
+	StateKeyRef    string
+	StateKey       string
+	DigestKey      string
+	InteractionTTL time.Duration
+	BrowserTTL     time.Duration
+	AuthLeaseTTL   time.Duration
+	GrantTTL       time.Duration
+	GrantLeaseTTL  time.Duration
+	AuthProofTTL   time.Duration
+}
+
 type Assembly struct {
 	SchemaDirectory                   string
 	CapabilityPackageRoot             string
 	TemplateRoot                      string
 	GeneratorToolRoot                 string
 	SDKToolRoot                       string
+	ExtensionRoot                     string
 	ExperimentalCapabilityPackageRoot string
 	ExperimentalTemplateRoot          string
 	ExperimentalGeneratorToolRoot     string
 	ExperimentalSDKToolRoot           string
+	ExperimentalExtensionRoot         string
 	FeatureBlockCatalogPath           string
 	OutputTargets                     []AssemblyOutputTarget
 }
@@ -77,8 +124,33 @@ type AssemblyOutputTarget struct {
 }
 
 func Load(lookup LookupEnv) (Config, error) {
+	environment := value(lookup, "PLATFORM_ENVIRONMENT", "local")
+	adminTokenPepper := value(lookup, "PLATFORM_ADMIN_TOKEN_PEPPER", "")
+	userTokenPepper, userTokenPepperProvided := lookup("PLATFORM_USER_TOKEN_PEPPER")
+	userTokenPepper = strings.TrimSpace(userTokenPepper)
+	if !userTokenPepperProvided && environment == "production" {
+		return Config{}, errors.New("PLATFORM_USER_TOKEN_PEPPER is required in production")
+	}
+	if !userTokenPepperProvided {
+		userTokenPepper = deriveSecret(adminTokenPepper, "platform-user-auth-v1")
+	}
+	if userTokenPepper != "" && hmac.Equal([]byte(userTokenPepper), []byte(adminTokenPepper)) {
+		return Config{}, errors.New("PLATFORM_USER_TOKEN_PEPPER must be independent from PLATFORM_ADMIN_TOKEN_PEPPER")
+	}
+	hostedStateKey, hostedStateKeyProvided := lookup("PLATFORM_HOSTED_STATE_KEY")
+	hostedDigestKey, hostedDigestKeyProvided := lookup("PLATFORM_HOSTED_DIGEST_KEY")
+	hostedStateKey, hostedDigestKey = strings.TrimSpace(hostedStateKey), strings.TrimSpace(hostedDigestKey)
+	if environment == "production" && (!hostedStateKeyProvided || !hostedDigestKeyProvided) {
+		return Config{}, errors.New("PLATFORM_HOSTED_STATE_KEY and PLATFORM_HOSTED_DIGEST_KEY are required in production")
+	}
+	if !hostedStateKeyProvided {
+		hostedStateKey = deriveSecret(userTokenPepper, "platform-hosted-state-v1")
+	}
+	if !hostedDigestKeyProvided {
+		hostedDigestKey = deriveSecret(userTokenPepper, "platform-hosted-digest-v1")
+	}
 	cfg := Config{
-		Environment:        value(lookup, "PLATFORM_ENVIRONMENT", "local"),
+		Environment:        environment,
 		HTTPAddress:        value(lookup, "PLATFORM_HTTP_ADDRESS", ":8080"),
 		HealthCheckTimeout: duration(lookup, "PLATFORM_HEALTH_CHECK_TIMEOUT", 2*time.Second),
 		ReadHeaderTimeout:  duration(lookup, "PLATFORM_HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
@@ -93,7 +165,7 @@ func Load(lookup LookupEnv) (Config, error) {
 			ConnectTimeout: duration(lookup, "PLATFORM_DATABASE_CONNECT_TIMEOUT", 5*time.Second),
 		},
 		AdminAuth: AdminAuth{
-			TokenPepper:          value(lookup, "PLATFORM_ADMIN_TOKEN_PEPPER", ""),
+			TokenPepper:          adminTokenPepper,
 			AllowedOrigins:       commaSeparated(value(lookup, "PLATFORM_ADMIN_ALLOWED_ORIGINS", "https://127.0.0.1:5174")),
 			AccessTTL:            duration(lookup, "PLATFORM_ADMIN_ACCESS_TTL", 15*time.Minute),
 			RefreshTTL:           duration(lookup, "PLATFORM_ADMIN_REFRESH_TTL", 7*24*time.Hour),
@@ -103,16 +175,52 @@ func Load(lookup LookupEnv) (Config, error) {
 			BcryptCost:           intValue(lookup, "PLATFORM_ADMIN_BCRYPT_COST", 12),
 			BearerEnabled:        false,
 		},
+		UserAuth: UserAuth{
+			TokenPepper:             userTokenPepper,
+			AccessTTL:               duration(lookup, "PLATFORM_USER_ACCESS_TTL", 15*time.Minute),
+			RefreshTTL:              duration(lookup, "PLATFORM_USER_REFRESH_TTL", 30*24*time.Hour),
+			AbsoluteTTL:             duration(lookup, "PLATFORM_USER_ABSOLUTE_TTL", 90*24*time.Hour),
+			RefreshRecoveryWindow:   duration(lookup, "PLATFORM_USER_REFRESH_RECOVERY_WINDOW", 30*time.Second),
+			LoginWindow:             duration(lookup, "PLATFORM_USER_LOGIN_WINDOW", 15*time.Minute),
+			LoginBlockDuration:      duration(lookup, "PLATFORM_USER_LOGIN_BLOCK_DURATION", 15*time.Minute),
+			LoginMaximumAttempts:    intValue(lookup, "PLATFORM_USER_LOGIN_MAXIMUM_ATTEMPTS", 5),
+			BcryptCost:              intValue(lookup, "PLATFORM_USER_BCRYPT_COST", 12),
+			RecoveryTTL:             duration(lookup, "PLATFORM_USER_RECOVERY_TTL", 15*time.Minute),
+			RecoveryMaximumAttempts: intValue(lookup, "PLATFORM_USER_RECOVERY_MAXIMUM_ATTEMPTS", 5),
+			RecentAuthTTL:           duration(lookup, "PLATFORM_USER_RECENT_AUTH_TTL", 10*time.Minute),
+		},
+		HostedInteraction: HostedInteraction{
+			BaseURL:        value(lookup, "PLATFORM_HOSTED_BASE_URL", "https://127.0.0.1:5175"),
+			AllowedOrigin:  value(lookup, "PLATFORM_HOSTED_ALLOWED_ORIGIN", "https://127.0.0.1:5175"),
+			StateKeyRef:    value(lookup, "PLATFORM_HOSTED_STATE_KEY_REF", "hosted.state.v1"),
+			StateKey:       hostedStateKey,
+			DigestKey:      hostedDigestKey,
+			InteractionTTL: duration(lookup, "PLATFORM_HOSTED_INTERACTION_TTL", 10*time.Minute),
+			BrowserTTL:     duration(lookup, "PLATFORM_HOSTED_BROWSER_TTL", 10*time.Minute),
+			AuthLeaseTTL:   duration(lookup, "PLATFORM_HOSTED_AUTH_LEASE_TTL", 30*time.Second),
+			GrantTTL:       duration(lookup, "PLATFORM_HOSTED_GRANT_TTL", 2*time.Minute),
+			GrantLeaseTTL:  duration(lookup, "PLATFORM_HOSTED_GRANT_LEASE_TTL", 30*time.Second),
+			AuthProofTTL:   duration(lookup, "PLATFORM_HOSTED_AUTH_PROOF_TTL", 5*time.Minute),
+		},
+		SecurityNotification: SecurityNotification{
+			ProviderRef:    value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_REF", ""),
+			ProviderURL:    value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_URL", ""),
+			ProviderSecret: value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_SECRET", ""),
+			PayloadKey:     value(lookup, "PLATFORM_SECURITY_NOTIFICATION_PAYLOAD_KEY", ""),
+			DigestKey:      value(lookup, "PLATFORM_SECURITY_NOTIFICATION_DIGEST_KEY", ""),
+		},
 		Assembly: Assembly{
 			SchemaDirectory:                   value(lookup, "PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY", "../contracts/schemas/v1"),
 			CapabilityPackageRoot:             value(lookup, "PLATFORM_ASSEMBLY_CAPABILITY_PACKAGE_ROOT", "../capability-packages"),
 			TemplateRoot:                      value(lookup, "PLATFORM_ASSEMBLY_TEMPLATE_ROOT", "../templates"),
 			GeneratorToolRoot:                 value(lookup, "PLATFORM_ASSEMBLY_GENERATOR_TOOL_ROOT", "../tools/generators"),
 			SDKToolRoot:                       value(lookup, "PLATFORM_ASSEMBLY_SDK_TOOL_ROOT", "../tools/sdks"),
+			ExtensionRoot:                     value(lookup, "PLATFORM_ASSEMBLY_EXTENSION_ROOT", "../extensions"),
 			ExperimentalCapabilityPackageRoot: value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_CAPABILITY_PACKAGE_ROOT", "../experimental/capability-packages"),
 			ExperimentalTemplateRoot:          value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_TEMPLATE_ROOT", "../experimental/templates"),
 			ExperimentalGeneratorToolRoot:     value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_GENERATOR_TOOL_ROOT", "../experimental/tools/generators"),
 			ExperimentalSDKToolRoot:           value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_SDK_TOOL_ROOT", "../experimental/tools/sdks"),
+			ExperimentalExtensionRoot:         value(lookup, "PLATFORM_ASSEMBLY_EXPERIMENTAL_EXTENSION_ROOT", "../experimental/extensions"),
 			FeatureBlockCatalogPath:           value(lookup, "PLATFORM_ASSEMBLY_FEATURE_BLOCK_CATALOG", "../contracts/catalogs/v1/feature-blocks.json"),
 			OutputTargets:                     outputTargets(value(lookup, "PLATFORM_ASSEMBLY_OUTPUT_TARGETS", "")),
 		},
@@ -122,6 +230,16 @@ func Load(lookup LookupEnv) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AdminAuth.BearerEnabled = bearerEnabled
+	securityNotificationEnabled, err := strictBoolValue(lookup, "PLATFORM_SECURITY_NOTIFICATION_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	securityNotificationIdempotent, err := strictBoolValue(lookup, "PLATFORM_SECURITY_NOTIFICATION_PROVIDER_IDEMPOTENT", false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.SecurityNotification.Enabled = securityNotificationEnabled
+	cfg.SecurityNotification.ProviderIdempotent = securityNotificationIdempotent
 
 	level, err := parseLogLevel(value(lookup, "PLATFORM_LOG_LEVEL", "info"))
 	if err != nil {
@@ -132,6 +250,12 @@ func Load(lookup LookupEnv) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func deriveSecret(root, label string) string {
+	mac := hmac.New(sha256.New, []byte(root))
+	_, _ = mac.Write([]byte(label))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (c Config) validate() error {
@@ -189,16 +313,86 @@ func (c Config) validate() error {
 	if c.AdminAuth.BcryptCost < 10 || c.AdminAuth.BcryptCost > 14 {
 		return errors.New("PLATFORM_ADMIN_BCRYPT_COST must be between 10 and 14")
 	}
+	if len(c.UserAuth.TokenPepper) < 32 {
+		return errors.New("PLATFORM_USER_TOKEN_PEPPER must be at least 32 bytes")
+	}
+	if c.UserAuth.AccessTTL <= 0 || c.UserAuth.AccessTTL > 15*time.Minute {
+		return errors.New("PLATFORM_USER_ACCESS_TTL must be greater than zero and at most 15m")
+	}
+	if c.UserAuth.RefreshTTL < time.Hour || c.UserAuth.RefreshTTL > 90*24*time.Hour || c.UserAuth.AbsoluteTTL < c.UserAuth.RefreshTTL || c.UserAuth.AbsoluteTTL > 365*24*time.Hour {
+		return errors.New("user refresh TTL must be 1h..2160h and absolute TTL must contain it within 8760h")
+	}
+	if c.UserAuth.RefreshRecoveryWindow <= 0 || c.UserAuth.RefreshRecoveryWindow > 5*time.Minute {
+		return errors.New("PLATFORM_USER_REFRESH_RECOVERY_WINDOW must be greater than zero and at most 5m")
+	}
+	if c.UserAuth.LoginWindow <= 0 || c.UserAuth.LoginWindow > 24*time.Hour || c.UserAuth.LoginBlockDuration <= 0 || c.UserAuth.LoginBlockDuration > 24*time.Hour {
+		return errors.New("user login window and block duration must be between zero and 24h")
+	}
+	if c.UserAuth.LoginMaximumAttempts < 3 || c.UserAuth.LoginMaximumAttempts > 20 {
+		return errors.New("PLATFORM_USER_LOGIN_MAXIMUM_ATTEMPTS must be between 3 and 20")
+	}
+	if c.UserAuth.BcryptCost < 10 || c.UserAuth.BcryptCost > 14 {
+		return errors.New("PLATFORM_USER_BCRYPT_COST must be between 10 and 14")
+	}
+	if c.UserAuth.RecoveryTTL <= 0 || c.UserAuth.RecoveryTTL > 24*time.Hour || c.UserAuth.RecoveryMaximumAttempts < 1 || c.UserAuth.RecoveryMaximumAttempts > 20 {
+		return errors.New("user recovery TTL must be 0..24h and maximum attempts must be 1..20")
+	}
+	if c.UserAuth.RecentAuthTTL <= 0 || c.UserAuth.RecentAuthTTL > 24*time.Hour {
+		return errors.New("PLATFORM_USER_RECENT_AUTH_TTL must be greater than zero and at most 24h")
+	}
+	baseURL, err := url.Parse(c.HostedInteraction.BaseURL)
+	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil || baseURL.Path != "" || baseURL.RawQuery != "" || baseURL.Fragment != "" {
+		return errors.New("PLATFORM_HOSTED_BASE_URL must be an exact HTTPS base URL")
+	}
+	origin, err := url.Parse(c.HostedInteraction.AllowedOrigin)
+	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
+		return errors.New("PLATFORM_HOSTED_ALLOWED_ORIGIN must be an exact HTTPS origin")
+	}
+	if baseURL.Scheme != origin.Scheme || baseURL.Host != origin.Host {
+		return errors.New("PLATFORM_HOSTED_BASE_URL and PLATFORM_HOSTED_ALLOWED_ORIGIN must be the same origin")
+	}
+	if len(c.HostedInteraction.StateKey) < 32 || len(c.HostedInteraction.DigestKey) < 32 {
+		return errors.New("hosted state and digest keys must each be at least 32 bytes")
+	}
+	if !assemblyReferencePattern.MatchString(c.HostedInteraction.StateKeyRef) {
+		return errors.New("PLATFORM_HOSTED_STATE_KEY_REF must be a stable secret reference")
+	}
+	if hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.HostedInteraction.DigestKey)) || hmac.Equal([]byte(c.HostedInteraction.StateKey), []byte(c.UserAuth.TokenPepper)) || hmac.Equal([]byte(c.HostedInteraction.DigestKey), []byte(c.UserAuth.TokenPepper)) {
+		return errors.New("hosted state, digest, and user token secrets must be independent")
+	}
+	if c.HostedInteraction.InteractionTTL <= 0 || c.HostedInteraction.InteractionTTL > 30*time.Minute || c.HostedInteraction.BrowserTTL <= 0 || c.HostedInteraction.BrowserTTL > c.HostedInteraction.InteractionTTL || c.HostedInteraction.AuthLeaseTTL <= 0 || c.HostedInteraction.AuthLeaseTTL > time.Minute || c.HostedInteraction.GrantTTL <= 0 || c.HostedInteraction.GrantTTL > 10*time.Minute || c.HostedInteraction.GrantLeaseTTL <= 0 || c.HostedInteraction.GrantLeaseTTL > time.Minute || c.HostedInteraction.AuthProofTTL <= 0 || c.HostedInteraction.AuthProofTTL > c.HostedInteraction.InteractionTTL {
+		return errors.New("hosted interaction TTL policy is outside the allowed bounds")
+	}
+	if c.SecurityNotification.Enabled {
+		if !assemblyReferencePattern.MatchString(c.SecurityNotification.ProviderRef) {
+			return errors.New("PLATFORM_SECURITY_NOTIFICATION_PROVIDER_REF must be a stable provider reference")
+		}
+		providerURL, err := url.Parse(c.SecurityNotification.ProviderURL)
+		if err != nil || providerURL.Scheme != "https" || providerURL.Host == "" || providerURL.User != nil || providerURL.RawQuery != "" || providerURL.Fragment != "" {
+			return errors.New("PLATFORM_SECURITY_NOTIFICATION_PROVIDER_URL must be an exact HTTPS endpoint")
+		}
+		if len(c.SecurityNotification.ProviderSecret) < 32 || len(c.SecurityNotification.PayloadKey) < 32 || len(c.SecurityNotification.DigestKey) < 32 {
+			return errors.New("security notification provider, payload, and digest secrets must each be at least 32 bytes")
+		}
+		if hmac.Equal([]byte(c.SecurityNotification.ProviderSecret), []byte(c.SecurityNotification.PayloadKey)) || hmac.Equal([]byte(c.SecurityNotification.ProviderSecret), []byte(c.SecurityNotification.DigestKey)) || hmac.Equal([]byte(c.SecurityNotification.PayloadKey), []byte(c.SecurityNotification.DigestKey)) {
+			return errors.New("security notification secrets must be independent")
+		}
+		if !c.SecurityNotification.ProviderIdempotent {
+			return errors.New("PLATFORM_SECURITY_NOTIFICATION_PROVIDER_IDEMPOTENT must be true when security notification is enabled")
+		}
+	}
 	for name, path := range map[string]string{
 		"PLATFORM_ASSEMBLY_SCHEMA_DIRECTORY":                     c.Assembly.SchemaDirectory,
 		"PLATFORM_ASSEMBLY_CAPABILITY_PACKAGE_ROOT":              c.Assembly.CapabilityPackageRoot,
 		"PLATFORM_ASSEMBLY_TEMPLATE_ROOT":                        c.Assembly.TemplateRoot,
 		"PLATFORM_ASSEMBLY_GENERATOR_TOOL_ROOT":                  c.Assembly.GeneratorToolRoot,
 		"PLATFORM_ASSEMBLY_SDK_TOOL_ROOT":                        c.Assembly.SDKToolRoot,
+		"PLATFORM_ASSEMBLY_EXTENSION_ROOT":                       c.Assembly.ExtensionRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_CAPABILITY_PACKAGE_ROOT": c.Assembly.ExperimentalCapabilityPackageRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_TEMPLATE_ROOT":           c.Assembly.ExperimentalTemplateRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_GENERATOR_TOOL_ROOT":     c.Assembly.ExperimentalGeneratorToolRoot,
 		"PLATFORM_ASSEMBLY_EXPERIMENTAL_SDK_TOOL_ROOT":           c.Assembly.ExperimentalSDKToolRoot,
+		"PLATFORM_ASSEMBLY_EXPERIMENTAL_EXTENSION_ROOT":          c.Assembly.ExperimentalExtensionRoot,
 		"PLATFORM_ASSEMBLY_FEATURE_BLOCK_CATALOG":                c.Assembly.FeatureBlockCatalogPath,
 	} {
 		if strings.TrimSpace(path) == "" {

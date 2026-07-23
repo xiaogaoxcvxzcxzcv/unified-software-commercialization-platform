@@ -97,6 +97,55 @@ function Test-GitCommitRevision {
     return $LASTEXITCODE -eq 0
 }
 
+function Get-GitRepositorySummary {
+    $summary = [ordered]@{
+        status_available = $false
+        clean = $false
+        tracked_modified_count = 0
+        staged_change_count = 0
+        unstaged_change_count = 0
+        untracked_count = 0
+        diff = [ordered]@{
+            available = $false
+            files_changed = 0
+            insertions = 0
+            deletions = 0
+            binary_files = 0
+        }
+        git_commit = 'unavailable'
+    }
+    try {
+        $commit = (& git -C $RepoRoot rev-parse --verify HEAD 2>$null).Trim()
+        if ($LASTEXITCODE -eq 0 -and $commit -match '^[0-9a-fA-F]{40}$') { $summary.git_commit = $commit.ToLowerInvariant() }
+        $statusLines = @(& git -C $RepoRoot status --porcelain=v1 --untracked-files=all 2>$null)
+        if ($LASTEXITCODE -ne 0) { throw 'git status failed' }
+        $summary.status_available = $true
+        foreach ($line in $statusLines) {
+            if ([string]::IsNullOrEmpty($line)) { continue }
+            $indexState = $line.Substring(0, 1); $worktreeState = $line.Substring(1, 1)
+            if ($indexState -eq '?' -and $worktreeState -eq '?') { $summary.untracked_count++; continue }
+            $summary.tracked_modified_count++
+            if ($indexState -ne ' ') { $summary.staged_change_count++ }
+            if ($worktreeState -ne ' ') { $summary.unstaged_change_count++ }
+        }
+        if ($summary.git_commit -ne 'unavailable') {
+            $numstatLines = @(& git -C $RepoRoot -c core.safecrlf=false -c core.autocrlf=false diff --numstat HEAD -- 2>&1)
+            $summary.diff.available = $true
+            foreach ($line in $numstatLines) {
+                    if ($line -isnot [string] -or [string]::IsNullOrWhiteSpace($line)) { continue }
+                    $fields = $line -split "`t", 3
+                    if ($fields.Count -lt 2) { continue }
+                    $summary.diff.files_changed++
+                    if ($fields[0] -eq '-' -or $fields[1] -eq '-') { $summary.diff.binary_files++; continue }
+                    if ($fields[0] -match '^\d+$') { $summary.diff.insertions += [int]$fields[0] }
+                    if ($fields[1] -match '^\d+$') { $summary.diff.deletions += [int]$fields[1] }
+            }
+        }
+        $summary.clean = $summary.status_available -and $summary.tracked_modified_count -eq 0 -and $summary.untracked_count -eq 0
+    }
+    catch { $summary.clean = $false }
+    return [pscustomobject]$summary
+}
 function Test-GitWhitespace {
     $baseRevision = $env:QUALITY_GATE_BASE_REVISION
     $headRevision = $env:QUALITY_GATE_HEAD_REVISION
@@ -118,7 +167,14 @@ function Test-GitWhitespace {
 }
 
 function Invoke-GoTestsWithPostgresEvidence {
-    $output = @(& go test -count=1 ./... 2>&1)
+    $arguments = @('test', '-count=1')
+    if ($RequirePostgres) {
+        # Verbose output is required because Go otherwise suppresses t.Skip messages
+        # from passing packages, which can make a required PostgreSQL run look green.
+        $arguments += '-v'
+    }
+    $arguments += './...'
+    $output = @(& go @arguments 2>&1)
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
         Write-Host $line
@@ -130,7 +186,7 @@ function Invoke-GoTestsWithPostgresEvidence {
         throw "go test exited with code $exitCode"
     }
     if ($RequirePostgres) {
-        Write-Host 'PostgreSQL integration tests completed without the missing-database skip marker'
+        Write-Host 'PostgreSQL integration tests completed with observable skip evidence enabled and no missing-database skip marker'
     }
 }
 
@@ -362,24 +418,25 @@ function Write-GateReport {
     $reportDirectory = Split-Path -Parent $absoluteReportPath
     New-Item -ItemType Directory -Force -Path $reportDirectory | Out-Null
     $failed = @($Results | Where-Object { $_.status -eq 'failed' })
-    $commit = 'unavailable'
-    try {
-        $candidate = (& git -C $RepoRoot rev-parse --verify HEAD 2>$null).Trim()
-        if ($LASTEXITCODE -eq 0 -and $candidate -match '^[0-9a-f]{40}$') {
-            $commit = $candidate
-        }
-    }
-    catch {
-        $commit = 'unavailable'
-    }
+    $repository = Get-GitRepositorySummary
     $report = [ordered]@{
-        schema_version   = 1
-        generated_at_utc = [DateTime]::UtcNow.ToString('o')
-        mode             = $Mode
-        require_postgres = [bool]$RequirePostgres
-        git_commit       = $commit
-        passed           = ($failed.Count -eq 0)
-        steps            = [object[]]($Results | ForEach-Object { $_ })
+        schema_version       = 2
+        generated_at_utc     = [DateTime]::UtcNow.ToString('o')
+        mode                 = $Mode
+        require_postgres     = [bool]$RequirePostgres
+        git_commit           = $repository.git_commit
+        reproducible_commit  = [bool]($repository.clean -and $repository.git_commit -ne 'unavailable')
+        worktree             = [ordered]@{
+            status_available        = [bool]$repository.status_available
+            clean                   = [bool]$repository.clean
+            tracked_modified_count  = [int]$repository.tracked_modified_count
+            staged_change_count     = [int]$repository.staged_change_count
+            unstaged_change_count   = [int]$repository.unstaged_change_count
+            untracked_count         = [int]$repository.untracked_count
+            diff                    = $repository.diff
+        }
+        passed               = ($failed.Count -eq 0)
+        steps                = [object[]]($Results | ForEach-Object { $_ })
     }
     $json = $report | ConvertTo-Json -Depth 6
     [System.IO.File]::WriteAllText($absoluteReportPath, $json + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
@@ -455,6 +512,15 @@ try {
             Push-Location (Join-Path $RepoRoot 'platform/sdk/typescript')
             try { Invoke-Native -Command 'npm' -Arguments @('run', 'build') } finally { Pop-Location }
         }
+        Invoke-GateStep -Name 'Client UI locked dependency refresh' -Action {
+            Push-Location (Join-Path $RepoRoot 'platform/client-ui')
+            try { Invoke-Native -Command 'npm' -Arguments @('ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund') } finally { Pop-Location }
+        }
+
+        Invoke-GateStep -Name 'Account package generated source' -Action {
+            & (Join-Path $RepoRoot 'scripts/verify-account-package.ps1')
+            if ($LASTEXITCODE -ne 0) { throw 'account package generated source verification failed' }
+        }
         Invoke-GateStep -Name 'Client UI tests' -Action {
             Push-Location (Join-Path $RepoRoot 'platform/client-ui')
             try { Invoke-Native -Command 'npm' -Arguments @('test') } finally { Pop-Location }
@@ -473,6 +539,14 @@ try {
         }
         Invoke-GateStep -Name 'Admin production build' -Action {
             Push-Location (Join-Path $RepoRoot 'platform/admin-web')
+            try { Invoke-Native -Command 'npm' -Arguments @('run', 'build') } finally { Pop-Location }
+        }
+        Invoke-GateStep -Name 'Hosted Web Vitest' -Action {
+            Push-Location (Join-Path $RepoRoot 'platform/hosted-web')
+            try { Invoke-Native -Command 'npm' -Arguments @('test') } finally { Pop-Location }
+        }
+        Invoke-GateStep -Name 'Hosted Web production build' -Action {
+            Push-Location (Join-Path $RepoRoot 'platform/hosted-web')
             try { Invoke-Native -Command 'npm' -Arguments @('run', 'build') } finally { Pop-Location }
         }
     }

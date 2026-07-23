@@ -1,0 +1,129 @@
+import { describe, expect, test } from "vitest";
+import {
+  type CreateClientSessionInput,
+  type FetchLike,
+} from "@capability-platform/client-sdk";
+import { verifyEntitlementIntegration } from "./integration.example.js";
+import { createEntitlementRuntime } from "./client.js";
+import { createEntitlementRoutes } from "./routes.js";
+
+const futureAccess = "2099-07-20T10:00:00Z";
+const clientToken = "client-session-".padEnd(48, "c");
+const accessToken = "access-session-".padEnd(48, "a");
+const refreshToken = "refresh-session-".padEnd(48, "r");
+
+function jsonResponse(body: unknown, status = 200, noStore = false): Response {
+  return new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(noStore ? { "Cache-Control": "private, no-store" } : {}),
+    },
+  });
+}
+
+describe("generated Entitlement integration", () => {
+  test("uses sdk.entitlement and generated routes without caller-owned scope or pricing state", async () => {
+    const requests: Array<{ readonly path: string; readonly authorization: string | null; readonly body?: unknown }> = [];
+    const responses = [
+      jsonResponse({
+        client_session_token: clientToken,
+        expires_at: futureAccess,
+        product_context: { product_id: "product-fixture", product_code: "fixture", environment: "test" },
+        application_context: {
+          product_id: "product-fixture", environment: "test", application_id: "application-fixture",
+          application_code: "web", platform: "web", distribution_channel: "test",
+          client_id: "client-fixture", client_version: "1.0.0", release_track: "internal", context_version: 1,
+        },
+        tenant_context: {
+          product_id: "product-fixture", tenant_id: "tenant-fixture", tenant_type: "official",
+          tenant_status: "active", resolved_by: "official_channel", context_version: 1,
+        },
+      }, 201, true),
+      jsonResponse({
+        access_token: accessToken, refresh_token: refreshToken,
+        access_expires_at: futureAccess, refresh_expires_at: "2099-08-20T10:00:00Z",
+        user: {
+          user_id: "user-fixture", account_status: "active", display_name: "Generated User",
+          product_id: "product-fixture", tenant_id: "tenant-fixture", access_version: 1,
+          product_access_status: "active", tenant_access_status: "active",
+        },
+      }, 200, true),
+      jsonResponse({
+        allowed: true, decision_stage: "entitlement", reason_code: null, revision: 3,
+        plan_code: "pro", features: { export_pdf: { allowed: true } },
+        valid_until: "2099-08-20T10:00:00Z", offline_grace_until: null,
+        server_time: "2026-07-23T10:00:00Z",
+      }),
+      jsonResponse({
+        product_id: "product-fixture", tenant_id: "tenant-fixture", user_id: "user-fixture",
+        revision: 3, plan_code: "pro", features: { export_pdf: { allowed: true } },
+        valid_until: "2099-08-20T10:00:00Z", offline_grace_until: null,
+        updated_at: "2026-07-23T10:00:00Z",
+      }),
+      jsonResponse({ items: [], next_cursor: null }),
+    ];
+    const fetch: FetchLike = async (input, init) => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected generated Entitlement request");
+      requests.push({
+        path: new URL(String(input)).pathname + new URL(String(input)).search,
+        authorization: new Headers(init?.headers).get("Authorization"),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return response;
+    };
+    const { sdk, entitlement } = createEntitlementRuntime({
+      baseUrl: "https://api.example.test",
+      fetch,
+      maxRetries: 0,
+      requestIdFactory: () => "request-generated-entitlement",
+    });
+    const clientInput: CreateClientSessionInput = {
+      clientId: "client-fixture",
+      credentialId: "credential-fixture",
+      clientVersion: "1.0.0",
+      requestNonce: "nonce-generated-entitlement",
+      clientProof: {
+        schema_version: 1,
+        type: "hmac_sha256_v1",
+        value: "proof-value".padEnd(64, "p"),
+        timestamp: "2026-07-20T00:00:00Z",
+      },
+    };
+
+    await sdk.establishSession(clientInput);
+    await sdk.account.login({ identifier: "generated-entitlement@example.test", credential: "fixture-only-credential" });
+    const result = await verifyEntitlementIntegration(entitlement, { featureCode: "export_pdf" });
+
+    expect(result).toMatchObject({ allowed: true, revision: 3, featureCount: 1, historyCount: 0 });
+    expect(requests.map((request) => request.path)).toEqual([
+      "/api/v1/client/session",
+      "/api/v1/auth/login",
+      "/api/v1/entitlements/check",
+      "/api/v1/entitlements/current",
+      "/api/v1/entitlements/history?page_size=20",
+    ]);
+    expect(requests[2]?.authorization).toBe("Bearer " + accessToken);
+    expect(requests[2]?.body).toEqual({ requested_features: ["export_pdf"] });
+    expect(JSON.stringify(requests)).not.toMatch(/product_id|tenant_id|user_id|price|amount|access_token|refresh_token/i);
+
+    const routes = createEntitlementRoutes({
+      summary: {
+        state: "ready",
+        value: {
+          revision: 3,
+          planCode: "pro",
+          validUntil: "2099-08-20T10:00:00Z",
+          offlineGraceUntil: null,
+          updatedAt: "2026-07-23T10:00:00Z",
+          features: [{ code: "export_pdf", label: "PDF export", kind: "boolean", value: true }],
+        },
+        actions: {},
+      },
+    });
+    expect(routes.map((route) => route.blockId)).toEqual(["entitlement.summary"]);
+    expect(routes[0]?.path).toBe("/account/entitlements");
+    expect(typeof routes[0]?.Component).toBe("function");
+  });
+});

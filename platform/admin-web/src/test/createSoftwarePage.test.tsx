@@ -115,6 +115,37 @@ describe("创建软件向导", () => {
     expect(ordinary).not.toHaveBeenCalled();
   });
 
+  it("实验路由解析计划时只调用 experimental plan 入口", async () => {
+    const experimentalCatalog = { ...fullCatalog, catalog_scope: "experimental" as const, catalog_revision: "catalog-experimental-1" };
+    vi.spyOn(assemblyClient, "listExperimentalCatalogOptions").mockResolvedValue(experimentalCatalog);
+    vi.spyOn(assemblyClient, "createBlueprint").mockResolvedValue(successfulBlueprint());
+    const ordinaryPlan = vi.spyOn(assemblyClient, "createPlan");
+    const experimentalPlan = vi.spyOn(assemblyClient, "createExperimentalPlan").mockResolvedValue(successfulPlan());
+    const user = userEvent.setup();
+    renderApp("/create/experimental");
+
+    await screen.findByRole("heading", { name: "实验性创建软件" });
+    await user.type(screen.getByLabelText("软件名称"), "图片工作台");
+    await user.type(screen.getByLabelText("软件代码"), "image-studio");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await screen.findByText("统一账号");
+    await user.click(screen.getByRole("checkbox", { name: /统一账号/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.selectOptions(screen.getByLabelText("用户前台模板"), "standard-a@1.0.0");
+    await user.selectOptions(screen.getByLabelText("Generator"), "platform.generator@1.0.0");
+    await user.selectOptions(screen.getByLabelText("SDK"), "platform.sdk@1.0.0");
+    await user.click(screen.getByRole("button", { name: /保存蓝图并继续/ }));
+    await screen.findByText("蓝图已恢复");
+    const planButton = await screen.findByRole("button", { name: "解析装配计划" });
+    await waitFor(() => expect(planButton).toBeEnabled());
+    await user.click(planButton);
+
+    await waitFor(() => expect(experimentalPlan).toHaveBeenCalledTimes(1));
+    expect(ordinaryPlan).not.toHaveBeenCalled();
+    expect(experimentalPlan.mock.calls[0][0]).toBe("bp_image-studio");
+    expect(experimentalPlan.mock.calls[0][1]).toEqual({ blueprint_version: 1, environment: "development" });
+  });
+
   it("软件管理的创建按钮进入向导而不直接创建 Product", async () => {
     vi.spyOn(assemblyClient, "listOrdinaryCatalogOptions").mockResolvedValue(emptyCatalog);
     const createProduct = vi.spyOn(adminClient, "createProduct");

@@ -1,0 +1,19 @@
+# Entitlement integration
+
+This file is generated from package.entitlement@1.0.0. Change product-specific behavior under custom/ and do not edit generated entitlement files directly.
+
+## Runtime
+
+Create the public SDK through createEntitlementRuntime after the host has established its trusted Client Session and the user has authenticated through package.account. Entitlement calls reuse the SDK-held Account User Session; generated code does not accept caller-supplied Product/Tenant/User IDs, bearer tokens, Cookies, prices, plan marketing text, or client-computed authorization results.
+
+## Routes
+
+Use createEntitlementRoutes with the entitlement.summary Client UI Block props, then pass the returned route descriptors to the selected UI template router. The route is a public account-area route for the current user's membership and feature summary. It does not own pricing, checkout, payment status, or product custom business pages.
+
+## States and cache boundary
+
+The summary block must cover loading, ready, empty, failed, and disabled. A current summary is a short-lived UI hint from the service fields revision, plan_code, features, valid_until, offline_grace_until, and updated_at. Revocation, expiry, capability disable, authentication failure, or a new server revision must cause a fresh server read; generated code must not turn history records into current authorization.
+
+## Verification
+
+Run the generated entitlement.generated.test.ts through the product test harness. The test establishes a trusted Client Session, authenticates through sdk.account, then calls sdk.entitlement check/current/history without implementing another entitlement state machine.

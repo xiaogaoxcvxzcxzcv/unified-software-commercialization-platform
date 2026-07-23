@@ -23,10 +23,21 @@
 9. `000009` Tenant、分发绑定、幂等和 Outbox。
 10. `000010` Access Control Scope binding 幂等和 Outbox。
 11. `000011` Assembly 蓝图、不可变计划、运行步骤、Manifest、Generated Project Lock、幂等、Outbox 与装配权限。
+12. `000012` Assembly 失败恢复、持久派发、诊断和报告。
+13. `000013` Assembly lifecycle 计划、执行、派发、诊断和报告。
+14. `000014` Identity 最终用户标识、资料、Session、恢复、外部身份和幂等事实。
+15. `000015` Product User Access 的 Product/Tenant 访问事实、幂等和 Outbox。
+16. `000016` Identity 最终用户认证 API 的凭据、Session 轮换与可恢复写入事实。
+17. `000017` Identity 外部身份、安全验证与 Notification 投递组合事实。
+18. `000018` HostedInteraction auth/account、浏览器会话、完成 grant、幂等与脱敏 Outbox。
+19. `000019` Identity 最终用户 Session 与 Hosted proof 的可信 environment 绑定。
+20. `000020` Hosted auth processing lease、接管和并发 fencing 字段。
+21. `000021` Identity verification challenge 与 external flow/proof 的 environment 绑定。
+22. `000022` Hosted actor session 形状与来源会话审计字段。
 
 Product、Product Application、Tenant 使用独立 schema，不建立跨模块外键；跨模块一致性由公开应用服务、组合工作流、稳定 ID、幂等记录和 Outbox 保证，模块不得查询其他模块私有表。
 
-`000005` 会撤销迁移前已经存在但没有受控客户端凭据绑定的 Bearer token family；这是不可逆的安全收紧，执行 down 不会重新激活这些历史会话。Cookie 会话不受该迁移影响。当前最新迁移为 `000011`，后续迁移从 `000012` 开始。
+`000005` 会撤销迁移前已经存在但没有受控客户端凭据绑定的 Bearer token family；这是不可逆的安全收紧，执行 down 不会重新激活这些历史会话。Cookie 会话不受该迁移影响。当前最新迁移为 `000022`，后续迁移从 `000023` 开始。
 
 `000011` 的 Blueprint 和 Plan 机器文档通过触发器保持不可变；计划确认只更新版本与确认元数据。Assembly 仍只拥有装配事实，不以外键或查询穿透 Product、Tenant、Application 等模块私有表。
 

@@ -1,0 +1,118 @@
+{
+    "schema_version":  1,
+    "generated_at_utc":  "2026-07-18T02:21:42.4762944Z",
+    "mode":  "Full",
+    "require_postgres":  true,
+    "git_commit":  "eb89c1d42fc263527eaa83455b835f6233f357fc",
+    "passed":  true,
+    "steps":  [
+                  {
+                      "name":  "Git whitespace check",
+                      "status":  "passed",
+                      "duration_ms":  34,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Strict UTF-8",
+                      "status":  "passed",
+                      "duration_ms":  3865,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Migration naming and pairing",
+                      "status":  "passed",
+                      "duration_ms":  18,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Local documentation links",
+                      "status":  "passed",
+                      "duration_ms":  3848,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Secret pattern scan",
+                      "status":  "passed",
+                      "duration_ms":  5298,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "OpenAPI contract",
+                      "status":  "passed",
+                      "duration_ms":  67,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "PostgreSQL test environment",
+                      "status":  "passed",
+                      "duration_ms":  2,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Machine contract schemas",
+                      "status":  "passed",
+                      "duration_ms":  1285,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Machine capability and template catalogs",
+                      "status":  "passed",
+                      "duration_ms":  2442,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Go test",
+                      "status":  "passed",
+                      "duration_ms":  33383,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Go vet",
+                      "status":  "passed",
+                      "duration_ms":  736,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client SDK tests",
+                      "status":  "passed",
+                      "duration_ms":  1243,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client SDK build",
+                      "status":  "passed",
+                      "duration_ms":  642,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client UI tests",
+                      "status":  "passed",
+                      "duration_ms":  1762,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client UI build",
+                      "status":  "passed",
+                      "duration_ms":  871,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Standard-A template smoke",
+                      "status":  "passed",
+                      "duration_ms":  37732,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Admin Vitest",
+                      "status":  "passed",
+                      "duration_ms":  11745,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Admin production build",
+                      "status":  "passed",
+                      "duration_ms":  6547,
+                      "message":  ""
+                  }
+              ]
+}

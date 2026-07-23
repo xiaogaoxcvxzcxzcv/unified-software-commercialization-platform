@@ -74,6 +74,116 @@ func TestPlannerBuildsDeterministicMultiApplicationPlan(t *testing.T) {
 	}
 }
 
+func TestG2C01RealExperimentalCandidateCombinationBuildsDeterministicPlan(t *testing.T) {
+	registry := loadRegistry(t)
+	blocks, err := machinecatalog.LoadBlockCatalog(filepath.Join(repositoryRoot(t), "platform", "contracts", "catalogs", "v1", "feature-blocks.json"), registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := machinecatalog.LoadExperimentalWithToolsAndExtensions(
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "capability-packages"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "templates"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "tools", "generators"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "tools", "sdks"),
+		filepath.Join(repositoryRoot(t), "platform", "experimental", "extensions"),
+		registry, accesscontrol.CurrentPermissionCatalog(), blocks,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := loadBlueprint(t)
+	var value map[string]any
+	if err := json.Unmarshal(document, &value); err != nil {
+		t.Fatal(err)
+	}
+	value["packages"] = []any{
+		map[string]any{"package_id": "package.account", "version": "1.0.0"},
+		map[string]any{"package_id": "package.entitlement", "version": "1.0.0"},
+	}
+	for _, item := range value["applications"].([]any) {
+		application := item.(map[string]any)
+		application["environment"] = "test"
+		ui := application["ui"].(map[string]any)
+		ui["template_id"] = "standard-a"
+		ui["version"] = "0.1.0"
+		ui["delivery_mode"] = "generated_source"
+	}
+	value["provider_refs"] = []any{map[string]any{
+		"provider": "notification.security", "environment": "test",
+		"config_ref": "configs/notification-security.json", "secret_refs": []any{},
+	}}
+	value["extensions"] = []any{map[string]any{
+		"extension_id": "extension.editor-tools", "version": "1.0.0",
+		"manifest_path": "extension.editor-tools/1.0.0/manifest.json",
+	}}
+	document, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Validate("product-blueprint", document); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner := New(catalog)
+	blueprint := core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}
+	first, err := planner.BuildPlan(context.Background(), blueprint, "test")
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	second, err := planner.BuildPlan(context.Background(), blueprint, "test")
+	if err != nil {
+		t.Fatalf("BuildPlan() second error = %v", err)
+	}
+	if string(first.Document) != string(second.Document) {
+		t.Fatal("real G2C-01 experimental combination produced nondeterministic plan bytes")
+	}
+	if err := registry.Validate("assembly-plan", first.Document); err != nil {
+		t.Fatalf("plan schema validation failed: %v", err)
+	}
+	var plan struct {
+		CatalogSnapshot  catalogSnapshotRef    `json:"catalog_snapshot"`
+		Packages         []resolvedPackage     `json:"packages"`
+		Applications     []resolvedApplication `json:"applications"`
+		Extensions       []resolvedExtension   `json:"extensions"`
+		Generator        resolvedGenerator     `json:"generator"`
+		SDKs             []resolvedSDK         `json:"sdks"`
+		Capabilities     []map[string]any      `json:"capabilities"`
+		ExpectedOutputs  []expectedOutput      `json:"expected_outputs"`
+		RequiredProvider []string              `json:"required_providers"`
+	}
+	if err := json.Unmarshal(first.Document, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.CatalogSnapshot.Scope != "experimental" || len(plan.Packages) != 2 || plan.Packages[0].PackageID != "package.account" || plan.Packages[1].PackageID != "package.entitlement" {
+		t.Fatalf("plan package/scope closure = %#v / %#v", plan.CatalogSnapshot, plan.Packages)
+	}
+	if len(plan.Applications) != 2 || len(plan.Extensions) != 1 || plan.Extensions[0].ExtensionID != "extension.editor-tools" {
+		t.Fatalf("plan app/extensions = %#v / %#v", plan.Applications, plan.Extensions)
+	}
+	if plan.Generator.GeneratorID != "platform.generator" || len(plan.SDKs) != 1 || plan.SDKs[0].SDKID != "platform.sdk" {
+		t.Fatalf("plan tools = %#v / %#v", plan.Generator, plan.SDKs)
+	}
+	if len(plan.Capabilities) == 0 || len(plan.ExpectedOutputs) == 0 || len(plan.RequiredProvider) != 1 || plan.RequiredProvider[0] != "notification.security" {
+		t.Fatalf("plan capabilities/outputs/providers = %#v / %d / %#v", plan.Capabilities, len(plan.ExpectedOutputs), plan.RequiredProvider)
+	}
+	outputsByPath := map[string]expectedOutput{}
+	for _, output := range plan.ExpectedOutputs {
+		outputsByPath[output.Path] = output
+	}
+	for _, path := range []string{"generated-products/video-brain/AGENTS.md", "generated-products/video-brain/docs/software-development-handoff.md"} {
+		output, ok := outputsByPath[path]
+		if !ok {
+			t.Fatalf("G2C handoff output %s is missing from plan: %#v", path, plan.ExpectedOutputs)
+		}
+		if output.Ownership != "generated" || output.SourceID != "standard-a" || output.SourceVersion != "0.1.0" || output.RenderStrategy != "strict_template" || output.ContentType != "text" {
+			t.Fatalf("G2C handoff output %s is not sealed by standard-a: %#v", path, output)
+		}
+	}
+}
+
 func TestPlannerRejectsBlueprintWithoutCapabilityPackages(t *testing.T) {
 	registry := loadRegistry(t)
 	document := loadBlueprint(t)
@@ -165,11 +275,126 @@ func TestPlannerRejectsUnresolvedExtensionAndOverlappingOutputs(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
-			if !errors.Is(err, ErrBlueprintMismatch) {
+			if err == nil {
+				t.Fatal("BuildPlan() unexpectedly accepted invalid input")
+			}
+			if test.name == "overlapping output" && !errors.Is(err, ErrBlueprintMismatch) {
 				t.Fatalf("BuildPlan() error = %v, want %v", err, ErrBlueprintMismatch)
 			}
 		})
 	}
+}
+
+func TestPlannerLocksTrustedExtensionDeterministically(t *testing.T) {
+	registry := loadRegistry(t)
+	catalog := loadTestCatalogWithExtensionTargets(t, registry, []string{"web", "desktop_webview"})
+	document := blueprintWithExtension(t, loadBlueprint(t), "extension.editor-tools", "1.0.0", "extension.editor-tools/1.0.0/manifest.json")
+	digest, err := machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner := New(catalog)
+	blueprint := core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}
+	first, err := planner.BuildPlan(context.Background(), blueprint, "production")
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	second, err := planner.BuildPlan(context.Background(), blueprint, "production")
+	if err != nil {
+		t.Fatalf("BuildPlan() second error = %v", err)
+	}
+	if string(first.Document) != string(second.Document) {
+		t.Fatal("trusted extension produced nondeterministic plan bytes")
+	}
+	if err := registry.Validate("assembly-plan", first.Document); err != nil {
+		t.Fatalf("plan schema validation failed: %v", err)
+	}
+	var plan struct {
+		Extensions []resolvedExtension `json:"extensions"`
+	}
+	if err := json.Unmarshal(first.Document, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Extensions) != 1 {
+		t.Fatalf("extensions = %#v", plan.Extensions)
+	}
+	extension := plan.Extensions[0]
+	if extension.ExtensionID != "extension.editor-tools" || extension.ProductCode != "video-brain" || extension.ManifestPath != "extension.editor-tools/1.0.0/manifest.json" || extension.DataNamespace != "ext_editor_tools" {
+		t.Fatalf("resolved extension = %#v", extension)
+	}
+	if !strings.HasPrefix(extension.ManifestSHA256, "sha256:") || !strings.HasPrefix(extension.ContentTreeSHA256, "sha256:") {
+		t.Fatalf("extension digests are not locked: %#v", extension)
+	}
+}
+
+func TestPlannerRejectsUntrustedOrIncompatibleExtensionSelection(t *testing.T) {
+	registry := loadRegistry(t)
+	base := loadBlueprint(t)
+	for _, test := range []struct {
+		name    string
+		catalog *machinecatalog.Catalog
+		doc     json.RawMessage
+	}{
+		{name: "unknown", catalog: loadTestCatalogWithExtensionTargets(t, registry, []string{"web", "desktop_webview"}), doc: blueprintWithExtension(t, base, "extension.unknown", "1.0.0", "extension.unknown/1.0.0/manifest.json")},
+		{name: "non-canonical manifest path", catalog: loadTestCatalogWithExtensionTargets(t, registry, []string{"web", "desktop_webview"}), doc: blueprintWithExtension(t, base, "extension.editor-tools", "1.0.0", "extension.editor-tools/1.0.0/other.json")},
+		{name: "cross-product", catalog: loadTestCatalogWithExtensionTargets(t, registry, []string{"web", "desktop_webview"}), doc: blueprintWithProductAndExtension(t, base, "another-product")},
+		{name: "one application target unsupported", catalog: loadTestCatalogWithExtensionTargets(t, registry, []string{"web"}), doc: blueprintWithExtensionAndSecondTarget(t, base, "desktop_webview")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			digest, err := machinecontract.Digest(test.doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = New(test.catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: test.doc, ContentSHA256: "sha256:" + digest}, "production")
+			if err == nil {
+				t.Fatal("BuildPlan() unexpectedly accepted an untrusted extension selection")
+			}
+		})
+	}
+}
+
+func blueprintWithExtension(t *testing.T, document json.RawMessage, extensionID, version, manifestPath string) json.RawMessage {
+	t.Helper()
+	var value map[string]any
+	if err := json.Unmarshal(document, &value); err != nil {
+		t.Fatal(err)
+	}
+	value["extensions"] = []any{map[string]any{"extension_id": extensionID, "version": version, "manifest_path": manifestPath}}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func blueprintWithProductAndExtension(t *testing.T, document json.RawMessage, productCode string) json.RawMessage {
+	t.Helper()
+	value := blueprintWithExtension(t, document, "extension.editor-tools", "1.0.0", "extension.editor-tools/1.0.0/manifest.json")
+	var decoded map[string]any
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	decoded["product"].(map[string]any)["code"] = productCode
+	raw, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func blueprintWithExtensionAndSecondTarget(t *testing.T, document json.RawMessage, target string) json.RawMessage {
+	t.Helper()
+	value := blueprintWithExtension(t, document, "extension.editor-tools", "1.0.0", "extension.editor-tools/1.0.0/manifest.json")
+	var decoded map[string]any
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	decoded["applications"].([]any)[1].(map[string]any)["target"] = target
+	raw, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func loadBlueprint(t *testing.T) json.RawMessage {
@@ -226,6 +451,59 @@ func TestPlannerRejectsMissingRequiredProvider(t *testing.T) {
 	}
 }
 
+func TestPlannerAcceptsDeclaredOptionalProviderAndRejectsProviderInjection(t *testing.T) {
+	registry := loadRegistry(t)
+	catalog := loadTestCatalog(t, registry)
+	base := loadBlueprint(t)
+	var value map[string]any
+	if err := json.Unmarshal(base, &value); err != nil {
+		t.Fatal(err)
+	}
+	providers := value["provider_refs"].([]any)
+	value["provider_refs"] = append(providers, map[string]any{
+		"provider": "identity.external.oidc", "environment": "production",
+		"config_ref": "configs/identity-oidc.json", "secret_refs": []any{},
+	})
+	document, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned, err := New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	if err != nil {
+		t.Fatalf("declared optional provider rejected: %v", err)
+	}
+	var plan struct {
+		Providers         []resolvedProvider `json:"providers"`
+		RequiredProviders []string           `json:"required_providers"`
+	}
+	if err := json.Unmarshal(planned.Document, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Providers) != 2 || len(plan.RequiredProviders) != 1 || plan.RequiredProviders[0] != "notification.security" {
+		t.Fatalf("optional provider plan = %#v / required %#v", plan.Providers, plan.RequiredProviders)
+	}
+
+	value["provider_refs"] = append(value["provider_refs"].([]any), map[string]any{
+		"provider": "injected.provider", "environment": "production", "config_ref": "configs/injected.json", "secret_refs": []any{},
+	})
+	document, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err = machinecontract.Digest(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(catalog).BuildPlan(context.Background(), core.Blueprint{BlueprintID: "bp_video-brain", Revision: 1, Document: document, ContentSHA256: "sha256:" + digest}, "production")
+	if !errors.Is(err, ErrBlueprintMismatch) {
+		t.Fatalf("provider injection error = %v", err)
+	}
+}
+
 func TestPlannerRejectsAmbiguousOrCrossProviderSecretConfiguration(t *testing.T) {
 	registry := loadRegistry(t)
 	catalog := loadTestCatalog(t, registry)
@@ -274,12 +552,21 @@ func loadTestCatalogWithoutTools(t *testing.T, registry *machinecontract.Registr
 }
 
 func loadTestCatalogWithTools(t *testing.T, registry *machinecontract.Registry, includeTools bool) *machinecatalog.Catalog {
+	return loadTestCatalogConfigured(t, registry, includeTools, nil)
+}
+
+func loadTestCatalogWithExtensionTargets(t *testing.T, registry *machinecontract.Registry, targets []string) *machinecatalog.Catalog {
+	return loadTestCatalogConfigured(t, registry, true, targets)
+}
+
+func loadTestCatalogConfigured(t *testing.T, registry *machinecontract.Registry, includeTools bool, extensionTargets []string) *machinecatalog.Catalog {
 	t.Helper()
 	root := t.TempDir()
 	packageRoot := filepath.Join(root, "packages")
 	templateRoot := filepath.Join(root, "templates")
 	generatorRoot := filepath.Join(root, "generators")
 	sdkRoot := filepath.Join(root, "sdks")
+	extensionRoot := filepath.Join(root, "extensions")
 	writeCatalogDocument(t, filepath.Join(repositoryRoot(t), "platform", "contracts", "schemas", "fixtures", "catalog-blueprint", "package-manifest.valid.json"), packageRoot, "package.account", "1.0.0", "manifest.json", "content/account.txt", []byte("account package content"))
 	writeCatalogDocument(t, filepath.Join(repositoryRoot(t), "platform", "contracts", "schemas", "fixtures", "catalog-blueprint", "ui-template-manifest.valid.json"), templateRoot, "standard-a", "1.0.0", "template.json", "template/index.tsx", []byte("export const template = 'standard-a';\n"))
 	writeCatalogDocument(t, filepath.Join(repositoryRoot(t), "platform", "contracts", "schemas", "fixtures", "catalog-blueprint", "ui-template-manifest.blank.valid.json"), templateRoot, "blank-a", "1.0.0", "template.json", "template/index.tsx", []byte("export const template = 'blank-a';\n"))
@@ -296,7 +583,12 @@ func loadTestCatalogWithTools(t *testing.T, registry *machinecontract.Registry, 
 	if includeTools {
 		writeToolCatalogDocument(t, generatorRoot, "generator", "platform.generator", "1.0.0")
 		writeToolCatalogDocument(t, sdkRoot, "sdk", "platform.sdk", "1.0.0")
-		catalog, err = machinecatalog.LoadOrdinaryWithTools(packageRoot, templateRoot, generatorRoot, sdkRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+		if extensionTargets != nil {
+			writeExtensionCatalogDocument(t, extensionRoot, extensionTargets)
+			catalog, err = machinecatalog.LoadOrdinaryWithToolsAndExtensions(packageRoot, templateRoot, generatorRoot, sdkRoot, extensionRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+		} else {
+			catalog, err = machinecatalog.LoadOrdinaryWithTools(packageRoot, templateRoot, generatorRoot, sdkRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
+		}
 	} else {
 		catalog, err = machinecatalog.LoadOrdinary(packageRoot, templateRoot, registry, accesscontrol.CurrentPermissionCatalog(), blocks)
 	}
@@ -304,6 +596,68 @@ func loadTestCatalogWithTools(t *testing.T, registry *machinecontract.Registry, 
 		t.Fatal(err)
 	}
 	return catalog
+}
+
+func writeExtensionCatalogDocument(t *testing.T, root string, targets []string) {
+	t.Helper()
+	ownedPaths := []string{"extensions/editor-tools/account-slot.tsx", "extensions/editor-tools/admin.tsx", "extensions/editor-tools/workspace.tsx"}
+	files := make([]machinecatalog.ContentFile, 0, len(ownedPaths))
+	contentFiles := make([]any, 0, len(ownedPaths))
+	for _, ownedPath := range ownedPaths {
+		digest := digestOf("export const extension = true;\n")
+		files = append(files, machinecatalog.ContentFile{Path: ownedPath, SHA256: digest, Kind: "file"})
+		contentFiles = append(contentFiles, map[string]any{"path": ownedPath, "sha256": digest, "kind": "file"})
+	}
+	treeRaw, err := json.Marshal(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeDigest, err := machinecontract.Digest(treeRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := map[string]any{
+		"schema_version": "1.0.0", "extension_id": "extension.editor-tools", "version": "1.0.0", "product_code": "video-brain",
+		"catalog_scope": "ordinary", "readiness": "available", "supported_targets": targets,
+		"supported_delivery_modes": []string{"generated_source"}, "supported_environments": []string{"production"},
+		"required_permissions": []string{"assembly.plan"}, "public_api_operations": []string{"getCurrentEntitlements"},
+		"published_events": []string{"editor.project_exported.v1"}, "subscribed_events": []string{"identity.logged_in.v1"},
+		"routes":           []any{map[string]any{"route_id": "editor.workspace", "target": "web", "path": "/editor/workspace", "entry_path": ownedPaths[2], "required_permission": "assembly.plan"}},
+		"navigation_items": []any{map[string]any{"item_id": "editor.workspace-nav", "target": "web", "label_key": "editor.workspace", "route_id": "editor.workspace", "required_permission": "assembly.plan"}},
+		"slots":            []any{map[string]any{"slot_id": "client.account.after", "target": "web", "entry_path": ownedPaths[0]}},
+		"admin_items":      []any{map[string]any{"item_id": "editor.admin", "label_key": "editor.admin", "path": "/extensions/editor", "entry_path": ownedPaths[1], "required_permission": "assembly.plan"}},
+		"data_namespace":   "ext_editor_tools", "owned_tables": []string{"ext_editor_tools.projects"}, "consumed_services": []string{"identity.public-service"}, "owned_paths": ownedPaths,
+		"install_plan":     map[string]any{"strategy": "declarative_v1", "steps": []string{"extension.register-routes"}},
+		"uninstall_plan":   map[string]any{"strategy": "declarative_v1", "steps": []string{"extension.unregister-routes"}},
+		"retention_policy": map[string]any{"mode": "delete", "retention_days": 0}, "content_files": contentFiles,
+		"content_tree_sha256": "sha256:" + treeDigest, "manifest_sha256": "sha256:" + strings.Repeat("0", 64),
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest, err := machinecontract.DigestWithoutTopLevelField(raw, "manifest_sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document["manifest_sha256"] = manifestDigest
+	raw, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionRoot := filepath.Join(root, "extension.editor-tools", "1.0.0")
+	for _, ownedPath := range ownedPaths {
+		absolute := filepath.Join(versionRoot, filepath.FromSlash(ownedPath))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte("export const extension = true;\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(versionRoot, "manifest.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeToolCatalogDocument(t *testing.T, root, kind, id, version string) {

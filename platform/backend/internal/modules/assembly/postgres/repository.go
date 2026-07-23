@@ -418,6 +418,9 @@ func (r *Repository) CompleteRun(ctx context.Context, record core.CompleteRunRec
 	if _, err := tx.Exec(ctx, `INSERT INTO assembly.generated_project_locks(lock_id,product_id,run_id,assembly_id,schema_version,document,document_sha256,lock_sha256,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, l.LockID, l.ProductID, l.RunID, l.AssemblyID, l.SchemaVersion, string(l.Document), l.DocumentSHA256, l.LockSHA256, l.CreatedAt); err != nil {
 		return core.Run{}, mapWriteError(err)
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO assembly.lifecycle_heads(root_assembly_id,product_id,current_manifest_id,current_lock_id,version,updated_at) VALUES($1,$2,$1,$3,1,GREATEST($4::timestamptz,$5::timestamptz))`, m.AssemblyID, m.ProductID, l.LockID, m.CreatedAt, l.CreatedAt); err != nil {
+		return core.Run{}, mapWriteError(err)
+	}
 	run := record.Run
 	run.Version = version + 1
 	run.ManifestID = m.AssemblyID
@@ -447,12 +450,12 @@ func (r *Repository) CompleteRun(ctx context.Context, record core.CompleteRunRec
 
 func (r *Repository) GetManifest(ctx context.Context, productID, assemblyID string) (core.Manifest, error) {
 	var m core.Manifest
-	err := r.pool.QueryRow(ctx, `SELECT assembly_id,product_id,run_id,schema_version,document,document_sha256,manifest_sha256,created_at FROM assembly.assembly_manifests WHERE assembly_id=$2 AND ($1='' OR product_id=$1)`, productID, assemblyID).Scan(&m.AssemblyID, &m.ProductID, &m.RunID, &m.SchemaVersion, &m.Document, &m.DocumentSHA256, &m.ManifestSHA256, &m.CreatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT assembly_id,product_id,COALESCE(run_id,''),COALESCE(lifecycle_operation_id,''),schema_version,document,document_sha256,manifest_sha256,created_at FROM assembly.assembly_manifests WHERE assembly_id=$2 AND ($1='' OR product_id=$1)`, productID, assemblyID).Scan(&m.AssemblyID, &m.ProductID, &m.RunID, &m.LifecycleOperationID, &m.SchemaVersion, &m.Document, &m.DocumentSHA256, &m.ManifestSHA256, &m.CreatedAt)
 	return m, mapNotFound(err)
 }
 func (r *Repository) GetLock(ctx context.Context, productID, lockID string) (core.GeneratedProjectLock, error) {
 	var l core.GeneratedProjectLock
-	err := r.pool.QueryRow(ctx, `SELECT lock_id,product_id,run_id,assembly_id,schema_version,document,document_sha256,lock_sha256,created_at FROM assembly.generated_project_locks WHERE lock_id=$2 AND ($1='' OR product_id=$1)`, productID, lockID).Scan(&l.LockID, &l.ProductID, &l.RunID, &l.AssemblyID, &l.SchemaVersion, &l.Document, &l.DocumentSHA256, &l.LockSHA256, &l.CreatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT lock_id,product_id,COALESCE(run_id,''),COALESCE(lifecycle_operation_id,''),assembly_id,schema_version,document,document_sha256,lock_sha256,created_at FROM assembly.generated_project_locks WHERE lock_id=$2 AND ($1='' OR product_id=$1)`, productID, lockID).Scan(&l.LockID, &l.ProductID, &l.RunID, &l.LifecycleOperationID, &l.AssemblyID, &l.SchemaVersion, &l.Document, &l.DocumentSHA256, &l.LockSHA256, &l.CreatedAt)
 	return l, mapNotFound(err)
 }
 

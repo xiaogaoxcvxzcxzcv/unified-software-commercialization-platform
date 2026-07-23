@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,6 +159,11 @@ func (r *Repository) ReplaceRedirects(ctx context.Context, record productapplica
 			return productapplication.RedirectPolicyVersion{}, err
 		}
 	}
+	for _, target := range record.Policy.AuthReturnTargets {
+		if _, err := tx.Exec(ctx, `INSERT INTO product_application.redirect_policy_entries(policy_id,entry_type,target_code,value) VALUES($1,'auth_return_target',$2,$3)`, record.Version.PolicyID, target.Code, target.URI); err != nil {
+			return productapplication.RedirectPolicyVersion{}, err
+		}
+	}
 	_, err = tx.Exec(ctx, `UPDATE product_application.product_applications SET current_redirect_policy_version=$3,context_version=context_version+1,updated_at=$4 WHERE product_id=$1 AND application_id=$2`, record.Version.ProductID, record.Version.ApplicationID, record.Version.Version, record.Version.CreatedAt)
 	if err != nil {
 		return productapplication.RedirectPolicyVersion{}, err
@@ -235,13 +242,44 @@ func (r *Repository) ResolveApplication(ctx context.Context, query productapplic
 	return a, b, nil
 }
 
+func (r *Repository) ResolveAuthReturnTarget(ctx context.Context, query productapplication.AuthReturnTargetQuery) (productapplication.StoredAuthReturnTarget, error) {
+	var result productapplication.StoredAuthReturnTarget
+	var code, uri *string
+	var webRedirectsJSON, deepLinksJSON []byte
+	err := r.pool.QueryRow(ctx, `SELECT a.product_id,a.application_id,a.platform,a.status,a.current_redirect_policy_version,e.target_code,e.value,COALESCE((SELECT jsonb_agg(w.value ORDER BY w.value) FROM product_application.redirect_policy_entries w WHERE w.policy_id=p.policy_id AND w.entry_type='web_redirect'),'[]'::jsonb),COALESCE((SELECT jsonb_agg(d.value::jsonb ORDER BY d.value) FROM product_application.redirect_policy_entries d WHERE d.policy_id=p.policy_id AND d.entry_type='deep_link'),'[]'::jsonb) FROM product_application.product_applications a LEFT JOIN product_application.redirect_policy_versions p ON p.product_id=a.product_id AND p.application_id=a.application_id AND p.version=a.current_redirect_policy_version LEFT JOIN product_application.redirect_policy_entries e ON e.policy_id=p.policy_id AND e.entry_type='auth_return_target' AND e.target_code=$3 WHERE a.product_id=$1 AND a.application_id=$2`, query.ProductID, query.ApplicationID, query.Code).Scan(&result.ProductID, &result.ApplicationID, &result.Platform, &result.Status, &result.PolicyVersion, &code, &uri, &webRedirectsJSON, &deepLinksJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return productapplication.StoredAuthReturnTarget{}, productapplication.ErrNotFound
+	}
+	if err != nil {
+		return productapplication.StoredAuthReturnTarget{}, err
+	}
+	if result.Status != productapplication.StatusActive {
+		return productapplication.StoredAuthReturnTarget{}, productapplication.ErrApplicationSuspended
+	}
+	if code == nil || uri == nil || result.PolicyVersion < 1 {
+		return productapplication.StoredAuthReturnTarget{}, productapplication.ErrNotFound
+	}
+	if err := json.Unmarshal(webRedirectsJSON, &result.WebRedirectURIs); err != nil {
+		return productapplication.StoredAuthReturnTarget{}, fmt.Errorf("decode auth return web redirects: %w", err)
+	}
+	if err := json.Unmarshal(deepLinksJSON, &result.DeepLinks); err != nil {
+		return productapplication.StoredAuthReturnTarget{}, fmt.Errorf("decode auth return deep links: %w", err)
+	}
+	result.Code, result.URI = *code, *uri
+	return result, nil
+}
+
 func (r *Repository) ClaimOutbox(ctx context.Context, now time.Time, limit int) ([]productapplication.ClaimedOutboxEvent, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	rows, err := tx.Query(ctx, `SELECT event_id,aggregate_id,event_type,payload,attempt_count FROM product_application.outbox_events WHERE published_at IS NULL AND dead=FALSE AND next_attempt_at <= $1 ORDER BY occurred_at,event_id LIMIT $2 FOR UPDATE SKIP LOCKED`, now, limit)
+	var databaseNow time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `SELECT event_id,aggregate_id,event_type,payload,attempt_count FROM product_application.outbox_events WHERE published_at IS NULL AND dead=FALSE AND next_attempt_at <= $1 AND (lease_expires_at IS NULL OR lease_expires_at <= $1) ORDER BY occurred_at,event_id LIMIT $2 FOR UPDATE SKIP LOCKED`, databaseNow, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -257,10 +295,19 @@ func (r *Repository) ClaimOutbox(ctx context.Context, now time.Time, limit int) 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rows.Close()
 	for i := range result {
 		result[i].AttemptCount++
-		if _, err := tx.Exec(ctx, `UPDATE product_application.outbox_events SET attempt_count=attempt_count+1,next_attempt_at=$2 WHERE event_id=$1`, result[i].EventID, now.Add(30*time.Second)); err != nil {
+		result[i].LeaseToken, err = newOutboxLeaseToken()
+		if err != nil {
 			return nil, err
+		}
+		tag, err := tx.Exec(ctx, `UPDATE product_application.outbox_events SET attempt_count=attempt_count+1,lease_token=$2,lease_expires_at=$3 WHERE event_id=$1 AND published_at IS NULL AND dead=FALSE AND (lease_expires_at IS NULL OR lease_expires_at <= $4)`, result[i].EventID, result[i].LeaseToken, databaseNow.Add(30*time.Second), databaseNow)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() != 1 {
+			return nil, productapplication.ErrConflict
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -269,14 +316,34 @@ func (r *Repository) ClaimOutbox(ctx context.Context, now time.Time, limit int) 
 	return result, nil
 }
 
-func (r *Repository) MarkOutboxPublished(ctx context.Context, eventID string, now time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE product_application.outbox_events SET published_at=COALESCE(published_at,$2),last_error=NULL WHERE event_id=$1`, eventID, now)
-	return err
+func (r *Repository) MarkOutboxPublished(ctx context.Context, eventID, leaseToken string, now time.Time) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE product_application.outbox_events SET published_at=clock_timestamp(),last_error=NULL,lease_token=NULL,lease_expires_at=NULL WHERE event_id=$1 AND lease_token=$2 AND lease_expires_at>clock_timestamp() AND published_at IS NULL AND dead=FALSE`, eventID, leaseToken)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return productapplication.ErrConflict
+	}
+	return nil
 }
 
-func (r *Repository) MarkOutboxFailed(ctx context.Context, eventID, summary string, next time.Time, dead bool) error {
-	_, err := r.pool.Exec(ctx, `UPDATE product_application.outbox_events SET next_attempt_at=$2,last_error=$3,dead=$4 WHERE event_id=$1 AND published_at IS NULL`, eventID, next, summary, dead)
-	return err
+func (r *Repository) MarkOutboxFailed(ctx context.Context, eventID, leaseToken, summary string, next time.Time, dead bool) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE product_application.outbox_events SET next_attempt_at=$3,last_error=$4,dead=$5,lease_token=NULL,lease_expires_at=NULL WHERE event_id=$1 AND lease_token=$2 AND lease_expires_at>clock_timestamp() AND published_at IS NULL AND dead=FALSE`, eventID, leaseToken, next, summary, dead)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return productapplication.ErrConflict
+	}
+	return nil
+}
+
+func newOutboxLeaseToken() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return "product-application:" + hex.EncodeToString(value[:]), nil
 }
 
 func (r *Repository) redirectVersion(ctx context.Context, tx pgx.Tx, productID, applicationID string, version int64) (productapplication.RedirectPolicyVersion, error) {

@@ -2,6 +2,8 @@
 
 `standard-a` 是 G1-07 的第一套 Web / desktop WebView 基础前台框架模板候选，只进入服务端受控的 `experimental + verified` 目录，不进入普通创建流程。这里的“基础”表示它用于验证可运行 Shell 和产品扩展槽，尚不包含软件独有业务目录与核心内容。
 
+当前 G1-07 模板候选只证明模板文件生成和 custom 保护；生成软件根目录 `AGENTS.md` 与 `docs/software-development-handoff.md` 属于 G2C 完整装配交付，尚不能因本模板存在而视为已经实现。G2C 的装配验收软件只验证公共能力和交接边界，不在模板任务中开发真实正文业务。
+
 ## 所有权
 
 - `generated`：应用入口、Shell、主题、测试和构建配置，由 Generator 管理。

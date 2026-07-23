@@ -16,7 +16,7 @@ risk_level
 - Application 方法：`ResolveAdminAccessSnapshot(admin_user_id, session_id)`
 - 调用方：Identity 的管理员登录、当前会话与刷新流程
 - 输入：已验证且未撤销的管理员身份会话
-- 输出：`authorization_version`、有效角色摘要、permission codes、可访问的 platform/product/tenant scopes，以及是否需要近期重新认证
+- 输出：`authorization_version`、有效角色摘要、permission codes、可访问的 platform/product/tenant scopes，以及是否需要近期重新认证；同一管理员存在多条 active 角色/范围绑定时，快照必须聚合全部有效 permission 与 scope 并去重，不能只返回某一条绑定或某一个角色
 - 错误：没有有效管理范围、绑定已过期、账号或会话状态变化、授权读取暂时失败
 - 安全：输出只包含前端导航和 API Client 所需的最小摘要，不包含 Provider 密钥、角色内部策略或其他管理员资料
 - 一致性：角色或 scope 变化必须递增 `authorization_version`；高风险移除可主动撤销相关管理会话，普通变化最迟在下一 API 授权检查生效
@@ -37,6 +37,7 @@ risk_level
 - Manifest 边界：能力包只能声明已存在的 permission code；声明操作不返回 grant，也不能修改角色绑定
 - 数据库边界：Repository 只持久化目录定义和显式授权事实，不得在 Adapter 内再硬编码权限集合
 - 兼容：删除或重命名已发布权限码必须走弃用策略和授权数据迁移，不能静默替换
+- Assembly lifecycle：`assembly.lifecycle.plan` 为 platform scope 普通风险，只允许生成/读取服务端校验计划；`assembly.lifecycle.execute` 为 platform scope high-risk，覆盖 execute、cancel、rollback 和 eject，必须经过 `auth_time` 近期认证门禁。二者不能由 Blueprint、Manifest 或前端参数动态创建或提升。
 
 ## 管理绑定
 

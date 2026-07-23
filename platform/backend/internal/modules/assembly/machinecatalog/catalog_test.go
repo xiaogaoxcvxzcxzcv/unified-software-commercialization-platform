@@ -24,16 +24,30 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version() != "1.2.0" || len(catalog.Checksum()) != len("sha256:")+64 {
+	if catalog.Version() != "1.4.1" || len(catalog.Checksum()) != len("sha256:")+64 {
 		t.Fatalf("catalog identity = %s %s", catalog.Version(), catalog.Checksum())
 	}
 	ready := map[string]struct{}{
+		"account.center":            {},
+		"account.profile":           {},
+		"account.security":          {},
+		"auth.login":                {},
+		"auth.recovery":             {},
+		"auth.register":             {},
 		"assembly.blueprint-wizard": {},
 		"assembly.plan-review":      {},
+		"assembly.run-status":       {},
+		"assembly.upgrade-plan":     {},
+		"entitlement.grant-panel":   {},
+		"entitlement.history":       {},
+		"entitlement.summary":       {},
+		"entitlement.table":         {},
 		"product.capability-menu":   {},
 		"product.overview":          {},
 		"product.switcher":          {},
 		"product.table":             {},
+		"identity.user-detail":      {},
+		"identity.user-table":       {},
 	}
 	for blockID, definition := range catalog.byID {
 		_, allowed := ready[blockID]
@@ -44,8 +58,11 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 			t.Fatalf("unverified block %q readiness = %q", blockID, definition.Readiness)
 		}
 	}
-	if err := catalog.Validate([]string{"auth.login"}, "client"); !errors.Is(err, ErrBlockNotReady) {
-		t.Fatalf("planned client block should not be usable: %v", err)
+	if err := catalog.Validate([]string{"entitlement.summary"}, "client"); err != nil {
+		t.Fatalf("verified entitlement client block should be usable: %v", err)
+	}
+	if err := catalog.Validate([]string{"auth.login", "auth.register", "auth.recovery", "account.center", "account.profile", "account.security"}, "client"); err != nil {
+		t.Fatalf("verified account client blocks should be usable: %v", err)
 	}
 	if err := catalog.Validate([]string{"assembly.blueprint-wizard", "assembly.plan-review"}, "admin"); err != nil {
 		t.Fatalf("verified wizard blocks should be usable: %v", err)
@@ -177,6 +194,47 @@ func TestExperimentalCatalogRequiresExplicitLoader(t *testing.T) {
 	_, err := catalog.Resolve(ResolveRequest{Packages: []Requirement{{PackageID: "package.candidate", VersionRange: "*"}}, TemplateID: "candidate-a", TemplateRange: "*", Target: "web", DeliveryMode: "generated_source", Environment: "test"})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPackageLifecycleCannotLeakIntoRuntimeCatalogs(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		view   catalogView
+		status string
+		empty  bool
+	}{
+		{name: "contracted ordinary", view: ordinaryView, status: "contracted", empty: true},
+		{name: "implemented experimental", view: experimentalView, status: "implemented", empty: true},
+		{name: "deprecated ordinary", view: ordinaryView, status: "deprecated", empty: true},
+		{name: "available experimental", view: experimentalView, status: "available"},
+		{name: "verified ordinary", view: ordinaryView, status: "verified"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := packageDocument(t, "package.account", "1.0.0", nil, nil, []string{"auth.login"}, test.view)
+			document = mutateDocument(t, document, func(value map[string]any) {
+				value["lifecycle_status"] = test.status
+				if test.empty {
+					value["availability"] = []any{}
+				}
+			}, true)
+			_, err := build([]sourceDocument{document}, nil, loadContracts(t), accesscontrol.CurrentPermissionCatalog(), readyBlocks(t), test.view)
+			if err == nil || (test.empty && !errors.Is(err, ErrCatalogState)) {
+				t.Fatalf("runtime catalog accepted or misclassified lifecycle %q: %v", test.status, err)
+			}
+		})
+	}
+}
+
+func TestPackageRejectsProviderDeclaredRequiredAndOptional(t *testing.T) {
+	document := packageDocument(t, "package.account", "1.0.0", nil, nil, []string{"auth.login"}, ordinaryView)
+	document = mutateDocument(t, document, func(value map[string]any) {
+		value["provider_requirements"] = []string{"identity.external.oidc"}
+		value["optional_provider_requirements"] = []string{"identity.external.oidc"}
+	}, true)
+	_, err := build([]sourceDocument{document}, nil, loadContracts(t), accesscontrol.CurrentPermissionCatalog(), readyBlocks(t), ordinaryView)
+	if err == nil || !strings.Contains(err.Error(), "both required and optional") {
+		t.Fatalf("overlapping provider declarations accepted: %v", err)
 	}
 }
 
@@ -607,15 +665,20 @@ func packageDocument(t *testing.T, packageID, version string, dependencies, conf
 	compatibility := strings.TrimPrefix(packageID, "package.")
 	dependencies = append(make([]Requirement, 0, len(dependencies)), dependencies...)
 	conflicts = append(make([]Requirement, 0, len(conflicts)), conflicts...)
+	lifecycleStatus := "available"
+	if view.visibility == "experimental" {
+		lifecycleStatus = "verified"
+	}
 	value := map[string]any{
 		"schema_version": "1.0.0", "package_id": packageID, "version": version, "name": packageID, "user_value": "Reusable capability package.",
-		"availability": []any{map[string]any{"target": "web", "delivery_mode": "generated_source", "environments": []string{"test"}, "visibility": view.visibility, "readiness": view.readiness, "evidence_refs": []string{"artifacts/reviews/test/evidence.md"}}},
-		"dependencies": dependencies, "conflicts": conflicts, "supported_targets": []string{"web"}, "supported_delivery_modes": []string{"generated_source"},
+		"lifecycle_status": lifecycleStatus,
+		"availability":     []any{map[string]any{"target": "web", "delivery_mode": "generated_source", "environments": []string{"test"}, "visibility": view.visibility, "readiness": view.readiness, "evidence_refs": []string{"artifacts/reviews/test/evidence.md"}}},
+		"dependencies":     dependencies, "conflicts": conflicts, "supported_targets": []string{"web"}, "supported_delivery_modes": []string{"generated_source"},
 		"required_permissions": []string{"identity.manage"}, "backend_capabilities": []string{"identity.user-session"}, "migrations": []string{}, "events": []string{"identity.changed.v1"}, "audit_actions": []string{"identity.changed"},
 		"admin_blocks": []string{"identity.user-table"}, "client_blocks": clientBlocks, "hosted_routes": []string{"hosted.auth"},
 		"ui_template_compatibility": []any{map[string]any{"template_id": templateForPackage(packageID), "version_range": "*"}},
 		"public_api_operations":     []string{"getCurrentUser"}, "sdk_modules": []string{"sdk." + compatibility}, "sdk_methods": []string{"getCurrentUser"}, "stable_errors": []string{"CAPABILITY_ERROR"},
-		"config_schema_path": "contracts/config.schema.json", "secret_refs": []any{}, "provider_requirements": []string{}, "generated_outputs": []any{},
+		"config_schema_path": "contracts/config.schema.json", "secret_refs": []any{}, "provider_requirements": []string{}, "optional_provider_requirements": []string{}, "generated_outputs": []any{},
 		"source_locations": []string{"platform/backend/internal/modules/identity"}, "extension_points": []string{"capability.slot"}, "test_paths": []string{"tests/golden.test.ts"}, "smoke_tests": []string{"st.capability"}, "documentation_paths": []string{"docs/package.md"},
 		"upgrade_policy": map[string]any{"strategy": "compatible", "guide_path": "docs/upgrade.md"}, "rollback_policy": map[string]any{"strategy": "automatic", "guide_path": "docs/rollback.md"},
 		"data_retention": []any{map[string]any{"data_set": "capability.data", "policy": "Retain for the active product lifecycle.", "guide_path": "docs/data-retention.md"}},

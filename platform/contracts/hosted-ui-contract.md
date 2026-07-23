@@ -76,13 +76,15 @@ expires_at: 过期时间
 
 ```text
 created | opened | authenticating | processing | awaiting_payment |
-completed | cancelled | failed | expired
+completed | exchanged | cancelled | failed | expired
 ```
 
 - 交互票据短期有效、不可预测，并在终态后拒绝再次完成。
 - 同一交互重复打开时返回当前状态，不重复创建订单、支付或权益。
 - 页面刷新、浏览器重开和网络中断必须能从服务端恢复当前状态。
 - 登录授权码、支付查询和完成回跳分别定义一次性语义；不能把内存状态作为唯一事实。
+- HostedInteraction 由独立 `hosted-interaction` 模块长期拥有。Identity 只拥有登录 proof 和最终用户 Session；Product Application 只拥有命名 return target；后续 Catalog/Order/Payment/Entitlement 仍拥有各自业务事实。
+- `hosted.auth` 与 `hosted.account` 的 API、浏览器 Cookie、CSRF、grant lease 和 Identity 幂等 redemption 见 `docs/features/hosted-interaction/contract.md` 与 ADR-0018。
 
 ## 5. 安全返回目标
 
@@ -202,6 +204,7 @@ http://127.0.0.1:{ephemeral_port}/callback
 ```text
 invalid_interaction
 interaction_expired
+interaction_terminal
 invalid_return_target
 state_mismatch
 nonce_replayed
@@ -236,3 +239,35 @@ temporarily_unavailable
 6. 小程序登录与支付走原生渠道适配，不依赖 Web Cookie。
 7. App 深链接晚到或重复到达只完成一次交互。
 8. 产品 A 的 HostedInteraction 不能读取产品 B 或同产品其他代理租户的数据。
+
+## 17. G2A-06 `hosted.auth` / `hosted.account` 页面契约
+
+### 17.1 浏览器凭据边界
+
+- 页面只从版本化 `/ui/v1/auth|account?interaction_id=...` 启动，先建立或恢复 Hosted browser session；除 `interaction_id` 外拒绝全部 query 和 fragment。
+- Hosted 页面只能使用 HttpOnly Hosted Cookie 与只驻内存的 CSRF token。页面不得接收、读取、存储或转发 Client/User access token、refresh token、PKCE verifier、Provider token 或 session digest。
+- `auth/account bootstrap` 是只读 GET：浏览器未发送 `Origin` 时允许继续；显式发送时必须只有一个值且精确匹配 Hosted Origin，空值、`null`、重复或不匹配值统一拒绝。全部写操作仍必须同时提供唯一且精确匹配的 Hosted Origin 与内存 CSRF token。成功和拒绝 API 响应均不得发送 `Access-Control-Allow-Origin` 或 `Access-Control-Allow-Credentials`，并且必须 `Cache-Control: no-store`。
+- 所有 Hosted 自助 API 都由服务端根据 interaction 中已冻结的 actor 和 scope 调用权威模块公开服务；浏览器不能提交 Product/Application/Tenant/User/Session 范围覆盖字段。
+
+### 17.2 页面与状态
+
+- `hosted.auth` 编排登录、注册和找回三个 tab/步骤；服务端未投影外部 Provider 时不渲染任何 Provider 入口。完成登录/注册后只导航到服务端返回的登记 return URL。
+- 注册/找回中间步骤必须从 HostedInteraction 持久化 flow 恢复；浏览器不持久化 identifier、continuation、proof 或密码。返回登录会清理服务端 flow，刷新后保持登录态；不得用本地存储伪造恢复。
+- `hosted.account` 编排个人中心、资料、安全和已启用的当前权益入口；只显示服务端 bootstrap 明确允许的资料、active 会话、外部身份动作和能力入口。Active 会话由 Identity 使用数据库时钟统一判定为未撤销且 refresh 尚未过期；撤销后下一次 bootstrap 必须立即移除目标会话，管理员历史与审计记录仍保留。未交付或已关闭的能力不显示占位入口，直接访问对应数据也必须返回 `capability_disabled`。
+- `hosted.account` 中的 `entitlement.summary` 只读取 Entitlement 当前用户 API 或 SDK 投影，展示当前会员、有效期、Revision、服务端更新时间和功能摘要；不得展示或计算价格、套餐营销、支付状态，不得把旧 bootstrap 或本地缓存作为永久授权。
+- 页面必须覆盖公共八态，刷新或重开时以服务端 interaction 与 bootstrap 为准恢复。写操作响应丢失后使用相同 Idempotency-Key 恢复首次结果，不通过重新读取当前事实冒充首次响应。
+- 终态 interaction 显示稳定的“返回应用”或“关闭”动作；不得自动循环提交、无限轮询或创建第二个 completion grant。
+- 刷新恢复终态时，browser-session 只可返回从既有 completion grant 构建的可选 `completion`；不得新建 grant、重跑业务写入或由浏览器重建返回 URL。
+
+### 17.3 表单与可访问性
+
+- 密码、确认密码、proof/code 字段禁止预填和持久化；提交后、取消后与卸载时清空。认证失败使用防枚举通用文案。
+- 字段错误与控件使用 `aria-describedby` 绑定；提交中禁止重复动作但保留明确进度；成功、失败和会话撤销使用文本与 live region，不只依赖颜色。
+- 触控目标至少 44px；320/390/760/桌面和 desktop WebView 低高度下无横向溢出、内容遮挡或不可达操作。焦点在 tab、错误摘要、确认对话框和返回动作之间可预测移动。
+- 视觉沿用 Client UI / `standard-a` Token：白色主表面、低饱和画布、青绿品牌动作、蓝色链接/焦点、红色危险语义、圆角不超过 8px；不得使用管理后台导航、营销 Hero 或卡片套卡片。
+
+### 17.4 安全响应头与缓存
+
+- HTML 与 API 响应使用 `Cache-Control: no-store`；HTML 还必须设置严格 CSP、`frame-ancestors 'none'`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff` 和最小 Permissions-Policy。
+- 浏览器日志、错误遥测、页面标题、URL、Referer 和 DOM data 属性不得包含密码、identifier 原文、token、proof、code、CSRF 或 Provider 私有错误。
+- 外部导航只允许服务端返回的 completion return URL 或已登记 Provider authorization URL；组件不得拼接、解码或放宽目标。

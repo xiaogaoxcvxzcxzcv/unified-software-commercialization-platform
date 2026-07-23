@@ -8,14 +8,17 @@
 
 用户前台模板交付可运行 Shell、布局、导航、主题、所选公共 Feature Block 的页面编排和 custom 扩展槽。登录、个人中心、会员等公共页面随对应 `available` 能力包装配；软件自己的业务首页、目录页、工作台和核心内容不做统一模板，由开发人员在 custom 区域实现并接入。
 
+装配成功后，平台任务到“公共能力可运行且交接完整”为止。生成软件必须自带根目录开发规则和接入说明，明确已经提供的能力、允许修改的 custom 范围、受保护的 generated/integration 范围、SDK/API/事件/扩展槽、启动测试命令和缺失公共能力的升级路径。该软件正文业务必须在独立的软件开发任务中完成，不能继续算作底座主计划的实现量。
+
 ## 当前状态
 
-- 当前阶段：F0 已退出；G1-07 Standard-A 模板、G1-07.1 受信工具目录基础、G1-08.1 创建 Client/状态模型、G1-08.2 `/create` 五步向导和 G1-08.3 单款软件管理工作区已 verified。当前唯一关口为 G1-08.4 装配记录与恢复；真实工具版本尚未发布，完整能力包尚未开始，普通创建入口继续显示真实空状态并失败关闭。
+- 当前阶段：F0、G1、G2A-01 至 G2A-08 已退出；`package.account` 仅为 experimental verified candidate，非 ordinary available。G2A-08 Account 包内九面验证、本地真实 PostgreSQL Full 22/22、最终提交 `8e8dd7e` 和 GitHub required check 已通过。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；G2B-02 Entitlement 后端、迁移、HTTP API、Outbox/Audit、幂等、source tuple revoke 和复杂策略已通过本地真实 PostgreSQL Full 与托管 required check；G2B-03 统一后台 Entitlement Blocks、G2B-04 用户前台/SDK/源码/专用真实浏览器 E2E，以及 G2B-05 包内九面、ST-005/006/039 和 experimental verified candidate 已通过。G2C-01 已验证 account + entitlement + standard-a + generator + SDK + 样板 extension 的 experimental 组合闭包，当前唯一严格关口为 G2C-02 真实创建装配验收软件 A；ordinary 能力包目录仍为空，普通创建入口继续失败关闭。
 - 正式代码目录：`platform/`。
+- HostedInteraction 是独立短期编排模块：拥有 interaction、浏览器会话、恢复投影和完成 grant；只通过公开服务调用 Identity、Product Application 及后续业务模块，不拥有用户、回跳白名单、订单、支付或权益事实。G2A-04.1 已完成后端边界验证；G2A-06 Hosted UI 交付面已通过本地真实浏览器、Full 20/20 与托管 required check。两者都不得误报为完整 Account 包已完成。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。
-- 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建 Client/状态模型和 `/create` 五步向导连接真实后端，现有产品/租户等业务页面仍使用内存演示 Client，不得混同为生产数据源。
-- Assembly 后端执行闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选和软件创建向导已实现；单款软件工作区、业务 Feature Block 和首个真实样板软件尚未实现。普通生产能力包/模板/工具目录为空，扩展目录未实现并失败关闭，当前不能声称“勾选能力即可得到完整前后台”。
-- product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement、device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
+- 管理后台已有可运行的 React + TypeScript 工程；管理员认证、Assembly 创建/恢复 Client、`/create` 五步向导、真实 Product 工作区、`/assemblies` 和 Entitlement 管理 Blocks 连接真实后端，未标记 ready 的业务页面仍不得混同为生产数据源。
+- Assembly 后端执行/恢复闭包、TypeScript SDK/Client UI 基座、`standard-a` 实验模板候选、创建向导、单款软件工作区和 lifecycle API 已实现；lifecycle 已通过本地与托管 CI 验证。Account 管理端两个 Block 与用户端六个 Block 已 verified；Account SDK 的 22 个公开方法、可注入安全 Vault、配置 Schema 和 Generated Source 已实现并通过 G2A-07 本地专项、Full 和托管 CI 验证。G2A-08 包内九面验证已完成并发布 experimental verified candidate；首个装配验收软件仍未开始，当前仍不能声称“勾选能力即可得到完整前后台”。
+- product、product-application、tenant、管理员 identity、access-control、audit 已有 G1-03 正式实现；entitlement 已完成 G2B-02 后端/API 基础但仍未形成完整能力包；device、license、catalog、order、payment、commerce、ai-gateway、usage、deployment 当前仍主要是契约，release、config、storage、notification、analytics 仍待按阶段补齐。不得把 OpenAPI 路径或文档存在误报为这些业务模块已完成。
 - 后端、OpenAPI、SDK、Hosted UI 和真实 Provider 接入以代码、自动化测试及冒烟记录为完成依据，不能以菜单或文档存在代替实现。
 - 产品范围和优先级以 `docs/product-scope.md` 为准。
 - 能力包是否可勾选只看 `docs/capability-package-catalog.md` 的 `available` 状态，不能根据菜单、原子能力索引或模块文件存在判断。
@@ -43,6 +46,7 @@
 platform/
   backend/                 Go API 与后台任务
   admin-web/               React 管理后台
+  hosted-web/              可部署 Hosted auth/account Web Shell（只组合 Client UI）
   capability-packages/     普通 available 完整能力包机器目录
   client-ui/               多端登录、个人中心、会员购买、支付和用量组件
   sdk/                     各语言客户端 SDK
@@ -85,7 +89,8 @@ HTTP / Job / Event Consumer
 | product | 产品、环境、客户端身份 | 用户权限、订单 |
 | product-application | Product 内桌面/Web/App/小程序表面、渠道与回调策略 | 新产品、代理租户、用户权益 |
 | tenant | 产品下属官方/代理租户、代理管理员和租户上下文 | 跨产品租户、支付结算、用户登录 |
-| identity | 用户、登录、会话、管理员身份 | 套餐、产品权益 |
+| identity | 全局用户、凭据、资料、登录、会话、管理员身份和全局安全状态 | Product/Tenant 局部准入、套餐、产品权益 |
+| product-user-access | Global User 在指定 Product/Tenant 的 `active|suspended` 准入事实和实时判定 | 全局账号、会话、Product/Tenant 主数据、付费权益 |
 | entitlement | 用户对产品的可用权益 | 收款、登录 |
 | device | 设备登记、绑定、撤销 | 判断套餐价格 |
 | license | 激活码生成与兑换 | 直接修改用户或订单 |
@@ -152,13 +157,16 @@ Product Blueprint
 -> 创建 Product / official Tenant / Application / 测试凭据
 -> 启用共享后端和统一管理后台 Feature Block
 -> 生成用户前台组合、接入壳、配置和 lock
--> 启动真实样板软件
+-> 生成软件本地 AI/开发人员交接说明
+-> 启动装配验收软件（不开发完整正文业务）
 -> 运行账号 + 权益黄金链、隔离和旧产品回归
 ```
 
+第一条主链中的多款软件只承担装配、隔离、晋级和回归验证。为证明扩展接口可用，可以由测试夹具加入一个最小 custom 页面、后台入口或数据命名空间；该夹具不是验收软件的真实产品功能，也不能演变成由底座团队继续开发其目录和正文。
+
 第一条主链只完成 `package.account`、`package.entitlement` 和 Web/桌面标准 UI。Device/License、Commerce、AI、存储和运营能力随后按同一完整包标准逐个加入。基础代理租户隔离保留在数据模型，但代理经营界面不是第一条主链的中心。
 
-G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已完成只在实验目录可见的 `standard-a` 候选及浏览器视觉证据，G1-07.1 完成受信工具目录基础，G1-08.1/G1-08.2 完成创建 Client、状态模型与多步向导，G1-08.3 完成真实软件工作区；G1-08.4、G1-10 和 G1-11 分别负责装配恢复、lifecycle API 和可信扩展目录。Product Blueprint 至少选择一个真实能力包，原 G1-09 基础样板不再独立执行，第一次真实装配进入 G2C。
+G1-04 完成受信装配后端基础，G1-05 完成从 Run 到受控源码和恢复证据，G1-06 完成可信客户端上下文、HTTP、Headless 状态、React 基础组件与 Hosted 启动边界。G1-07 已完成只在实验目录可见的 `standard-a` 候选及浏览器视觉证据，G1-07.1 完成受信工具目录基础，G1-08.1 至 G1-08.4 完成创建、工作区、durable Run 与恢复；G1-10 和 G1-11 分别负责 lifecycle API 和可信扩展目录。Product Blueprint 至少选择一个真实能力包，原 G1-09 基础样板不再独立执行，第一次真实装配进入 G2C。
 
 ## 红线
 

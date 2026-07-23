@@ -1,0 +1,57 @@
+{
+  "catalog_scope": "experimental",
+  "content_files": [
+    {
+      "kind": "file",
+      "path": "evidence/g2c01-tool-report.json",
+      "sha256": "sha256:04f13badae202405a6e0982ae684c0a5e7fa2377b1598056f5a0c028f595bed9"
+    }
+  ],
+  "content_tree_sha256": "sha256:46fbb4dbdd96beefba7bd09fde90ca96685d45694d2e6f2f6b15d2107f012bde",
+  "evidence": [
+    {
+      "delivery_mode": "generated_source",
+      "environment": "test",
+      "path": "evidence/g2c01-tool-report.json",
+      "sha256": "sha256:04f13badae202405a6e0982ae684c0a5e7fa2377b1598056f5a0c028f595bed9",
+      "status": "passed",
+      "target": "web",
+      "type": "test_report"
+    },
+    {
+      "delivery_mode": "generated_source",
+      "environment": "test",
+      "path": "evidence/g2c01-tool-report.json",
+      "sha256": "sha256:04f13badae202405a6e0982ae684c0a5e7fa2377b1598056f5a0c028f595bed9",
+      "status": "passed",
+      "target": "desktop_webview",
+      "type": "test_report"
+    }
+  ],
+  "execution": {
+    "adapter_id": "assembly.pure-renderer",
+    "mode": "builtin_adapter"
+  },
+  "manifest_sha256": "sha256:e520275b9fa8c14689eac99c20a9ae4b3d88a36c203aaa78f59e06539e480736",
+  "name": "Platform Pure Renderer Generator",
+  "platform_contract_range": "^1.0.0",
+  "protocol": {
+    "id": "assembly.generator",
+    "version": "1.0.0"
+  },
+  "readiness": "verified",
+  "schema_version": "1.0.0",
+  "supported_delivery_modes": [
+    "generated_source"
+  ],
+  "supported_environments": [
+    "test"
+  ],
+  "supported_targets": [
+    "web",
+    "desktop_webview"
+  ],
+  "tool_id": "platform.generator",
+  "tool_kind": "generator",
+  "version": "1.0.0"
+}

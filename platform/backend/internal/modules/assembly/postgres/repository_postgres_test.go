@@ -165,6 +165,10 @@ func TestRepositoryPreProductLifecycleBindingIsolationAndOptimisticConcurrency(t
 	if err != nil || platformLock.AssemblyID != manifest.AssemblyID || string(platformLock.Document) != string(lock.Document) {
 		t.Fatalf("platform lock = %+v, err = %v", platformLock, err)
 	}
+	currentManifest, currentLock, err := repository.GetLifecycleSource(ctx, manifest.AssemblyID)
+	if err != nil || currentManifest.AssemblyID != manifest.AssemblyID || currentLock.LockID != lock.LockID {
+		t.Fatalf("initial lifecycle head manifest=%+v lock=%+v err=%v", currentManifest, currentLock, err)
+	}
 	if _, err := repository.GetManifest(ctx, "product-b", manifest.AssemblyID); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("cross-product manifest error = %v", err)
 	}

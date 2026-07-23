@@ -30,12 +30,13 @@
     "artifact_context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["assembly_id", "lock_id", "rollback_id", "run_id", "product", "blueprint", "catalog_checksum", "evidence", "created_at", "paths"],
+      "required": ["assembly_id", "lock_id", "rollback_id", "product", "blueprint", "catalog_checksum", "evidence", "created_at", "paths"],
       "properties": {
         "assembly_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "lock_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "rollback_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "run_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "lifecycle_operation_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "product": {
           "type": "object",
           "additionalProperties": false,
@@ -101,7 +102,11 @@
             "diagnostic_directory": { "$ref": "common.schema.json#/$defs/safeRelativePath" }
           }
         }
-      }
+      },
+      "oneOf": [
+        { "required": ["run_id"], "not": { "required": ["lifecycle_operation_id"] } },
+        { "required": ["lifecycle_operation_id"], "not": { "required": ["run_id"] } }
+      ]
     },
     "desired_outputs": {
       "type": "array",

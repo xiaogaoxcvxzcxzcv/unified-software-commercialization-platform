@@ -8,7 +8,7 @@ const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const stableCode = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const sha256 = /^sha256:[a-f0-9]{64}$/;
 const outputRef = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
-const statuses = new Set<AssemblyRunStatus>(["planned", "provisioning", "generating", "validating", "completed", "failed", "rolling_back", "rolled_back"]);
+const statuses = new Set<AssemblyRunStatus>(["planned", "provisioning", "generating", "validating", "completed", "failed", "cancelled", "rolling_back", "rolled_back"]);
 const stepKinds = new Set<AssemblyRunStepKind>(["provision", "enable_capability", "generate", "validate", "commit", "rollback"]);
 const stepStatuses = new Set<AssemblyRunStepStatus>(["pending", "running", "completed", "failed", "compensated", "skipped"]);
 const compensationStatuses = new Set<AssemblyRunStep["compensation_status"]>(["not_required", "pending", "completed", "failed"]);
@@ -83,7 +83,7 @@ function parseRecovery(value: unknown): AssemblyRunRecovery {
   return { retryable: bool(s.retryable, "assembly run recovery retryable"), rollback_required: bool(s.rollback_required, "assembly run recovery rollback_required"), resume_from_step_id: nullableId(s.resume_from_step_id, "assembly run recovery resume_from_step_id") };
 }
 
-function parseDiagnostic(value: unknown): AssemblyRunDiagnostic {
+export function parseAssemblyRunDiagnostic(value: unknown): AssemblyRunDiagnostic {
   const s = object(value, ["diagnostic_id", "code", "severity", "category", "message", "blocking", "retryable", "remediation", "related_paths"], [], "assembly run diagnostic");
   if (!Array.isArray(s.remediation) || !Array.isArray(s.related_paths)) throw new TypeError("assembly run diagnostic lists are invalid");
   const paths = s.related_paths.map((item) => relativePath(item, "assembly run diagnostic related_path"));
@@ -97,7 +97,7 @@ function parseDiagnostic(value: unknown): AssemblyRunDiagnostic {
   };
 }
 
-function parseReport(value: unknown): AssemblyRunReport {
+export function parseAssemblyRunReport(value: unknown): AssemblyRunReport {
   const s = object(value, ["report_id", "type", "status", "summary", "checksum", "created_at"], [], "assembly run report");
   if (s.checksum !== null && (typeof s.checksum !== "string" || !sha256.test(s.checksum))) throw new TypeError("assembly run report checksum is invalid");
   return { report_id: id(s.report_id, "assembly run report_id"), type: code(s.type, "assembly run report type"),
@@ -131,7 +131,7 @@ export function parseAssemblyRun(value: unknown): AssemblyRunRecord {
     plan_version: integer(s.plan_version, "assembly run plan_version", 1), version: integer(s.version, "assembly run version", 1), plan_checksum: s.plan_checksum,
     root_run_id: id(s.root_run_id, "assembly run root_run_id"), retry_of_run_id: nullableId(s.retry_of_run_id, "assembly run retry_of_run_id"), attempt_number: integer(s.attempt_number, "assembly run attempt_number", 1),
     output_target_ref: s.output_target_ref, status: enumeration(s.status, statuses, "assembly run status"), current_step_id: nullableId(s.current_step_id, "assembly run current_step_id"),
-    steps: s.steps.map(parseStep), recovery: parseRecovery(s.recovery), diagnostics: s.diagnostics.map(parseDiagnostic), reports: s.reports.map(parseReport),
+    steps: s.steps.map(parseStep), recovery: parseRecovery(s.recovery), diagnostics: s.diagnostics.map(parseAssemblyRunDiagnostic), reports: s.reports.map(parseAssemblyRunReport),
     document: jsonObject(s.document, "assembly run document"), created_at: timestamp(s.created_at, "assembly run created_at"), updated_at: timestamp(s.updated_at, "assembly run updated_at"),
     completed_at: nullableTimestamp(s.completed_at, "assembly run completed_at"), audit_id: id(s.audit_id, "assembly run audit_id"),
   };

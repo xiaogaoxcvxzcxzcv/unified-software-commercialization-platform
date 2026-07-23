@@ -14,6 +14,10 @@ type Hasher struct {
 	pepper []byte
 }
 
+func (h Hasher) Configured() bool {
+	return len(h.pepper) >= 32
+}
+
 func NewHasher(pepper string) (Hasher, error) {
 	if len(pepper) < 32 {
 		return Hasher{}, fmt.Errorf("token pepper must be at least 32 bytes")

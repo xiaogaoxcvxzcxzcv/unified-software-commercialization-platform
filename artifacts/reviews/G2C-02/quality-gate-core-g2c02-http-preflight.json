@@ -1,0 +1,62 @@
+{
+    "schema_version":  2,
+    "generated_at_utc":  "2026-07-23T15:28:41.2981817Z",
+    "mode":  "Core",
+    "require_postgres":  false,
+    "git_commit":  "ed8d56a50f7b31c15c589593fefea14acf0f0c9c",
+    "reproducible_commit":  false,
+    "worktree":  {
+                     "status_available":  true,
+                     "clean":  false,
+                     "tracked_modified_count":  8,
+                     "staged_change_count":  0,
+                     "unstaged_change_count":  8,
+                     "untracked_count":  5,
+                     "diff":  {
+                                  "available":  true,
+                                  "files_changed":  8,
+                                  "insertions":  94,
+                                  "deletions":  13,
+                                  "binary_files":  0
+                              }
+                 },
+    "passed":  true,
+    "steps":  [
+                  {
+                      "name":  "Git whitespace check",
+                      "status":  "passed",
+                      "duration_ms":  49,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Strict UTF-8",
+                      "status":  "passed",
+                      "duration_ms":  9310,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Migration naming and pairing",
+                      "status":  "passed",
+                      "duration_ms":  26,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Local documentation links",
+                      "status":  "passed",
+                      "duration_ms":  9763,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Secret pattern scan",
+                      "status":  "passed",
+                      "duration_ms":  10782,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "OpenAPI contract",
+                      "status":  "passed",
+                      "duration_ms":  71,
+                      "message":  ""
+                  }
+              ]
+}

@@ -1,3 +1,5 @@
+import { AccountSdk, accountUserSession } from "./account.js";
+import { EntitlementSdk } from "./entitlement.js";
 import { TrustedClientContext } from "./context.js";
 import { classifyStatus, ClientSdkError } from "./errors.js";
 import type { ClientRequestOptions, ClientSdkOptions, CreateClientSessionInput, FetchLike } from "./types.js";
@@ -61,6 +63,8 @@ async function safeJson(response: Response): Promise<unknown> {
 }
 
 export class ClientSdk {
+  readonly account: AccountSdk;
+  readonly entitlement: EntitlementSdk;
   readonly #baseUrl: URL;
   readonly #fetch: FetchLike;
   readonly #timeoutMs: number;
@@ -74,6 +78,26 @@ export class ClientSdk {
     this.#timeoutMs = normalizeTimeout(options.timeoutMs, 10_000);
     this.#maxRetries = options.maxRetries ?? 1;
     this.#requestIdFactory = options.requestIdFactory ?? (() => globalThis.crypto.randomUUID());
+    this.account = new AccountSdk({
+      clientToken: () => this.#clientToken(),
+      requestId: () => this.#requestIdFactory(),
+      send: (path, accountOptions) => this.#send(path, {
+        method: accountOptions.method,
+        body: accountOptions.body,
+        idempotencyKey: accountOptions.idempotencyKey,
+        timeoutMs: accountOptions.timeoutMs,
+        signal: accountOptions.signal,
+      }, accountOptions.token, false, accountOptions.retry === true, true),
+    }, options.accountSessionVault);
+    this.entitlement = new EntitlementSdk({
+      withUser: (operation) => this.account[accountUserSession](operation),
+      send: (path, entitlementOptions) => this.#send(path, {
+        method: entitlementOptions.method,
+        body: entitlementOptions.body,
+        timeoutMs: entitlementOptions.timeoutMs,
+        signal: entitlementOptions.signal,
+      }, entitlementOptions.token, false, entitlementOptions.retry === true, true),
+    });
   }
 
   get context(): TrustedClientContext | null { return this.#session?.context ?? null; }
@@ -114,7 +138,17 @@ export class ClientSdk {
     return await safeJson(response) as T;
   }
 
-  async #send(path: string, options: ClientRequestOptions, token: string | undefined, sessionRequest: boolean): Promise<Response> {
+  #clientToken(): string {
+    const session = this.#session;
+    if (!session) throw new ClientSdkError("A trusted client session is required.", { kind: "authentication", code: "client_session_required", retryable: false });
+    if (Date.parse(session.context.expiresAt) <= Date.now()) {
+      this.clearSession();
+      throw new ClientSdkError("The client session has expired.", { kind: "authentication", code: "client_session_expired", retryable: false });
+    }
+    return session.token;
+  }
+
+  async #send(path: string, options: ClientRequestOptions, token: string | undefined, sessionRequest: boolean, retryOverride?: boolean, redactError = false): Promise<Response> {
     const method = options.method ?? "GET";
     const headers = requestHeaders(options.headers);
     headers.set("Accept", "application/json");
@@ -126,7 +160,7 @@ export class ClientSdk {
       headers.set("Content-Type", "application/json");
       body = JSON.stringify(options.body);
     }
-    const canRetry = sessionRequest || safeMethod(method, options.idempotencyKey);
+    const canRetry = retryOverride ?? (sessionRequest || safeMethod(method, options.idempotencyKey));
     const attempts = canRetry ? this.#maxRetries + 1 : 1;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const controller = new AbortController();
@@ -140,7 +174,7 @@ export class ClientSdk {
         const code = typeof payload?.code === "string" ? payload.code : "http_error";
         const retryable = payload?.retryable === true && retryStatuses.has(response.status) && attempt + 1 < attempts;
         if (retryable) continue;
-        const message = typeof payload?.detail === "string" ? payload.detail : typeof payload?.title === "string" ? payload.title : "The request failed.";
+        const message = redactError ? "The account request failed." : typeof payload?.detail === "string" ? payload.detail : typeof payload?.title === "string" ? payload.title : "The request failed.";
         throw new ClientSdkError(message, {
           kind: classifyStatus(response.status, code), code, status: response.status,
           requestId: typeof payload?.request_id === "string" ? payload.request_id : response.headers.get("x-request-id") ?? undefined,
@@ -152,11 +186,11 @@ export class ClientSdk {
         if (controller.signal.aborted) {
           const cancelled = options.signal?.aborted === true;
           throw new ClientSdkError(cancelled ? "The request was cancelled." : "The request timed out.", {
-            kind: cancelled ? "cancelled" : "timeout", code: cancelled ? "request_cancelled" : "request_timeout", retryable: !cancelled, cause: reason,
+            kind: cancelled ? "cancelled" : "timeout", code: cancelled ? "request_cancelled" : "request_timeout", retryable: !cancelled, cause: redactError ? undefined : reason,
           });
         }
         if (attempt + 1 < attempts) continue;
-        throw new ClientSdkError("The network request failed.", { kind: "network", code: "network_error", retryable: canRetry, cause: reason });
+        throw new ClientSdkError("The network request failed.", { kind: "network", code: "network_error", retryable: canRetry, cause: redactError ? undefined : reason });
       } finally {
         globalThis.clearTimeout(timeout);
         options.signal?.removeEventListener("abort", cancel);

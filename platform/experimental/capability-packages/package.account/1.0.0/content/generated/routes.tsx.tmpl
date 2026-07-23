@@ -1,0 +1,36 @@
+import {
+  AccountCenterBlock,
+  AccountProfileBlock,
+  AccountSecurityBlock,
+  AuthLoginBlock,
+  AuthRecoveryBlock,
+  AuthRegisterBlock,
+  type AccountCenterBlockProps,
+  type AccountProfileBlockProps,
+  type AccountSecurityBlockProps,
+  type AuthLoginBlockProps,
+  type AuthRecoveryBlockProps,
+  type AuthRegisterBlockProps,
+} from "@capability-platform/client-ui/web-react";
+
+export interface AccountRouteBindings {
+  readonly login: AuthLoginBlockProps;
+  readonly register: AuthRegisterBlockProps;
+  readonly recovery: AuthRecoveryBlockProps;
+  readonly center: AccountCenterBlockProps;
+  readonly profile: AccountProfileBlockProps;
+  readonly security: AccountSecurityBlockProps;
+}
+
+export function createAccountRoutes(bindings: AccountRouteBindings) {
+  return [
+    { blockId: "auth.login", path: "/account/login", Component: AuthLoginBlock, props: bindings.login },
+    { blockId: "auth.register", path: "/account/register", Component: AuthRegisterBlock, props: bindings.register },
+    { blockId: "auth.recovery", path: "/account/recovery", Component: AuthRecoveryBlock, props: bindings.recovery },
+    { blockId: "account.center", path: "/account", Component: AccountCenterBlock, props: bindings.center },
+    { blockId: "account.profile", path: "/account/profile", Component: AccountProfileBlock, props: bindings.profile },
+    { blockId: "account.security", path: "/account/security", Component: AccountSecurityBlock, props: bindings.security },
+  ] as const;
+}
+
+export type AccountRoute = ReturnType<typeof createAccountRoutes>[number];

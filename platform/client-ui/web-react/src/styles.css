@@ -1,3 +1,6 @@
+@import "./account/account-blocks.css";
+@import "./entitlement/entitlement-blocks.css";
+
 .client-ui-root {
   color: var(--client-text);
   background: var(--client-canvas);
@@ -15,14 +18,15 @@
   padding: 8px 14px;
   border: 1px solid var(--client-brand);
   border-radius: var(--client-radius);
-  color: #ffffff;
+  color: var(--client-on-brand, var(--standard-on-brand, Canvas));
   background: var(--client-brand);
   font: inherit;
   cursor: pointer;
 }
 
 .client-button:disabled { cursor: not-allowed; opacity: .58; }
-.client-button:focus-visible, .client-field input:focus-visible { outline: 3px solid color-mix(in srgb, var(--client-focus) 32%, transparent); outline-offset: 2px; }
+.client-button > span { min-width: 0; overflow-wrap: anywhere; }
+.client-button:focus-visible, .client-field input:focus-visible { outline: 3px solid var(--client-focus, Highlight); outline-offset: 2px; }
 
 .client-field { display: grid; gap: 6px; min-width: 0; }
 .client-field label { font-size: 14px; font-weight: 650; }
@@ -38,4 +42,9 @@
 .client-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @keyframes client-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .client-spinner { animation-duration: 1.5s; } }
+@media (prefers-reduced-motion: reduce) { .client-spinner { animation: none; } }
+@media (forced-colors: active) {
+  .client-button, .client-field input, .client-notice, .client-state { border-color: ButtonText; color: ButtonText; background: Canvas; }
+  .client-button:focus-visible, .client-field input:focus-visible { outline-color: Highlight; }
+  .client-spinner { border-color: CanvasText; border-right-color: transparent; }
+}

@@ -9,6 +9,9 @@ import { LoginPage } from "../pages/LoginPage";
 const AuditPage = lazy(() => import("../pages/AuditPage").then((module) => ({ default: module.AuditPage })));
 const AssemblyRunsPage = lazy(() => import("../pages/AssemblyRunsPage").then((module) => ({ default: module.AssemblyRunsPage })));
 const AssemblyRunPage = lazy(() => import("../pages/AssemblyRunPage").then((module) => ({ default: module.AssemblyRunPage })));
+const AssemblyLifecycleEntryPage = lazy(() => import("../pages/AssemblyLifecycleEntryPage").then((module) => ({ default: module.AssemblyLifecycleEntryPage })));
+const AssemblyLifecyclePlanPage = lazy(() => import("../pages/AssemblyLifecyclePlanPage").then((module) => ({ default: module.AssemblyLifecyclePlanPage })));
+const AssemblyLifecycleOperationPage = lazy(() => import("../pages/AssemblyLifecycleOperationPage").then((module) => ({ default: module.AssemblyLifecycleOperationPage })));
 const CreateSoftwarePage = lazy(() => import("../pages/CreateSoftwarePage").then((module) => ({ default: module.CreateSoftwarePage })));
 const CreateBlueprintRecoveryPage = lazy(() => import("../pages/CreateRecoveryPage").then((module) => ({ default: module.CreateBlueprintRecoveryPage })));
 const CreatePlanRecoveryPage = lazy(() => import("../pages/CreateRecoveryPage").then((module) => ({ default: module.CreatePlanRecoveryPage })));
@@ -19,6 +22,9 @@ const IntegrationPage = lazy(() => import("../pages/IntegrationPage").then((modu
 const OverviewPage = lazy(() => import("../pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
 const ProductsPage = lazy(() => import("../pages/ProductsPage").then((module) => ({ default: module.ProductsPage })));
 const SettingsPage = lazy(() => import("../pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const UsersPage = lazy(() => import("../pages/UsersPage").then((module) => ({ default: module.UsersPage })));
+const UserDetailPage = lazy(() => import("../pages/UserDetailPage").then((module) => ({ default: module.UserDetailPage })));
+const EntitlementsPage = lazy(() => import("../pages/EntitlementsPage").then((module) => ({ default: module.EntitlementsPage })));
 
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { productId } = useParams();
@@ -50,9 +56,14 @@ function AuthenticatedRoutes() {
     <Route path="/create" element={<GlobalRoute><CreateSoftwarePage /></GlobalRoute>} />
     <Route path="/create/experimental" element={<GlobalRoute><CreateSoftwarePage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/create/blueprints/:blueprintId" element={<GlobalRoute><CreateBlueprintRecoveryPage /></GlobalRoute>} />
+    <Route path="/create/experimental/blueprints/:blueprintId" element={<GlobalRoute><CreateBlueprintRecoveryPage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/create/plans/:planId" element={<GlobalRoute><CreatePlanRecoveryPage /></GlobalRoute>} />
+    <Route path="/create/experimental/plans/:planId" element={<GlobalRoute><CreatePlanRecoveryPage catalogScope="experimental" /></GlobalRoute>} />
     <Route path="/assemblies" element={<GlobalRoute><AssemblyRunsPage /></GlobalRoute>} />
     <Route path="/assemblies/:runId" element={<GlobalRoute><AssemblyRunPage /></GlobalRoute>} />
+    <Route path="/assemblies/:runId/lifecycle" element={<GlobalRoute><AssemblyLifecycleEntryPage /></GlobalRoute>} />
+    <Route path="/assembly-lifecycle/plans/:planId" element={<GlobalRoute><AssemblyLifecyclePlanPage /></GlobalRoute>} />
+    <Route path="/assembly-lifecycle/operations/:operationId" element={<GlobalRoute><AssemblyLifecycleOperationPage /></GlobalRoute>} />
     <Route path="/products" element={<GlobalRoute><ProductsPage /></GlobalRoute>} />
     <Route path="/system/health" element={<GlobalRoute><HealthPage /></GlobalRoute>} />
     <Route path="/products/:productId/overview" element={<ProductRoute><OverviewPage /></ProductRoute>} />
@@ -60,6 +71,9 @@ function AuthenticatedRoutes() {
     <Route path="/products/:productId/integration" element={<ProductRoute><IntegrationPage /></ProductRoute>} />
     <Route path="/products/:productId/capabilities" element={<ProductRoute><CapabilitiesPage /></ProductRoute>} />
     <Route path="/products/:productId/audit" element={<ProductRoute><AuditPage /></ProductRoute>} />
+    <Route path="/products/:productId/users" element={<ProductRoute><UsersPage /></ProductRoute>} />
+    <Route path="/products/:productId/users/:userId" element={<ProductRoute><UserDetailPage /></ProductRoute>} />
+    <Route path="/products/:productId/entitlements" element={<ProductRoute><EntitlementsPage /></ProductRoute>} />
     <Route path="/products/:productId/:feature" element={<ProductRoute><CapabilityPendingPage /></ProductRoute>} />
     <Route path="*" element={<Navigate replace to={session ? getDefaultAdminPath(session) : "/login"} />} />
   </Routes></AppProvider>;

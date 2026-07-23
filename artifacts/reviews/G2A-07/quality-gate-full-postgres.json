@@ -1,0 +1,158 @@
+{
+    "schema_version":  2,
+    "generated_at_utc":  "2026-07-22T12:53:00.8015502Z",
+    "mode":  "Full",
+    "require_postgres":  true,
+    "git_commit":  "00a0f3fcfb65f8bbf347ec0fb966693f4aa29002",
+    "reproducible_commit":  false,
+    "worktree":  {
+                     "status_available":  true,
+                     "clean":  false,
+                     "tracked_modified_count":  9,
+                     "staged_change_count":  0,
+                     "unstaged_change_count":  9,
+                     "untracked_count":  0,
+                     "diff":  {
+                                  "available":  true,
+                                  "files_changed":  3,
+                                  "insertions":  48,
+                                  "deletions":  46,
+                                  "binary_files":  0
+                              }
+                 },
+    "passed":  true,
+    "steps":  [
+                  {
+                      "name":  "Git whitespace check",
+                      "status":  "passed",
+                      "duration_ms":  47,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Strict UTF-8",
+                      "status":  "passed",
+                      "duration_ms":  8226,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Migration naming and pairing",
+                      "status":  "passed",
+                      "duration_ms":  24,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Local documentation links",
+                      "status":  "passed",
+                      "duration_ms":  8190,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Secret pattern scan",
+                      "status":  "passed",
+                      "duration_ms":  9851,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "OpenAPI contract",
+                      "status":  "passed",
+                      "duration_ms":  48,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "PostgreSQL test environment",
+                      "status":  "passed",
+                      "duration_ms":  2,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Machine contract schemas",
+                      "status":  "passed",
+                      "duration_ms":  1377,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Machine capability and template catalogs",
+                      "status":  "passed",
+                      "duration_ms":  2591,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Go test",
+                      "status":  "passed",
+                      "duration_ms":  100427,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Go vet",
+                      "status":  "passed",
+                      "duration_ms":  1447,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client SDK tests",
+                      "status":  "passed",
+                      "duration_ms":  1879,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client SDK build",
+                      "status":  "passed",
+                      "duration_ms":  983,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client UI locked dependency refresh",
+                      "status":  "passed",
+                      "duration_ms":  2209,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Account package generated source",
+                      "status":  "passed",
+                      "duration_ms":  10766,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client UI tests",
+                      "status":  "passed",
+                      "duration_ms":  3739,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Client UI build",
+                      "status":  "passed",
+                      "duration_ms":  1518,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Standard-A template smoke",
+                      "status":  "passed",
+                      "duration_ms":  47313,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Admin Vitest",
+                      "status":  "passed",
+                      "duration_ms":  19028,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Admin production build",
+                      "status":  "passed",
+                      "duration_ms":  7943,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Hosted Web Vitest",
+                      "status":  "passed",
+                      "duration_ms":  33939,
+                      "message":  ""
+                  },
+                  {
+                      "name":  "Hosted Web production build",
+                      "status":  "passed",
+                      "duration_ms":  5658,
+                      "message":  ""
+                  }
+              ]
+}

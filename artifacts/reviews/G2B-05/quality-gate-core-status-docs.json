@@ -1,0 +1,62 @@
+{
+  "schema_version": 2,
+  "generated_at_utc": "2026-07-23T11:18:09.8894683Z",
+  "mode": "Core",
+  "require_postgres": false,
+  "git_commit": "ff17adfe7ee314d4cd4b61fb2873cc68057c3653",
+  "reproducible_commit": false,
+  "worktree": {
+    "status_available": true,
+    "clean": false,
+    "tracked_modified_count": 9,
+    "staged_change_count": 0,
+    "unstaged_change_count": 9,
+    "untracked_count": 0,
+    "diff": {
+      "available": true,
+      "files_changed": 9,
+      "insertions": 27,
+      "deletions": 17,
+      "binary_files": 0
+    }
+  },
+  "passed": true,
+  "steps": [
+    {
+      "name": "Git whitespace check",
+      "status": "passed",
+      "duration_ms": 46,
+      "message": ""
+    },
+    {
+      "name": "Strict UTF-8",
+      "status": "passed",
+      "duration_ms": 12848,
+      "message": ""
+    },
+    {
+      "name": "Migration naming and pairing",
+      "status": "passed",
+      "duration_ms": 23,
+      "message": ""
+    },
+    {
+      "name": "Local documentation links",
+      "status": "passed",
+      "duration_ms": 6149,
+      "message": ""
+    },
+    {
+      "name": "Secret pattern scan",
+      "status": "passed",
+      "duration_ms": 15142,
+      "message": ""
+    },
+    {
+      "name": "OpenAPI contract",
+      "status": "passed",
+      "duration_ms": 49,
+      "message": ""
+    }
+  ]
+}

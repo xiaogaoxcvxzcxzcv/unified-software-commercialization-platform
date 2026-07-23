@@ -9,10 +9,44 @@ permissions:
   contents: read
 
 jobs:
+  windows-tls:
+    name: windows-tls
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            platform/admin-web/package-lock.json
+            platform/hosted-web/package-lock.json
+
+      - name: Install admin dependencies
+        working-directory: platform/admin-web
+        run: npm ci
+
+      - name: Install hosted dependencies
+        working-directory: platform/hosted-web
+        run: npm ci
+
+      - name: Run Admin Windows TLS tests
+        working-directory: platform/admin-web
+        run: npm test -- --run src/test/windowsHttpsProvisioning.test.ts
+
+      - name: Run Hosted Windows TLS tests
+        working-directory: platform/hosted-web
+        run: npm test -- --run src/windows-https-script.test.ts
+
   quality-gate:
     name: quality-gate
+    needs: windows-tls
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:17
@@ -64,8 +98,10 @@ jobs:
           cache: npm
           cache-dependency-path: |
             platform/admin-web/package-lock.json
+            platform/hosted-web/package-lock.json
             platform/sdk/typescript/package-lock.json
             platform/client-ui/package-lock.json
+            platform/contract-tests/account-generated/package-lock.json
 
       - name: Install client SDK dependencies
         working-directory: platform/sdk/typescript
@@ -75,13 +111,55 @@ jobs:
         working-directory: platform/client-ui
         run: npm ci
 
+      - name: Install Account generated contract dependencies
+        working-directory: platform/contract-tests/account-generated
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Install admin dependencies
         working-directory: platform/admin-web
+        run: npm ci
+
+      - name: Install hosted dependencies
+        working-directory: platform/hosted-web
         run: npm ci
 
       - name: Run shared quality gate
         shell: pwsh
         run: ./scripts/quality-gate.ps1 -Mode Full -RequirePostgres
+
+      - name: Synthesize missing quality report
+        if: always() && hashFiles('artifacts/reviews/F0-03/quality-gate-report.json') == ''
+        shell: pwsh
+        run: |
+          $path = 'artifacts/reviews/F0-03/quality-gate-report.json'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+          $report = [ordered]@{
+            schema_version = 2
+            generated_at_utc = [DateTime]::UtcNow.ToString('o')
+            mode = 'Full'
+            require_postgres = $true
+            git_commit = $env:GITHUB_SHA
+            reproducible_commit = $false
+            worktree = [ordered]@{
+              status_available = $false
+              clean = $false
+              tracked_modified_count = 0
+              staged_change_count = 0
+              unstaged_change_count = 0
+              untracked_count = 0
+              diff = [ordered]@{ available = $false; files_changed = 0; insertions = 0; deletions = 0; binary_files = 0 }
+            }
+            passed = $false
+            steps = @([ordered]@{
+              name = 'Quality gate bootstrap'
+              status = 'failed'
+              duration_ms = 0
+              message = 'The shared quality gate did not start or did not produce a report.'
+            })
+          }
+          [IO.File]::WriteAllText($path, ($report | ConvertTo-Json -Depth 6) + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+          $written = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($written.passed -ne $false) { throw 'Synthetic quality report must fail closed.' }
 
       - name: Upload quality report
         if: always()

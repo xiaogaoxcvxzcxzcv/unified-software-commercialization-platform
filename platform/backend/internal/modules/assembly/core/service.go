@@ -26,18 +26,23 @@ var (
 type IDGenerator func(string) (string, error)
 
 type Service struct {
-	repository    Repository
-	validator     DocumentValidator
-	planner       Planner
-	outputTargets OutputTargetVerifier
-	idGenerator   IDGenerator
-	now           func() time.Time
+	repository          Repository
+	validator           DocumentValidator
+	planner             Planner
+	experimentalPlanner Planner
+	outputTargets       OutputTargetVerifier
+	idGenerator         IDGenerator
+	now                 func() time.Time
 }
 
 type ServiceOption func(*Service)
 
 func WithOutputTargetVerifier(verifier OutputTargetVerifier) ServiceOption {
 	return func(service *Service) { service.outputTargets = verifier }
+}
+
+func WithExperimentalPlanner(planner Planner) ServiceOption {
+	return func(service *Service) { service.experimentalPlanner = planner }
 }
 
 func NewService(repository Repository, validator DocumentValidator, planner Planner, idGenerator IDGenerator, now func() time.Time, options ...ServiceOption) *Service {
@@ -122,6 +127,7 @@ func (s *Service) GetBlueprint(ctx context.Context, blueprintID string, revision
 type CreatePlanCommand struct {
 	BlueprintID, Environment, ActorID, IdempotencyKey, TraceID string
 	BlueprintVersion                                           int64
+	CatalogScope                                               string
 }
 
 func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Plan, error) {
@@ -135,7 +141,22 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 	if err != nil {
 		return Plan{}, err
 	}
-	planned, err := s.planner.BuildPlan(ctx, blueprint, command.Environment)
+	scope := command.CatalogScope
+	if scope == "" {
+		scope = "ordinary"
+	}
+	planner := s.planner
+	switch scope {
+	case "ordinary":
+	case "experimental":
+		if s.experimentalPlanner == nil {
+			return Plan{}, ErrPlanUnavailable
+		}
+		planner = s.experimentalPlanner
+	default:
+		return Plan{}, ErrInvalidCommand
+	}
+	planned, err := planner.BuildPlan(ctx, blueprint, command.Environment)
 	if err != nil {
 		return Plan{}, fmt.Errorf("%w: %v", ErrPlanUnavailable, err)
 	}
@@ -158,12 +179,13 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 		Environment      string `json:"environment"`
 		CatalogSnapshot  struct {
 			Revision string `json:"revision"`
+			Scope    string `json:"scope"`
 			Checksum string `json:"checksum"`
 		} `json:"catalog_snapshot"`
 		Capabilities []product.CapabilityItem `json:"capabilities"`
 		Executable   bool                     `json:"executable"`
 	}
-	if err := json.Unmarshal(validated.CanonicalJSON, &body); err != nil || body.PlanID == "" || body.BlueprintID != blueprint.BlueprintID || body.BlueprintVersion != blueprint.Revision || body.Environment != command.Environment || body.CatalogSnapshot.Revision == "" || !digestPattern.MatchString(body.CatalogSnapshot.Checksum) {
+	if err := json.Unmarshal(validated.CanonicalJSON, &body); err != nil || body.PlanID == "" || body.BlueprintID != blueprint.BlueprintID || body.BlueprintVersion != blueprint.Revision || body.Environment != command.Environment || body.CatalogSnapshot.Revision == "" || body.CatalogSnapshot.Scope != scope || !digestPattern.MatchString(body.CatalogSnapshot.Checksum) {
 		return Plan{}, ErrDocumentInvalid
 	}
 	capabilities, err := normalizeCapabilities(planned.Capabilities)
@@ -185,7 +207,7 @@ func (s *Service) CreatePlan(ctx context.Context, command CreatePlanCommand) (Pl
 		return Plan{}, err
 	}
 	plan := Plan{PlanID: body.PlanID, ProductID: blueprint.ProductID, BlueprintID: blueprint.BlueprintID, BlueprintRevision: blueprint.Revision, Version: 1, Environment: body.Environment, SchemaVersion: validated.SchemaVersion, Document: validated.CanonicalJSON, BlueprintSHA256: blueprint.ContentSHA256, CatalogRevision: body.CatalogSnapshot.Revision, CatalogSnapshotSHA256: body.CatalogSnapshot.Checksum, PlanSHA256: planChecksum, ConfirmationChecksum: confirmationChecksum, Review: review, Executable: body.Executable, Capabilities: capabilities, CreatedBy: command.ActorID, CreatedAt: now, UpdatedAt: now, AuditID: auditID}
-	idem, err := makeIdempotency("assembly.create_plan", command.ActorID, blueprint.BlueprintID, command.IdempotencyKey, struct{ BlueprintSHA256, Environment string }{blueprint.ContentSHA256, command.Environment}, now)
+	idem, err := makeIdempotency("assembly.create_plan", command.ActorID, blueprint.BlueprintID, command.IdempotencyKey, struct{ BlueprintSHA256, Environment, CatalogScope string }{blueprint.ContentSHA256, command.Environment, scope}, now)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -414,7 +436,7 @@ func (s *Service) ListRuns(ctx context.Context, filter RunListFilter) (RunPage, 
 		return RunPage{}, ErrInvalidCommand
 	}
 	switch filter.Status {
-	case "", RunStatusPlanned, RunStatusProvisioning, RunStatusGenerating, RunStatusValidating, RunStatusCompleted, RunStatusFailed, RunStatusRollingBack, RunStatusRolledBack:
+	case "", RunStatusPlanned, RunStatusProvisioning, RunStatusGenerating, RunStatusValidating, RunStatusCompleted, RunStatusFailed, RunStatusCancelled, RunStatusRollingBack, RunStatusRolledBack:
 	default:
 		return RunPage{}, ErrInvalidCommand
 	}
@@ -975,11 +997,11 @@ func parseRunDocument(validated ValidatedDocument, productID string, planVersion
 }
 
 func validTransition(current, next RunStatus) bool {
-	if current == next && current != RunStatusCompleted && current != RunStatusRolledBack {
+	if current == next && current != RunStatusCompleted && current != RunStatusFailed && current != RunStatusCancelled && current != RunStatusRolledBack {
 		return true
 	}
 	allowed := map[RunStatus]map[RunStatus]bool{
-		RunStatusPlanned:      {RunStatusProvisioning: true, RunStatusFailed: true},
+		RunStatusPlanned:      {RunStatusProvisioning: true, RunStatusFailed: true, RunStatusCancelled: true},
 		RunStatusProvisioning: {RunStatusGenerating: true, RunStatusFailed: true},
 		RunStatusGenerating:   {RunStatusValidating: true, RunStatusFailed: true},
 		RunStatusValidating:   {RunStatusCompleted: true, RunStatusFailed: true},
@@ -1002,17 +1024,17 @@ func validateRunEvolution(current, next Run) error {
 	if next.AttemptNumber == 0 {
 		next.AttemptNumber = 1
 	}
-	if current.Status == RunStatusCompleted || current.Status == RunStatusRolledBack ||
+	if current.Status == RunStatusCompleted || current.Status == RunStatusFailed || current.Status == RunStatusCancelled || current.Status == RunStatusRolledBack ||
 		next.RunID != current.RunID || next.PlanID != current.PlanID ||
 		next.RootRunID != current.RootRunID || next.RetryOfRunID != current.RetryOfRunID || next.AttemptNumber != current.AttemptNumber ||
 		!digestsEqual(next.PlanSHA256, current.PlanSHA256) ||
 		!digestsEqual(next.IdempotencyKeyDigest, current.IdempotencyKeyDigest) ||
-		next.OutputTargetRef != current.OutputTargetRef || !next.CreatedAt.Equal(current.CreatedAt) ||
+		next.OutputTargetRef != current.OutputTargetRef || !persistedTimeEqual(next.CreatedAt, current.CreatedAt) ||
 		next.UpdatedAt.Before(current.UpdatedAt) || !validTransition(current.Status, next.Status) ||
 		len(next.Steps) != len(current.Steps) {
 		return ErrInvalidRunTransition
 	}
-	terminal := next.Status == RunStatusCompleted || next.Status == RunStatusFailed || next.Status == RunStatusRolledBack
+	terminal := next.Status == RunStatusCompleted || next.Status == RunStatusFailed || next.Status == RunStatusCancelled || next.Status == RunStatusRolledBack
 	if terminal != (next.CompletedAt != nil) {
 		return ErrInvalidRunTransition
 	}
@@ -1042,7 +1064,7 @@ func validCompensationTransition(current, next string) bool {
 
 func validStepTransition(current, next string) bool {
 	if current == next {
-		return current != "completed" && current != "compensated" && current != "skipped"
+		return true
 	}
 	allowed := map[string]map[string]bool{
 		"pending":   {"running": true, "completed": true, "failed": true, "skipped": true},
@@ -1057,7 +1079,11 @@ func stableTime(current, next *time.Time) bool {
 	if current == nil {
 		return true
 	}
-	return next != nil && current.Equal(*next)
+	return next != nil && persistedTimeEqual(*current, *next)
+}
+
+func persistedTimeEqual(first, second time.Time) bool {
+	return first.UTC().Truncate(time.Microsecond).Equal(second.UTC().Truncate(time.Microsecond))
 }
 
 func assemblyEvent(eventID, auditID, eventType, action, targetType, targetID, productID, actorID, traceID, permission string, now time.Time, risk string, summary map[string]any) OutboxEvent {

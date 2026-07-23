@@ -82,4 +82,248 @@ export interface ClientSdkOptions {
   readonly timeoutMs?: number;
   readonly maxRetries?: 0 | 1 | 2;
   readonly requestIdFactory?: () => string;
+  readonly accountSessionVault?: AccountSessionVault;
+}
+
+export type AccountStatus = "active" | "locked" | "disabled" | "unknown";
+export type ScopedAccessStatus = "active" | "suspended" | "unknown";
+
+export interface AccountUserSummary {
+  readonly userId: string;
+  readonly accountStatus: AccountStatus;
+  readonly displayName: string | null;
+  readonly productId: string | null;
+  readonly tenantId: string | null;
+  readonly accessVersion: number | null;
+  readonly productAccessStatus: ScopedAccessStatus | null;
+  readonly tenantAccessStatus: ScopedAccessStatus | null;
+}
+
+export interface AccountSessionSnapshot {
+  readonly user: AccountUserSummary;
+  readonly accessExpiresAt: string;
+  readonly refreshExpiresAt: string;
+}
+
+export interface CurrentAccountSession extends AccountSessionSnapshot {
+  readonly sessionId: string;
+}
+
+export interface AccountSessionRecord extends AccountSessionSnapshot {
+  readonly schemaVersion: 1;
+  readonly accessToken: string;
+  readonly refreshToken: string;
+  readonly pendingRefreshRequestId?: string;
+}
+
+export interface AccountSessionVault {
+  load(): Promise<unknown>;
+  save(record: AccountSessionRecord): Promise<void>;
+  clear(): Promise<void>;
+}
+
+export interface AccountCallOptions {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+}
+
+export interface IdempotentAccountCallOptions extends AccountCallOptions {
+  readonly idempotencyKey: string;
+}
+
+export interface RegisterUserInput {
+  readonly identifier: string;
+  readonly credential: string;
+  readonly verificationContinuationId: string;
+  readonly verificationProof: string;
+  readonly displayName?: string;
+}
+
+export interface LoginInput {
+  readonly identifier: string;
+  readonly credential: string;
+  readonly deviceRiskSummary?: Readonly<Record<string, unknown>>;
+}
+
+export interface StartRecoveryInput { readonly identifier: string; }
+
+export interface RecoveryChallenge {
+  readonly accepted: true;
+  readonly continuationId: string;
+}
+
+export interface CompleteRecoveryInput {
+  readonly continuationId: string;
+  readonly recoveryProof: string;
+  readonly newCredential: string;
+}
+
+export interface RefreshSessionInput { readonly clientRequestId?: string; }
+
+export interface AccountProfile {
+  readonly userId: string;
+  readonly version: number;
+  readonly displayName: string | null;
+  readonly avatarUrl: string | null;
+  readonly locale: string | null;
+  readonly timezone: string | null;
+}
+
+export interface UpdateProfileInput {
+  readonly expectedVersion: number;
+  readonly displayName?: string;
+  readonly avatarUrl?: string | null;
+  readonly locale?: string | null;
+  readonly timezone?: string | null;
+}
+
+export interface ChangePasswordInput {
+  readonly currentCredential: string;
+  readonly newCredential: string;
+  readonly revokeOtherSessions: boolean;
+}
+
+export interface AccountSessionSummary {
+  readonly sessionId: string;
+  readonly current: boolean;
+  readonly deviceLabel: string | null;
+  readonly createdAt: string;
+  readonly lastSeenAt: string;
+  readonly expiresAt: string;
+}
+
+export interface ExternalIdentitySummary {
+  readonly externalIdentityId: string;
+  readonly provider: string;
+  readonly maskedSubject: string | null;
+  readonly status: "active" | "revoked" | "unknown";
+  readonly linkedAt: string;
+}
+
+export interface AccountAccessSummary {
+  readonly allowed: boolean;
+  readonly decisionStage: "identity" | "product" | "tenant" | "entitlement" | "allowed" | "unknown";
+  readonly reasonCode:
+    | "IDENTITY_ACCOUNT_DISABLED"
+    | "PRODUCT_USER_ACCESS_SUSPENDED"
+    | "TENANT_USER_ACCESS_SUSPENDED"
+    | "ENTITLEMENT_REQUIRED"
+    | "ENTITLEMENT_EXPIRED"
+    | "unknown"
+    | null;
+}
+
+export interface StartRegistrationVerificationInput {
+  readonly identifier: string;
+}
+
+export interface RegistrationVerificationChallenge {
+  readonly accepted: true;
+  readonly continuationId: string;
+}
+
+export type ExternalLoginMode = "redirect" | "qr" | "native";
+export type ExternalProvider = "wechat" | "oidc" | "other";
+
+export interface StartExternalLoginInput {
+  readonly provider: ExternalProvider;
+  readonly mode: ExternalLoginMode;
+  readonly returnTargetCode: string;
+}
+
+export interface ExternalLoginFlow {
+  readonly flowId: string;
+  readonly mode: ExternalLoginMode | "unknown";
+  readonly authorizationUrl: string | null;
+  readonly qrPayload: string | null;
+  readonly expiresAt: string;
+}
+
+interface ExternalCallbackBase {
+  readonly provider: ExternalProvider;
+  readonly flowId: string;
+  readonly state: string;
+}
+
+export type CompleteExternalLoginInput = ExternalCallbackBase & (
+  | { readonly code: string; readonly providerError?: never }
+  | { readonly providerError: string; readonly code?: never }
+);
+
+export interface WechatCodeExchangeInput {
+  readonly flowId: string;
+  readonly state: string;
+  readonly code: string;
+}
+
+export type ExternalExchangeResult =
+  | { readonly status: "authenticated"; readonly session: AccountSessionSnapshot }
+  | { readonly status: "link_required"; readonly proofId: string }
+  | { readonly status: "conflict" | "review_required" | "unknown" };
+
+export interface LinkExternalIdentityInput {
+  readonly provider: ExternalProvider;
+  readonly externalProofId: string;
+}
+
+export interface LinkedExternalIdentity extends ExternalIdentitySummary {
+  readonly auditId: string | null;
+}
+
+export interface EntitlementCheckInput {
+  readonly requestedFeatures: readonly string[];
+  readonly deviceId?: string;
+  readonly clientTime?: string;
+}
+
+export interface EntitlementCheckDecision {
+  readonly allowed: boolean;
+  readonly decisionStage: "entitlement";
+  readonly reasonCode:
+    | "ENTITLEMENT_REQUIRED"
+    | "ENTITLEMENT_EXPIRED"
+    | "ENTITLEMENT_DEVICE_LIMITED"
+    | "ENTITLEMENT_CAPABILITY_DISABLED"
+    | "unknown"
+    | null;
+  readonly revision: number;
+  readonly planCode: string | null;
+  readonly features: Readonly<Record<string, unknown>>;
+  readonly validUntil: string | null;
+  readonly offlineGraceUntil: string | null;
+  readonly serverTime: string;
+  readonly signedDecision: string | null;
+}
+
+export interface EntitlementSummary {
+  readonly revision: number;
+  readonly planCode: string | null;
+  readonly features: Readonly<Record<string, unknown>>;
+  readonly validUntil: string | null;
+  readonly offlineGraceUntil: string | null;
+  readonly updatedAt: string;
+}
+
+export interface ListEntitlementHistoryInput {
+  readonly pageSize?: number;
+  readonly cursor?: string;
+}
+
+export interface EntitlementHistoryEntry {
+  readonly ledgerId: string;
+  readonly operationType: "grant" | "extend" | "replace" | "revoke" | "expire" | "unknown";
+  readonly operationId: string;
+  readonly sourceType: string | null;
+  readonly sourceId: string | null;
+  readonly grantId: string;
+  readonly beforeRevision: number;
+  readonly afterRevision: number;
+  readonly auditId: string;
+  readonly traceId: string;
+  readonly createdAt: string;
+}
+
+export interface EntitlementHistoryPage {
+  readonly items: readonly EntitlementHistoryEntry[];
+  readonly nextCursor: string | null;
 }

@@ -23,6 +23,14 @@ type Service interface {
 	SearchAuditEvents(context.Context, audit.SearchCommand) (audit.Page, error)
 }
 
+type DetailService interface {
+	GetAuditEvent(context.Context, audit.GetEventCommand) (audit.RedactedEvent, error)
+}
+
+type AdminIdentityResolver interface {
+	ResolveAdminIdentity(context.Context, *http.Request) (audit.AdminContext, error)
+}
+
 type Handler struct {
 	service  Service
 	resolver AdminContextResolver
@@ -34,6 +42,10 @@ func New(service Service, resolver AdminContextResolver) *Handler {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != auditEventsPath {
+		if strings.HasPrefix(r.URL.Path, auditEventsPath+"/") {
+			h.serveDetail(w, r)
+			return
+		}
 		httpx.Error(w, r, http.StatusNotFound, "route_not_found", "route not found")
 		return
 	}
@@ -81,6 +93,35 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, page)
 }
 
+func (h *Handler) serveDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.MethodNotAllowed(w, r, http.MethodGet)
+		return
+	}
+	auditID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, auditEventsPath+"/"))
+	if auditID == "" || strings.Contains(auditID, "/") || len(auditID) > 160 {
+		httpx.Error(w, r, http.StatusNotFound, "audit.event_not_found", "audit event not found")
+		return
+	}
+	detail, detailOK := h.service.(DetailService)
+	identity, identityOK := h.resolver.(AdminIdentityResolver)
+	if !detailOK || !identityOK {
+		httpx.Error(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	admin, err := identity.ResolveAdminIdentity(r.Context(), r)
+	if err != nil {
+		httpx.Error(w, r, http.StatusUnauthorized, "audit.unauthenticated", "administrator authentication required")
+		return
+	}
+	event, err := detail.GetAuditEvent(r.Context(), audit.GetEventCommand{AdminUserID: admin.AdminUserID, SessionID: admin.SessionID, AuditID: auditID})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, event)
+}
+
 func parseLimit(raw string) (int, bool) {
 	if raw == "" {
 		return 0, true
@@ -102,6 +143,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		httpx.Error(w, r, http.StatusBadRequest, "audit.invalid_limit", "limit is outside the supported range")
 	case errors.Is(err, audit.ErrInvalidScope):
 		httpx.Error(w, r, http.StatusBadRequest, "audit.invalid_scope", "audit scope is invalid")
+	case errors.Is(err, audit.ErrEventNotFound):
+		httpx.Error(w, r, http.StatusNotFound, "audit.event_not_found", "audit event not found")
 	default:
 		httpx.Error(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
 	}

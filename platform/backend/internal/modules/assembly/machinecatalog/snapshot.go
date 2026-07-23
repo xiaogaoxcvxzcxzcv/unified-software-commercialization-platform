@@ -8,7 +8,7 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/assembly/machinecontract"
 )
 
-func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManifest) (CatalogSnapshot, error) {
+func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManifest, extensions []ExtensionManifest) (CatalogSnapshot, error) {
 	packageItems := make([]SnapshotItem, 0, len(packages))
 	for _, manifest := range packages {
 		packageItems = append(packageItems, snapshotPackage(manifest))
@@ -16,6 +16,10 @@ func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManif
 	templateItems := make([]SnapshotItem, 0, len(templates))
 	for _, manifest := range templates {
 		templateItems = append(templateItems, snapshotTemplate(manifest))
+	}
+	extensionItems := make([]ExtensionSnapshotItem, 0, len(extensions))
+	for _, manifest := range extensions {
+		extensionItems = append(extensionItems, snapshotExtension(manifest))
 	}
 	sort.Slice(packageItems, func(i, j int) bool {
 		if packageItems[i].ID == packageItems[j].ID {
@@ -29,6 +33,12 @@ func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManif
 		}
 		return templateItems[i].ID < templateItems[j].ID
 	})
+	sort.Slice(extensionItems, func(i, j int) bool {
+		if extensionItems[i].ExtensionID == extensionItems[j].ExtensionID {
+			return extensionItems[i].Version < extensionItems[j].Version
+		}
+		return extensionItems[i].ExtensionID < extensionItems[j].ExtensionID
+	})
 	generatorItems := c.snapshotTools("generator")
 	sdkItems := c.snapshotTools("sdk")
 	snapshot := CatalogSnapshot{
@@ -37,6 +47,7 @@ func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManif
 		CatalogScope:        c.view.visibility,
 		Packages:            packageItems,
 		Templates:           templateItems,
+		Extensions:          extensionItems,
 		Generators:          generatorItems,
 		SDKs:                sdkItems,
 		PermissionCatalog:   VersionedInput{Version: c.permissions.Version(), SHA256: c.permissions.Checksum()},
@@ -62,6 +73,15 @@ func (c *Catalog) snapshot(packages []PackageManifest, templates []TemplateManif
 		return CatalogSnapshot{}, fmt.Errorf("validate catalog snapshot: %w", err)
 	}
 	return snapshot, nil
+}
+
+func snapshotExtension(manifest ExtensionManifest) ExtensionSnapshotItem {
+	return ExtensionSnapshotItem{
+		ExtensionID: manifest.ExtensionID, Version: manifest.Version, ProductCode: manifest.ProductCode,
+		ManifestPath: manifest.ManifestPath, ManifestSHA256: manifest.ManifestSHA256, ContentTreeSHA256: manifest.ContentTreeSHA256,
+		SupportedTargets: stableStrings(manifest.SupportedTargets), SupportedDeliveryModes: stableStrings(manifest.SupportedDeliveryModes),
+		SupportedEnvironments: stableStrings(manifest.SupportedEnvironments), DataNamespace: manifest.DataNamespace,
+	}
 }
 
 func (c *Catalog) snapshotTools(kind string) []ToolSnapshotItem {

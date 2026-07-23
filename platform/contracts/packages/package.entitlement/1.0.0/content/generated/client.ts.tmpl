@@ -1,0 +1,15 @@
+import {
+  ClientSdk,
+  type ClientSdkOptions,
+  type EntitlementSdk,
+} from "@capability-platform/client-sdk";
+
+export interface EntitlementRuntime {
+  readonly sdk: ClientSdk;
+  readonly entitlement: EntitlementSdk;
+}
+
+export function createEntitlementRuntime(options: ClientSdkOptions): EntitlementRuntime {
+  const sdk = new ClientSdk(options);
+  return Object.freeze({ sdk, entitlement: sdk.entitlement });
+}

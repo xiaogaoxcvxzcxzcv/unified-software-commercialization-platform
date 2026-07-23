@@ -21,15 +21,22 @@ import (
 	"platform.local/capability-platform/backend/internal/modules/audit"
 	audithttp "platform.local/capability-platform/backend/internal/modules/audit/httptransport"
 	auditpostgres "platform.local/capability-platform/backend/internal/modules/audit/postgres"
+	"platform.local/capability-platform/backend/internal/modules/entitlement"
+	entitlementhttp "platform.local/capability-platform/backend/internal/modules/entitlement/httptransport"
+	entitlementpostgres "platform.local/capability-platform/backend/internal/modules/entitlement/postgres"
 	"platform.local/capability-platform/backend/internal/modules/identity"
 	identityhttp "platform.local/capability-platform/backend/internal/modules/identity/httptransport"
 	identitypostgres "platform.local/capability-platform/backend/internal/modules/identity/postgres"
+	notificationpostgres "platform.local/capability-platform/backend/internal/modules/notification/postgres"
 	"platform.local/capability-platform/backend/internal/modules/product"
 	producthttp "platform.local/capability-platform/backend/internal/modules/product/httptransport"
 	productpostgres "platform.local/capability-platform/backend/internal/modules/product/postgres"
 	"platform.local/capability-platform/backend/internal/modules/productapplication"
 	applicationhttp "platform.local/capability-platform/backend/internal/modules/productapplication/httptransport"
 	applicationpostgres "platform.local/capability-platform/backend/internal/modules/productapplication/postgres"
+	"platform.local/capability-platform/backend/internal/modules/productuseraccess"
+	productuseraccesshttp "platform.local/capability-platform/backend/internal/modules/productuseraccess/httptransport"
+	productuseraccesspostgres "platform.local/capability-platform/backend/internal/modules/productuseraccess/postgres"
 	"platform.local/capability-platform/backend/internal/modules/tenant"
 	tenanthttp "platform.local/capability-platform/backend/internal/modules/tenant/httptransport"
 	tenantpostgres "platform.local/capability-platform/backend/internal/modules/tenant/postgres"
@@ -39,7 +46,13 @@ import (
 	"platform.local/capability-platform/backend/internal/platform/logging"
 	"platform.local/capability-platform/backend/internal/platform/securevalue"
 	platformserver "platform.local/capability-platform/backend/internal/platform/server"
+	"platform.local/capability-platform/backend/internal/workflows/accountaccess"
+	"platform.local/capability-platform/backend/internal/workflows/accountuseradmin"
+	accountuseradminhttp "platform.local/capability-platform/backend/internal/workflows/accountuseradmin/httptransport"
+	"platform.local/capability-platform/backend/internal/workflows/accountuserquery"
+	accountuserqueryhttp "platform.local/capability-platform/backend/internal/workflows/accountuserquery/httptransport"
 	"platform.local/capability-platform/backend/internal/workflows/assemblyexecution"
+	"platform.local/capability-platform/backend/internal/workflows/assemblylifecycle"
 	"platform.local/capability-platform/backend/internal/workflows/clientcontext"
 	clientcontexthttp "platform.local/capability-platform/backend/internal/workflows/clientcontext/httptransport"
 	"platform.local/capability-platform/backend/internal/workflows/clientregistration"
@@ -87,6 +100,18 @@ func (a auditAdminContextAdapter) ResolveAdminContext(ctx context.Context, reque
 		return audit.AdminContext{}, err
 	}
 	return audit.AdminContext{AdminUserID: session.Admin.AdminUserID, SessionID: session.SessionID, TargetScope: scope}, nil
+}
+
+func (a auditAdminContextAdapter) ResolveAdminIdentity(ctx context.Context, request *http.Request) (audit.AdminContext, error) {
+	token, ok := identityhttp.AdminAccessToken(request)
+	if !ok {
+		return audit.AdminContext{}, audithttp.ErrAdminContextUnavailable
+	}
+	session, err := a.identity.CurrentAdminSession(ctx, token)
+	if err != nil {
+		return audit.AdminContext{}, err
+	}
+	return audit.AdminContext{AdminUserID: session.Admin.AdminUserID, SessionID: session.SessionID}, nil
 }
 
 type auditAuthorizerAdapter struct {
@@ -163,6 +188,11 @@ func main() {
 		logger.Error("administrator authentication initialization failed", "error", err)
 		os.Exit(1)
 	}
+	userHasher, err := securevalue.NewHasher(cfg.UserAuth.TokenPepper)
+	if err != nil {
+		logger.Error("end-user authentication initialization failed", "error", err)
+		os.Exit(1)
+	}
 	accessService := accesscontrol.NewService(accesspostgres.New(db.Pool()), nil)
 	assemblyContracts, err := machinecontract.LoadDirectory(cfg.Assembly.SchemaDirectory)
 	if err != nil {
@@ -174,18 +204,18 @@ func main() {
 		logger.Error("assembly feature block catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	assemblyCatalog, err := machinecatalog.LoadOrdinaryWithTools(
+	assemblyCatalog, err := machinecatalog.LoadOrdinaryWithToolsAndExtensions(
 		cfg.Assembly.CapabilityPackageRoot, cfg.Assembly.TemplateRoot,
-		cfg.Assembly.GeneratorToolRoot, cfg.Assembly.SDKToolRoot,
+		cfg.Assembly.GeneratorToolRoot, cfg.Assembly.SDKToolRoot, cfg.Assembly.ExtensionRoot,
 		assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks,
 	)
 	if err != nil {
 		logger.Error("assembly production catalog initialization failed", "error", err)
 		os.Exit(1)
 	}
-	experimentalAssemblyCatalog, err := machinecatalog.LoadExperimentalWithTools(
+	experimentalAssemblyCatalog, err := machinecatalog.LoadExperimentalWithToolsAndExtensions(
 		cfg.Assembly.ExperimentalCapabilityPackageRoot, cfg.Assembly.ExperimentalTemplateRoot,
-		cfg.Assembly.ExperimentalGeneratorToolRoot, cfg.Assembly.ExperimentalSDKToolRoot,
+		cfg.Assembly.ExperimentalGeneratorToolRoot, cfg.Assembly.ExperimentalSDKToolRoot, cfg.Assembly.ExperimentalExtensionRoot,
 		assemblyContracts, accesscontrol.CurrentPermissionCatalog(), featureBlocks,
 	)
 	if err != nil {
@@ -209,13 +239,54 @@ func main() {
 		os.Exit(1)
 	}
 	assemblyRepository := assemblypostgres.NewWithCursorKey(db.Pool(), []byte(cfg.AdminAuth.TokenPepper))
+	assemblyValidator := assemblycore.NewRegistryValidator(assemblyContracts)
 	assemblyService := assemblycore.NewService(
-		assemblyRepository, assemblycore.NewRegistryValidator(assemblyContracts), planning.New(assemblyCatalog), securevalue.ID, nil,
+		assemblyRepository, assemblyValidator, planning.New(assemblyCatalog), securevalue.ID, nil,
 		assemblycore.WithOutputTargetVerifier(newCoreOutputTargetVerifier(configuredOutputTargets...)),
+		assemblycore.WithExperimentalPlanner(planning.New(experimentalAssemblyCatalog)),
 	)
+	assemblyLifecycleContext, err := assemblylifecycle.NewTrustedContextResolver(assemblyRepository, assemblyWorkspaces, assemblyCatalog, experimentalAssemblyCatalog)
+	if err != nil {
+		logger.Error("assembly lifecycle context initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecyclePlanner, err := assemblylifecycle.NewCatalogLifecyclePlanBuilder(assemblyLifecycleContext, nil)
+	if err != nil {
+		logger.Error("assembly lifecycle planner initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecycleService := assemblycore.NewLifecycleService(assemblyRepository, assemblyValidator, assemblyLifecyclePlanner, securevalue.ID, nil)
+	assemblyLifecycleExecutor, err := assemblylifecycle.NewGenerationLifecycleExecutor(assemblyLifecycleContext, assemblyLifecyclePlanner, assemblyContracts, nil)
+	if err != nil {
+		logger.Error("assembly lifecycle executor initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecycleWorkerID, err := securevalue.ID("assembly_lifecycle_worker_")
+	if err != nil {
+		logger.Error("assembly lifecycle worker identity initialization failed", "error", err)
+		os.Exit(1)
+	}
+	assemblyLifecycleRunner, err := assemblylifecycle.NewRunner(
+		assemblyRepository, assemblyRepository, assemblyLifecycleExecutor, securevalue.ID, nil,
+		assemblyLifecycleWorkerID, 30*time.Second,
+		assemblylifecycle.WithIterationErrorHandler(func() {
+			logger.Error("assembly lifecycle worker iteration failed; retrying after backoff")
+		}),
+	)
+	if err != nil {
+		logger.Error("assembly lifecycle worker initialization failed", "error", err)
+		os.Exit(1)
+	}
 	auditRepository := auditpostgres.New(db.Pool())
 	auditService := audit.NewService(auditRepository)
 	identityRepository := identitypostgres.New(db.Pool())
+	notificationRepository := notificationpostgres.New(db.Pool())
+	notificationRuntime, err := newSecurityNotificationRuntime(cfg.SecurityNotification, notificationRepository, notificationRepository, auditService)
+	clearSecurityNotificationConfig(&cfg.SecurityNotification)
+	if err != nil {
+		logger.Error("security notification initialization failed", "error", securityNotificationInitializationError(err))
+		os.Exit(1)
+	}
 	identityService, err := identity.NewService(identityRepository, accessService, identity.Bcrypt{Cost: cfg.AdminAuth.BcryptCost}, hasher, identity.Policy{
 		AccessTTL: cfg.AdminAuth.AccessTTL, RefreshTTL: cfg.AdminAuth.RefreshTTL,
 		LoginWindow: cfg.AdminAuth.LoginWindow, LoginMaximumAttempts: cfg.AdminAuth.LoginMaximumAttempts,
@@ -223,6 +294,11 @@ func main() {
 	}, nil)
 	if err != nil {
 		logger.Error("administrator identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	adminEndUserService, err := identity.NewAdminEndUserService(identityRepository, identity.StrictIdentifierNormalizer{}, userHasher, accountIDGenerator{}, nil)
+	if err != nil {
+		logger.Error("administrator end-user service initialization failed", "error", err)
 		os.Exit(1)
 	}
 	proofVerifier := product.NewVersionedProofVerifier(hasher)
@@ -244,6 +320,7 @@ func main() {
 	assemblyExecutionWorkflow := assemblyexecution.New(
 		assemblyService, provisioningWorkflow, applicationService, productService, assemblyWorkspaces,
 		assemblygeneration.NewPureRenderer(assemblyCatalog), assemblyContracts, nil,
+		assemblyexecution.WithExperimentalRenderer(assemblygeneration.NewPureRenderer(experimentalAssemblyCatalog)),
 	)
 	assemblyWorkerID, err := securevalue.ID("assembly_worker_")
 	if err != nil {
@@ -253,18 +330,94 @@ func main() {
 	assemblyWorker := assemblyexecution.NewWorker(assemblyRepository, assemblyExecutionWorkflow, assemblyService, assemblyWorkerID, nil)
 	clientRegistrationWorkflow := clientregistration.New(productService, applicationService, hasher, nil)
 	clientContextWorkflow := clientcontext.New(productService, applicationService, tenantService, 15*time.Minute, 5*time.Minute, nil)
+	productUserAccessService := productuseraccess.NewService(productuseraccesspostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), nil)
+	entitlementService := entitlement.NewService(entitlementpostgres.New(db.Pool()), securevalue.DefaultGenerator(), []byte(cfg.UserAuth.TokenPepper), time.Now)
+	accountAccessWorkflow := accountaccess.New(productUserAccessService)
+	accountIdentityAdapter := accountIdentityQueryAdapter{service: adminEndUserService}
+	accountCapabilityChecker := accountCapabilityAdapter{service: productService}
+	accountUserQueryService := accountuserquery.New(accountIdentityAdapter, productUserAccessService, accountCapabilityChecker, []byte(cfg.AdminAuth.TokenPepper))
+	accountUserAdminService := accountuseradmin.New(accountIdentityMutationAdapter{service: adminEndUserService}, productUserAccessService, accountMembershipAdapter{service: adminEndUserService}, accountCapabilityChecker)
+	var registrationVerificationService *identity.RegistrationVerificationService
+	if notificationRuntime.delivery != nil {
+		registrationVerificationService, err = identity.NewRegistrationVerificationService(
+			identityRepository, identity.StrictIdentifierNormalizer{}, userHasher, notificationRuntime.delivery,
+			identity.RegistrationVerificationPolicy{TTL: 10 * time.Minute, MaxAttempts: cfg.UserAuth.RecoveryMaximumAttempts}, nil,
+		)
+		if err != nil {
+			logger.Error("registration verification initialization failed", "error", err)
+			os.Exit(1)
+		}
+	}
+	endUserService, err := identity.NewEndUserService(
+		identityRepository, identity.StrictIdentifierNormalizer{}, identity.Bcrypt{Cost: cfg.UserAuth.BcryptCost}, userHasher,
+		registrationVerificationService, notificationRuntime.delivery,
+		identity.EndUserPolicy{
+			AccessTTL: cfg.UserAuth.AccessTTL, RefreshTTL: cfg.UserAuth.RefreshTTL, RefreshAbsoluteTTL: cfg.UserAuth.AbsoluteTTL,
+			RefreshRecoveryWindow: cfg.UserAuth.RefreshRecoveryWindow, RecoveryTTL: cfg.UserAuth.RecoveryTTL,
+			RecoveryMaxAttempts: cfg.UserAuth.RecoveryMaximumAttempts, LoginWindow: cfg.UserAuth.LoginWindow,
+			LoginMaximumAttempts: cfg.UserAuth.LoginMaximumAttempts, LoginBlockDuration: cfg.UserAuth.LoginBlockDuration,
+			RecentAuthTTL: cfg.UserAuth.RecentAuthTTL, HostedAuthProofTTL: cfg.HostedInteraction.AuthProofTTL,
+		}, nil, identity.WithEndUserAdmissionPort(endUserAdmissionAdapter{access: accountAccessWorkflow}),
+	)
+	if err != nil {
+		logger.Error("end-user identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	hostedRuntime, err := newHostedInteractionRuntime(cfg.HostedInteraction, db.Pool(), productService, applicationService, endUserService, entitlementService, hasher, registrationVerificationService)
+	cfg.HostedInteraction.StateKey = ""
+	cfg.HostedInteraction.DigestKey = ""
+	if err != nil {
+		logger.Error("hosted interaction initialization failed", "error", err)
+		db.Close()
+		os.Exit(1)
+	}
+	endUserAdapter := endUserHTTPAdapter{users: endUserService, products: productService, clientHasher: hasher, access: accountAccessWorkflow}
+	externalAuthService, err := identity.NewExternalAuthService(
+		identityRepository, identityRepository, endUserService,
+		disabledExternalProviderRegistry{}, disabledExternalIdentityProvider{},
+		productApplicationReturnTargetAdapter{applications: applicationService}, userHasher,
+		identity.ExternalAuthPolicy{FlowTTL: 10 * time.Minute, ProofTTL: 10 * time.Minute, RecentAuthTTL: cfg.UserAuth.RecentAuthTTL}, nil,
+	)
+	if err != nil {
+		logger.Error("external identity service initialization failed", "error", err)
+		os.Exit(1)
+	}
+	externalUserAdapter := externalUserHTTPAdapter{base: endUserAdapter, external: externalAuthService, verification: registrationVerificationService}
 	tenantAdminWorkflow := tenantadmin.New(tenantService, accessService)
 	productHandler := producthttp.New(productService, productProvisionerAdapter{workflow: provisioningWorkflow}, adminGuard)
 	applicationHandler := applicationhttp.New(applicationService, adminGuard, applicationhttp.Config{Environment: productapplication.Environment(cfg.Environment)})
 	tenantHandler := tenanthttp.New(tenantService, adminGuard)
 	clientRegistrationHandler := clientregistrationhttp.New(clientRegistrationWorkflow, adminGuard, nil)
 	tenantAdminHandler := tenantadminhttp.New(tenantAdminWorkflow, adminGuard)
-	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...), adminGuard)
+	productUserAccessHandler := productuseraccesshttp.New(productUserAccessService, adminGuard)
+	accountUserQueryHandler := accountuserqueryhttp.New(accountUserQueryService, adminGuard)
+	accountUserAdminHandler := accountuseradminhttp.New(accountUserAdminService, adminGuard)
+	entitlementHandler := entitlementhttp.New(entitlementService, adminGuard, entitlementUserSessionResolver{base: endUserAdapter})
+	entitlementHandler.ConfigureCapabilityChecker(accountCapabilityChecker)
+	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})
+	endUserHandler := identityhttp.NewUserHandler(endUserAdapter, endUserAdapter, identityhttp.WithExternalUserService(externalUserAdapter))
 	modules := platformserver.NewModuleRegistrar()
 	if err := modules.Register("/api/v1/admin/auth/", adminAuthHandler); err != nil {
 		logger.Error("administrator authentication route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/auth/", endUserHandler); err != nil {
+		logger.Error("end-user authentication route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/account/", endUserHandler); err != nil {
+		logger.Error("end-user account route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/entitlements/", entitlementHandler); err != nil {
+		logger.Error("entitlement user route registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := modules.Register("/api/v1/hosted/", hostedRuntime.handler); err != nil {
+		logger.Error("hosted interaction route registration failed", "error", err)
+		db.Close()
 		os.Exit(1)
 	}
 	auditQueryService := audit.NewQueryService(auditRepository, auditAuthorizerAdapter{access: accessService})
@@ -273,7 +426,7 @@ func main() {
 		logger.Error("audit route registration failed", "error", err)
 		os.Exit(1)
 	}
-	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
+	if err := modules.Register("/api/v1/admin/", productAdminRouter{assembly: assemblyHandler, product: productHandler, application: applicationHandler, tenant: tenantHandler, productUserAccess: productUserAccessHandler, accountUserQuery: accountUserQueryHandler, accountUserAdmin: accountUserAdminHandler, entitlement: entitlementHandler, clientRegistration: clientRegistrationHandler, tenantAdmin: tenantAdminHandler}); err != nil {
 		logger.Error("product administration route registration failed", "error", err)
 		os.Exit(1)
 	}
@@ -283,10 +436,24 @@ func main() {
 	}
 	outbox := identity.NewOutboxDispatcher(identityRepository, identityAuditAdapter{service: auditService}, logger)
 	go outbox.Run(ctx)
+	if notificationRuntime.worker != nil {
+		go notificationRuntime.worker.Run(ctx)
+	}
+	if notificationRuntime.dispatcher != nil {
+		go notificationRuntime.dispatcher.Run(ctx)
+	}
+	go (productUserAccessDispatcher{source: productUserAccessService, audit: auditService, revoker: identityRepository, hasher: userHasher, logger: logger}).Run(ctx)
 	go assemblyWorker.Run(ctx)
+	go func() {
+		if runErr := assemblyLifecycleRunner.Run(ctx); runErr != nil && ctx.Err() == nil {
+			logger.Error("assembly lifecycle worker stopped", "error", runErr)
+			stop()
+		}
+	}()
 	for name, source := range map[string]auditableOutboxSource{
 		"access_control":      accessControlOutboxSource{service: accessService},
 		"assembly":            assemblyOutboxSource{service: assemblyService},
+		"entitlement":         entitlementOutboxSource{service: entitlementService},
 		"product":             productOutboxSource{service: productService},
 		"product_application": productApplicationOutboxSource{service: applicationService},
 		"tenant":              tenantOutboxSource{service: tenantService},

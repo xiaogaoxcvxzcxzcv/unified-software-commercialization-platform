@@ -8,19 +8,26 @@ import (
 )
 
 type ErrorBody struct {
-	Type              string `json:"type"`
-	Title             string `json:"title"`
-	Status            int    `json:"status"`
-	Code              string `json:"code"`
-	Detail            string `json:"detail,omitempty"`
-	RequestID         string `json:"request_id"`
-	Retryable         bool   `json:"retryable"`
-	RetryAfterSeconds *int   `json:"retry_after_seconds,omitempty"`
+	Type              string       `json:"type"`
+	Title             string       `json:"title"`
+	Status            int          `json:"status"`
+	Code              string       `json:"code"`
+	Detail            string       `json:"detail,omitempty"`
+	RequestID         string       `json:"request_id"`
+	Retryable         bool         `json:"retryable"`
+	RetryAfterSeconds *int         `json:"retry_after_seconds,omitempty"`
+	FieldErrors       []FieldError `json:"field_errors,omitempty"`
+}
+type FieldError struct {
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message,omitempty"`
 }
 
 type ErrorOptions struct {
 	Retryable         bool
 	RetryAfterSeconds *int
+	FieldErrors       []FieldError
 }
 
 func JSON(w http.ResponseWriter, status int, value any) {
@@ -45,6 +52,7 @@ func ErrorWithOptions(w http.ResponseWriter, r *http.Request, status int, code, 
 		RequestID:         requestid.FromContext(r.Context()),
 		Retryable:         options.Retryable,
 		RetryAfterSeconds: options.RetryAfterSeconds,
+		FieldErrors:       append([]FieldError(nil), options.FieldErrors...),
 	})
 }
 

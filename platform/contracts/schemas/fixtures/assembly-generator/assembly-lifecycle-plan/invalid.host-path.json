@@ -1,0 +1,7 @@
+{
+  "schema_version":"1.0.0","lifecycle_plan_id":"lifecycle.plan.demo","assembly_id":"assembly.demo","product_id":"product.demo","operation":"eject",
+  "source":{"manifest_id":"manifest.demo","manifest_checksum":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","lock_id":"lock.demo","lock_checksum":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","catalog_checksum":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","target_snapshot_checksum":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+  "eject_paths":["C:/workspace/secret.ts"],"target_snapshot_checksum":"sha256:2222222222222222222222222222222222222222222222222222222222222222","changes":[],"migrations":[],"regression_tests":[],"conflicts":[],
+  "rollback":{"strategy":"restore_predecessor","automatic":true,"predecessor_manifest_checksum":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","predecessor_lock_checksum":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "blocking_conflict_count":0,"executable":true,"confirmation":{"statements":["Confirm eject"],"summary_checksum":"sha256:3333333333333333333333333333333333333333333333333333333333333333"},"created_at":"2026-07-16T08:00:00Z","plan_checksum":"sha256:4444444444444444444444444444444444444444444444444444444444444444"
+}

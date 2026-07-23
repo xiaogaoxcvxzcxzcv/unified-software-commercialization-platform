@@ -94,6 +94,12 @@ func TestAdminPermissionRiskComesFromTrustedCatalog(t *testing.T) {
 	if got := adminPermissionRisk("assembly.execute"); got != "high" {
 		t.Fatalf("assembly.execute risk = %q, want high", got)
 	}
+	if got := adminPermissionRisk("assembly.lifecycle.execute"); got != "high" {
+		t.Fatalf("assembly.lifecycle.execute risk = %q, want high", got)
+	}
+	if got := adminPermissionRisk("assembly.lifecycle.plan"); got != "normal" {
+		t.Fatalf("assembly.lifecycle.plan risk = %q, want normal", got)
+	}
 	if got := adminPermissionRisk("unknown.permission"); got != "normal" {
 		t.Fatalf("unknown permission risk = %q, want normal", got)
 	}

@@ -1,0 +1,146 @@
+export interface AccountGeneratedExternalProviderConfig {
+  readonly enabled: boolean;
+  readonly provider_application_ref?: string;
+  readonly client_secret_ref?: string;
+  readonly issuer?: string;
+  readonly return_target_codes?: readonly string[];
+}
+
+export interface AccountGeneratedPackageConfig {
+  readonly password_policy: Readonly<{
+    minimum_length: number;
+    revoke_other_sessions_on_change: boolean;
+  }>;
+  readonly recovery: Readonly<{
+    security_notification_provider_ref: string;
+    challenge_ttl_seconds: number;
+  }>;
+  readonly hosted: Readonly<{
+    origin: string;
+    return_target_codes: Readonly<{ auth: string; account: string }>;
+  }>;
+  readonly external_providers: Readonly<{
+    oidc: AccountGeneratedExternalProviderConfig;
+    wechat: AccountGeneratedExternalProviderConfig;
+  }>;
+}
+
+export interface AccountGeneratedRuntimeConfig {
+  readonly api_origin: string;
+  readonly package_config: AccountGeneratedPackageConfig;
+}
+
+const referenceCode = /^[a-z0-9][a-z0-9._-]*$/;
+const port = "(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])";
+const httpsHost = "[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?";
+const loopbackHost = "(?:localhost|127\\.0\\.0\\.1|\\[::1\\])";
+const exactOrigin = new RegExp(`^(?:https://${httpsHost}(?::${port})?|http://${loopbackHost}(?::${port})?)$`);
+const issuerPath = "(?:/(?:[A-Za-z0-9._~!$&()*+,;=:@/-]|%[0-9A-Fa-f]{2})*)?";
+const oidcIssuer = new RegExp(`^(?:https://${httpsHost}(?::${port})?${issuerPath}|http://${loopbackHost}(?::${port})?${issuerPath})$`);
+
+function invalid(path: string): never {
+  throw new Error(`Invalid Account runtime configuration at ${path}.`);
+}
+
+function record(value: unknown, path: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) invalid(path);
+  return value as Record<string, unknown>;
+}
+
+function keys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  allowed: readonly string[],
+  path: string,
+): void {
+  if (required.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid(path);
+  if (Object.keys(value).some((key) => !allowed.includes(key))) invalid(path);
+}
+
+function code(value: unknown, path: string): void {
+  if (typeof value !== "string" || value.length > 128 || !referenceCode.test(value)) invalid(path);
+}
+
+function boundedInteger(value: unknown, minimum: number, maximum: number, path: string): void {
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) invalid(path);
+}
+
+function provider(value: unknown, kind: "oidc" | "wechat", path: string): void {
+  const candidate = record(value, path);
+  const allowed = kind === "oidc"
+    ? ["enabled", "provider_application_ref", "client_secret_ref", "issuer", "return_target_codes"]
+    : ["enabled", "provider_application_ref", "client_secret_ref", "return_target_codes"];
+  keys(candidate, ["enabled"], allowed, path);
+  if (typeof candidate.enabled !== "boolean") invalid(`${path}.enabled`);
+
+  for (const name of ["provider_application_ref", "client_secret_ref"] as const) {
+    if (candidate[name] !== undefined) code(candidate[name], `${path}.${name}`);
+  }
+  if (candidate.issuer !== undefined) {
+    if (typeof candidate.issuer !== "string" || !oidcIssuer.test(candidate.issuer)) invalid(`${path}.issuer`);
+  }
+  if (candidate.return_target_codes !== undefined) {
+    if (!Array.isArray(candidate.return_target_codes)) invalid(`${path}.return_target_codes`);
+    const targets = candidate.return_target_codes as unknown[];
+    targets.forEach((target, index) => code(target, `${path}.return_target_codes[${index}]`));
+    if (new Set(targets).size !== targets.length) invalid(`${path}.return_target_codes`);
+  }
+
+  if (!candidate.enabled) {
+    if (candidate.provider_application_ref !== undefined || candidate.client_secret_ref !== undefined) invalid(path);
+    return;
+  }
+  if (candidate.provider_application_ref === undefined || candidate.client_secret_ref === undefined) invalid(path);
+  if (!Array.isArray(candidate.return_target_codes) || candidate.return_target_codes.length === 0) invalid(path);
+  if (kind === "oidc" && candidate.issuer === undefined) invalid(path);
+}
+
+function validateRuntimeConfig(value: unknown): void {
+  const runtime = record(value, "runtime");
+  keys(runtime, ["api_origin", "package_config"], ["api_origin", "package_config"], "runtime");
+  if (typeof runtime.api_origin !== "string" || !exactOrigin.test(runtime.api_origin)) invalid("runtime.api_origin");
+
+  const packageConfig = record(runtime.package_config, "runtime.package_config");
+  keys(
+    packageConfig,
+    ["password_policy", "recovery", "hosted", "external_providers"],
+    ["password_policy", "recovery", "hosted", "external_providers"],
+    "runtime.package_config",
+  );
+
+  const password = record(packageConfig.password_policy, "runtime.package_config.password_policy");
+  keys(password, ["minimum_length", "revoke_other_sessions_on_change"], ["minimum_length", "revoke_other_sessions_on_change"], "runtime.package_config.password_policy");
+  boundedInteger(password.minimum_length, 12, 256, "runtime.package_config.password_policy.minimum_length");
+  if (typeof password.revoke_other_sessions_on_change !== "boolean") invalid("runtime.package_config.password_policy.revoke_other_sessions_on_change");
+
+  const recovery = record(packageConfig.recovery, "runtime.package_config.recovery");
+  keys(recovery, ["security_notification_provider_ref", "challenge_ttl_seconds"], ["security_notification_provider_ref", "challenge_ttl_seconds"], "runtime.package_config.recovery");
+  code(recovery.security_notification_provider_ref, "runtime.package_config.recovery.security_notification_provider_ref");
+  boundedInteger(recovery.challenge_ttl_seconds, 60, 1800, "runtime.package_config.recovery.challenge_ttl_seconds");
+
+  const hosted = record(packageConfig.hosted, "runtime.package_config.hosted");
+  keys(hosted, ["origin", "return_target_codes"], ["origin", "return_target_codes"], "runtime.package_config.hosted");
+  if (typeof hosted.origin !== "string" || !exactOrigin.test(hosted.origin)) invalid("runtime.package_config.hosted.origin");
+  const returnTargets = record(hosted.return_target_codes, "runtime.package_config.hosted.return_target_codes");
+  keys(returnTargets, ["auth", "account"], ["auth", "account"], "runtime.package_config.hosted.return_target_codes");
+  code(returnTargets.auth, "runtime.package_config.hosted.return_target_codes.auth");
+  code(returnTargets.account, "runtime.package_config.hosted.return_target_codes.account");
+
+  const providers = record(packageConfig.external_providers, "runtime.package_config.external_providers");
+  keys(providers, ["wechat", "oidc"], ["wechat", "oidc"], "runtime.package_config.external_providers");
+  provider(providers.wechat, "wechat", "runtime.package_config.external_providers.wechat");
+  provider(providers.oidc, "oidc", "runtime.package_config.external_providers.oidc");
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+export function defineAccountRuntimeConfig<const TConfig extends AccountGeneratedRuntimeConfig>(
+  config: TConfig,
+): Readonly<TConfig> {
+  validateRuntimeConfig(config);
+  return deepFreeze(config);
+}
