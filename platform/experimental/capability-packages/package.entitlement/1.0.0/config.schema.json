@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/capability-platform/packages/package.entitlement/1.0.0/config.schema.json",
+  "title": "Entitlement package configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "default_policy_code",
+    "clock",
+    "offline_cache"
+  ],
+  "properties": {
+    "default_policy_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_\\-.]*$"
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "const": "server_utc"
+        }
+      }
+    },
+    "offline_cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "max_grace_seconds",
+        "signature_key_ref"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_grace_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 604800
+        },
+        "signature_key_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^secret\\.[a-z0-9_.-]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "signature_key_ref": {
+                "type": "string"
+              },
+              "max_grace_seconds": {
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": false
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "signature_key_ref": {
+                "type": "null"
+              },
+              "max_grace_seconds": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

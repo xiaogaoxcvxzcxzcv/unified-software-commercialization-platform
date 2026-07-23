@@ -40,6 +40,7 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 		"assembly.upgrade-plan":     {},
 		"entitlement.grant-panel":   {},
 		"entitlement.history":       {},
+		"entitlement.summary":       {},
 		"entitlement.table":         {},
 		"product.capability-menu":   {},
 		"product.overview":          {},
@@ -57,8 +58,8 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 			t.Fatalf("unverified block %q readiness = %q", blockID, definition.Readiness)
 		}
 	}
-	if err := catalog.Validate([]string{"entitlement.summary"}, "client"); !errors.Is(err, ErrBlockNotReady) {
-		t.Fatalf("unverified client block should not be usable: %v", err)
+	if err := catalog.Validate([]string{"entitlement.summary"}, "client"); err != nil {
+		t.Fatalf("verified entitlement client block should be usable: %v", err)
 	}
 	if err := catalog.Validate([]string{"auth.login", "auth.register", "auth.recovery", "account.center", "account.profile", "account.security"}, "client"); err != nil {
 		t.Fatalf("verified account client blocks should be usable: %v", err)

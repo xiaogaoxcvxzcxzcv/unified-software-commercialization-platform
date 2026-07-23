@@ -322,6 +322,138 @@ func TestRepositoryRevokeBySourceTupleOnlyRemovesThatSource(t *testing.T) {
 	}
 }
 
+func TestRepositoryG2B05ST039LifecycleStackingConcurrencyExpiryAndIsolation(t *testing.T) {
+	database := testpostgres.Open(t)
+	ctx := context.Background()
+	seedPolicy(t, database, "product-a", "tenant-a", "policy-pro", "pro", 1, "pro.member")
+	seedPolicy(t, database, "product-b", "tenant-a", "policy-pro-b", "pro", 1, "pro.member")
+	seedPolicy(t, database, "product-a", "tenant-b", "policy-pro-tenant-b", "pro", 1, "pro.member")
+
+	now := fixedNow()
+	service := entitlement.NewService(entitlementpostgres.New(database.Pool), &sequenceIDs{}, digestKey, func() time.Time { return now })
+	admin := entitlement.AdminScope{AdminID: "admin-a", ProductID: "product-a", TenantID: "tenant-a"}
+	user := entitlement.UserContext{UserID: "user-a"}
+	duplicate := entitlement.GrantEntitlementCommand{
+		Admin:          admin,
+		User:           user,
+		Policy:         entitlement.PolicyRef{PolicyID: "policy-pro", Version: 1},
+		Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: time.Hour},
+		Source:         entitlement.SourceRef{Type: entitlement.SourceOrder, SourceID: "order-a", SourceEffectID: "line-pro"},
+		IdempotencyKey: "idempotency-g2b05-concurrent",
+		TraceID:        "trace-g2b05-concurrent",
+	}
+
+	const concurrentAttempts = 3
+	var wg sync.WaitGroup
+	results := make([]entitlement.GrantResult, concurrentAttempts)
+	errs := make([]error, concurrentAttempts)
+	for i := range results {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			results[index], errs[index] = service.GrantEntitlement(ctx, duplicate)
+		}(i)
+	}
+	wg.Wait()
+	for index, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent duplicate grant %d error=%v", index, err)
+		}
+		if results[index].Revision != 1 || results[index].GrantID == "" {
+			t.Fatalf("concurrent duplicate grant %d result=%+v", index, results[index])
+		}
+		if results[index].GrantID != results[0].GrantID || results[index].AuditID != results[0].AuditID {
+			t.Fatalf("concurrent duplicate grant %d produced a different fact: got=%+v first=%+v", index, results[index], results[0])
+		}
+	}
+
+	gift, err := service.GrantEntitlement(ctx, entitlement.GrantEntitlementCommand{
+		Admin:          admin,
+		User:           user,
+		Policy:         entitlement.PolicyRef{PolicyID: "policy-pro", Version: 1},
+		Validity:       entitlement.ValidityInput{Rule: entitlement.ValidityFixedDuration, Duration: 2 * time.Hour},
+		Source:         entitlement.SourceRef{Type: entitlement.SourceGift, SourceID: "gift-a", SourceEffectID: "line-pro"},
+		IdempotencyKey: "idempotency-g2b05-gift",
+		TraceID:        "trace-g2b05-gift",
+	})
+	if err != nil || gift.Revision != 2 {
+		t.Fatalf("second source gift=%+v error=%v", gift, err)
+	}
+	decision, err := service.CheckEntitlement(ctx, entitlement.CheckEntitlementCommand{
+		Product:           entitlement.ProductContext{ProductID: "product-a"},
+		Tenant:            entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"},
+		User:              user,
+		RequestedFeatures: []string{"pro.member"},
+	})
+	if err != nil || !decision.Allowed || decision.Revision != 2 || decision.PlanCode != "pro" {
+		t.Fatalf("stacked decision=%+v error=%v", decision, err)
+	}
+
+	revoke, err := service.RevokeEntitlement(ctx, entitlement.MutateEntitlementCommand{
+		Admin:            admin,
+		User:             user,
+		Source:           entitlement.SourceRef{Type: entitlement.SourceOrder, SourceID: "order-a", SourceEffectID: "line-pro"},
+		IdempotencyKey:   "idempotency-g2b05-revoke-order",
+		ExpectedRevision: 2,
+		TraceID:          "trace-g2b05-revoke-order",
+	})
+	if err != nil || revoke.Revision != 3 || !revoke.Decision.Allowed {
+		t.Fatalf("source revoke=%+v error=%v", revoke, err)
+	}
+	decision, err = service.CheckEntitlement(ctx, entitlement.CheckEntitlementCommand{
+		Product:           entitlement.ProductContext{ProductID: "product-a"},
+		Tenant:            entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"},
+		User:              user,
+		RequestedFeatures: []string{"pro.member"},
+	})
+	if err != nil || !decision.Allowed || decision.Revision != 3 {
+		t.Fatalf("decision after one source revoke=%+v error=%v", decision, err)
+	}
+
+	now = fixedNow().Add(3 * time.Hour)
+	expired, err := service.CheckEntitlement(ctx, entitlement.CheckEntitlementCommand{
+		Product:           entitlement.ProductContext{ProductID: "product-a"},
+		Tenant:            entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-a"},
+		User:              user,
+		RequestedFeatures: []string{"pro.member"},
+	})
+	if err != nil || expired.Allowed || expired.ReasonCode != entitlement.ReasonEntitlementExpired || expired.Revision != 3 {
+		t.Fatalf("expired decision=%+v error=%v", expired, err)
+	}
+	otherProduct, err := service.CheckEntitlement(ctx, entitlement.CheckEntitlementCommand{
+		Product:           entitlement.ProductContext{ProductID: "product-b"},
+		Tenant:            entitlement.TenantContext{ProductID: "product-b", TenantID: "tenant-a"},
+		User:              user,
+		RequestedFeatures: []string{"pro.member"},
+	})
+	if err != nil || otherProduct.Allowed || otherProduct.ReasonCode != entitlement.ReasonEntitlementRequired || otherProduct.Revision != 0 {
+		t.Fatalf("other product decision=%+v error=%v", otherProduct, err)
+	}
+	otherTenant, err := service.CheckEntitlement(ctx, entitlement.CheckEntitlementCommand{
+		Product:           entitlement.ProductContext{ProductID: "product-a"},
+		Tenant:            entitlement.TenantContext{ProductID: "product-a", TenantID: "tenant-b"},
+		User:              user,
+		RequestedFeatures: []string{"pro.member"},
+	})
+	if err != nil || otherTenant.Allowed || otherTenant.ReasonCode != entitlement.ReasonEntitlementRequired || otherTenant.Revision != 0 {
+		t.Fatalf("other tenant decision=%+v error=%v", otherTenant, err)
+	}
+
+	var grantEffects, revokeEffects, ledgerEntries int
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM entitlement.grants WHERE product_id='product-a' AND tenant_id='tenant-a' AND user_id='user-a' AND effect IN ('grant','extend','replace')`).Scan(&grantEffects); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM entitlement.grants WHERE product_id='product-a' AND tenant_id='tenant-a' AND user_id='user-a' AND effect='revoke'`).Scan(&revokeEffects); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM entitlement.ledger WHERE product_id='product-a' AND tenant_id='tenant-a' AND user_id='user-a'`).Scan(&ledgerEntries); err != nil {
+		t.Fatal(err)
+	}
+	if grantEffects != 2 || revokeEffects != 1 || ledgerEntries != 3 {
+		t.Fatalf("effect/ledger counts grant=%d revoke=%d ledger=%d, want 2/1/3", grantEffects, revokeEffects, ledgerEntries)
+	}
+}
+
 type policySeed struct {
 	ProductID            string
 	TenantID             string

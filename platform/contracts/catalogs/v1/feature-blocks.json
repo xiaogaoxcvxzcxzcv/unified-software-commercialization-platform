@@ -25,7 +25,7 @@
     { "block_id": "entitlement.grant-panel", "surface": "admin", "readiness": "ready" },
     { "block_id": "entitlement.history", "surface": "admin", "readiness": "ready" },
     { "block_id": "entitlement.redeem", "surface": "client", "readiness": "not_ready" },
-    { "block_id": "entitlement.summary", "surface": "client", "readiness": "not_ready" },
+    { "block_id": "entitlement.summary", "surface": "client", "readiness": "ready" },
     { "block_id": "entitlement.table", "surface": "admin", "readiness": "ready" },
     { "block_id": "identity.admin-login", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "identity.admin-session-menu", "surface": "admin", "readiness": "not_ready" },
@@ -57,5 +57,5 @@
     { "block_id": "usage.price-editor", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "usage.record-detail", "surface": "client", "readiness": "not_ready" }
   ],
-  "catalog_sha256": "sha256:3f3c2172444a29076432bb1efbd55d6cd274939eeae0afecf48a8cdbe1042e32"
+  "catalog_sha256": "sha256:0bb9f209d502b1dd1442ae767cb8e94fcaa5f4b5035dd2554439abaa7b63ffb5"
 }

@@ -1,0 +1,253 @@
+{
+  "admin_blocks": [
+    "entitlement.table",
+    "entitlement.grant-panel",
+    "entitlement.history"
+  ],
+  "audit_actions": [
+    "entitlement.granted",
+    "entitlement.extended",
+    "entitlement.replaced",
+    "entitlement.revoked",
+    "entitlement.policy-published"
+  ],
+  "availability": [
+    {
+      "delivery_mode": "generated_source",
+      "environments": [
+        "test"
+      ],
+      "evidence_refs": [
+        "artifacts/reviews/G2B-05/entitlement-package-nine-face-verification.md"
+      ],
+      "readiness": "verified",
+      "target": "web",
+      "visibility": "experimental"
+    },
+    {
+      "delivery_mode": "generated_source",
+      "environments": [
+        "test"
+      ],
+      "evidence_refs": [
+        "artifacts/reviews/G2B-05/entitlement-package-nine-face-verification.md"
+      ],
+      "readiness": "verified",
+      "target": "desktop_webview",
+      "visibility": "experimental"
+    }
+  ],
+  "backend_capabilities": [
+    "entitlement.check",
+    "entitlement.grant",
+    "entitlement.query",
+    "entitlement.extend",
+    "entitlement.revoke",
+    "entitlement.history"
+  ],
+  "client_blocks": [
+    "entitlement.summary"
+  ],
+  "config_schema_path": "config.schema.json",
+  "conflicts": [],
+  "content_files": [
+    {
+      "path": "config.schema.json",
+      "sha256": "sha256:5ac4d8dc1cced01db4a049dae479f94dca2c9a6c86b903fe1ff84cddcda41a60",
+      "kind": "file"
+    },
+    {
+      "path": "content/docs/entitlement-integration.md.tmpl",
+      "sha256": "sha256:03b92d6dc42bc89c7dd55131b7fef1d36f830a0c0cadd7b0b7732d60fdf47adc",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/client.ts.tmpl",
+      "sha256": "sha256:f502227d09f8461053814aaf2ca267b99a99da47b2e82b30f93c3f16354eb692",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/entitlement.generated.test.ts.tmpl",
+      "sha256": "sha256:0916a2a7de57d246a8f80eeb55948ba141417152779f490d76a8bb01327c6690",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/integration.example.ts.tmpl",
+      "sha256": "sha256:49283a0158036b7261cc748639599ace779ea6637147c48cec98a0b201326298",
+      "kind": "file"
+    },
+    {
+      "path": "content/generated/routes.tsx.tmpl",
+      "sha256": "sha256:ab5069e737c73c7c9284126c3c2129d612a8709627b884dce4ca01cc53e1d327",
+      "kind": "file"
+    }
+  ],
+  "content_tree_sha256": "sha256:245c592ab9d5194e853703e44900efc5dbb0275d3a7d563545fd9594b2c0b2d9",
+  "data_retention": [
+    {
+      "data_set": "entitlement.grant",
+      "guide_path": "docs/features/entitlement/contract.md",
+      "policy": "Grant/effect history is retained append-only for audit and recovery."
+    },
+    {
+      "data_set": "entitlement.ledger",
+      "guide_path": "docs/features/entitlement/contract.md",
+      "policy": "Ledger entries are immutable and retained for product audit unless a separate privacy deletion flow redacts allowed personal projections."
+    }
+  ],
+  "dependencies": [
+    {
+      "package_id": "package.account",
+      "reason": "Entitlement requires authenticated scoped users and account access summary integration.",
+      "version_range": "^1.0.0"
+    }
+  ],
+  "documentation_paths": [
+    "docs/features/entitlement/README.md",
+    "docs/features/entitlement/contract.md",
+    "docs/capability-package-catalog.md",
+    "platform/contracts/client-api-compatibility.md",
+    "platform/contracts/client-ui-contract.md"
+  ],
+  "events": [
+    "entitlement.granted.v1",
+    "entitlement.extended.v1",
+    "entitlement.replaced.v1",
+    "entitlement.revoked.v1",
+    "entitlement.expired.v1",
+    "entitlement.policy-published.v1"
+  ],
+  "extension_points": [
+    "entitlement.summary-slot"
+  ],
+  "generated_outputs": [
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/client.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/client.ts.tmpl",
+      "source_sha256": "sha256:f502227d09f8461053814aaf2ca267b99a99da47b2e82b30f93c3f16354eb692"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/routes.tsx",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/routes.tsx.tmpl",
+      "source_sha256": "sha256:ab5069e737c73c7c9284126c3c2129d612a8709627b884dce4ca01cc53e1d327"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/integration.example.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/integration.example.ts.tmpl",
+      "source_sha256": "sha256:49283a0158036b7261cc748639599ace779ea6637147c48cec98a0b201326298"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/entitlement.generated.test.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/entitlement.generated.test.ts.tmpl",
+      "source_sha256": "sha256:0916a2a7de57d246a8f80eeb55948ba141417152779f490d76a8bb01327c6690"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "docs/generated/entitlement-integration.md",
+      "render_strategy": "strict_template",
+      "source_path": "content/docs/entitlement-integration.md.tmpl",
+      "source_sha256": "sha256:03b92d6dc42bc89c7dd55131b7fef1d36f830a0c0cadd7b0b7732d60fdf47adc"
+    }
+  ],
+  "hosted_routes": [],
+  "lifecycle_status": "verified",
+  "manifest_sha256": "sha256:2a5af1a591f99a5339beb4bda93e0186e51cdbececd8451acaf9281939151a21",
+  "migrations": [
+    "platform/backend/migrations/000026_entitlement.up.sql"
+  ],
+  "name": "Product entitlements",
+  "optional_provider_requirements": [],
+  "package_id": "package.entitlement",
+  "provider_requirements": [],
+  "public_api_operations": [
+    "checkEntitlement",
+    "getCurrentEntitlements",
+    "listCurrentEntitlementHistory",
+    "listEntitlements",
+    "grantEntitlement",
+    "extendEntitlement",
+    "revokeEntitlement",
+    "listEntitlementHistory"
+  ],
+  "required_permissions": [
+    "entitlement.read",
+    "entitlement.manage",
+    "entitlement.revoke"
+  ],
+  "rollback_policy": {
+    "guide_path": "docs/features/entitlement/contract.md",
+    "strategy": "compensating"
+  },
+  "schema_version": "1.0.0",
+  "sdk_methods": [
+    "checkEntitlement",
+    "getCurrentEntitlements",
+    "listEntitlementHistory"
+  ],
+  "sdk_modules": [
+    "sdk.entitlement"
+  ],
+  "secret_refs": [],
+  "smoke_tests": [
+    "st-005",
+    "st-006",
+    "st-039"
+  ],
+  "source_locations": [
+    "platform/backend/internal/modules/entitlement",
+    "platform/admin-web/src",
+    "platform/client-ui",
+    "platform/sdk/typescript",
+    "docs/features/entitlement",
+    "platform/contracts/packages/package.entitlement/1.0.0"
+  ],
+  "stable_errors": [
+    "ENTITLEMENT_REQUIRED",
+    "ENTITLEMENT_EXPIRED",
+    "ENTITLEMENT_DEVICE_LIMITED",
+    "ENTITLEMENT_POLICY_CONFLICT",
+    "ENTITLEMENT_SOURCE_DUPLICATE",
+    "ENTITLEMENT_OPERATION_CONFLICT",
+    "ENTITLEMENT_CAPABILITY_DISABLED"
+  ],
+  "supported_delivery_modes": [
+    "generated_source"
+  ],
+  "supported_targets": [
+    "web",
+    "desktop_webview"
+  ],
+  "test_paths": [
+    "platform/backend/internal/modules/entitlement",
+    "platform/backend/internal/modules/assembly/generation",
+    "platform/backend/internal/modules/assembly/machinecontract",
+    "platform/backend/internal/modules/assembly/machinecatalog",
+    "platform/client-ui",
+    "platform/sdk/typescript"
+  ],
+  "ui_template_compatibility": [
+    {
+      "template_id": "standard-a",
+      "version_range": "^0.1.0"
+    }
+  ],
+  "upgrade_policy": {
+    "guide_path": "docs/features/entitlement/contract.md",
+    "strategy": "compatible"
+  },
+  "user_value": "Reusable membership and feature entitlement decisions for each product and tenant.",
+  "version": "1.0.0"
+}
