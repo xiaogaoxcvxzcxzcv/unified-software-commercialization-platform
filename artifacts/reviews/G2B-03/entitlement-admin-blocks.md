@@ -1,8 +1,8 @@
-# G2B-03 Entitlement 管理后台 Blocks 证据草案
+# G2B-03 Entitlement 管理后台 Blocks 验证证据
 
 日期：2026-07-23
 
-状态：`in_progress`。本地实现、真实浏览器主路径、前端 reauth UX 收口和 Full `-RequirePostgres` 已通过；仍缺提交、push 和 GitHub required checks，因此不能标记 `verified`。
+状态：`verified`。本地实现、真实浏览器主路径、前端 reauth UX 收口、Full `-RequirePostgres`、push 和 GitHub required checks 已通过。`package.entitlement` 仍不是 available，下一唯一关口为 G2B-04。
 
 ## 本次交付
 
@@ -28,6 +28,9 @@
 - 补救后 Admin build：`npm run build`。
 - 补救后 Core gate：`.runtime/G2B-03/quality-gate-core-entitlement-admin-after-reauth.json`，6/6。
 - 补救后 Full gate with PostgreSQL：`.runtime/G2B-03/quality-gate-full-entitlement-admin-after-reauth.json`，22/22。
+- 提交：`8f8348652222879b4b2016ab1c1151b1be0afbcb`。
+- GitHub push run `29985749580`：`quality-gate` job `89137471867` success，`windows-tls` job `89137059030` success。
+- GitHub pull_request run `29985752129`：`quality-gate` job `89137406743` success，`windows-tls` job `89137066789` success。
 
 ## 真实浏览器验收
 
@@ -44,8 +47,7 @@
 
 浏览器过程中还发现高风险操作 reauth 提示缺少“一键重新登录并返回此页”按钮；已补齐前端状态和测试，提交按钮在 reauthRequired 时禁用，点击后调用 logout 并带 `from` 返回当前权益页面。
 
-## 未完成
+## G2B-03 后仍未完成
 
-- 提交和 push。
-- GitHub PR required checks。
-- 验收通过后再将 `entitlement.table`、`entitlement.grant-panel`、`entitlement.history` 从 `not_ready` 提升到 `ready`。
+- `package.entitlement` 的用户前台、SDK、Generated Source 和包内九面仍未完成。
+- G2C 装配验收、升级/回滚、旧产品回归和普通 `/create` 终验仍未完成。
