@@ -4,7 +4,7 @@
 
 当前没有任何包达到 `available`。创建软件页面不得把下表中的 planned/contracted 包显示成已经可用。
 
-机器目录加载、Schema、Manifest/完整内容树摘要、Permission/Feature Block 引用、依赖/冲突、目标端/交付形态/环境、模板兼容和确定性快照基础已经通过 G1-02/G1-04 验证；G1-04 还验证了受控目录到持久化 Assembly Plan/Run 的后端基础。普通能力包目录当前仍没有真实 Package Manifest；受控实验能力包目录已有 G2A-08 已验证的 `package.account` 1.0.0 verified candidate 和 G2B-05 已验证的 `package.entitlement` 1.0.0 verified candidate，受控实验模板目录已有 `standard-a` 0.1.0 候选，但普通模板目录和生产受信 Generator/SDK 工具目录仍为空。测试构造、进程内受控目录和 Schema fixtures 不算可勾选能力包或 UI 模板。
+机器目录加载、Schema、Manifest/完整内容树摘要、Permission/Feature Block 引用、依赖/冲突、目标端/交付形态/环境、模板兼容和确定性快照基础已经通过 G1-02/G1-04 验证；G1-04 还验证了受控目录到持久化 Assembly Plan/Run 的后端基础。普通能力包目录当前仍没有真实 Package Manifest；受控实验能力包目录已有 G2A-08 已验证的 `package.account` 1.0.0 verified candidate 和 G2B-05 已验证的 `package.entitlement` 1.0.0 verified candidate，受控实验模板目录已有 `standard-a` 0.1.0 候选，G2C-01 已补入并本地验证受控实验 `platform.generator`、`platform.sdk` 和样板 `extension.editor-tools` 的组合闭包；普通模板目录、普通工具目录和 ordinary 可选能力包仍为空。测试构造、进程内受控目录和 Schema fixtures 不算可勾选能力包或 UI 模板。
 
 | package_id | 名称 | 主要原子能力 | 用户前台 | 统一后台 | 依赖 | 首批目标端 | 状态 |
 |---|---|---|---|---|---|---|---|

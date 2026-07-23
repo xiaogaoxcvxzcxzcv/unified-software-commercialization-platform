@@ -22,7 +22,7 @@
 
 目标：能够创建一个不含软件独有业务内容的基础软件蓝图，并安全、可重复地产生前台框架和装配结果。
 
-F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-08 已通过；G2A-08 最终提交 `8e8dd7e` 的 PR #14 required check 已成功。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；G2B-02 Entitlement 后端、迁移、API、Outbox 和复杂策略已通过本地真实 PostgreSQL Full 与托管 required check；G2B-03 统一后台 Entitlement Blocks、G2B-04 用户前台/SDK/源码/专用真实浏览器 E2E，以及 G2B-05 包内九面和 experimental verified candidate 均已通过。当前唯一严格关口为 G2C-01 锁定 experimental 组合目录。生产 OIDC/微信 Provider E2E 和 G2C 装配回归没有冒充完成；`package.account` 与 `package.entitlement` 仅进入 experimental verified candidate，ordinary 目录仍不可见，当前仍没有 `available` 完整能力包。
+F0-02 管理员认证浏览器 E2E 的三个 P1 已修复并完成补救复验，状态为 `verified_after_remediation`。F0-03、G1 全部关口、G2A-01 至 G2A-08 已通过；G2A-08 最终提交 `8e8dd7e` 的 PR #14 required check 已成功。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；G2B-02 Entitlement 后端、迁移、API、Outbox 和复杂策略已通过本地真实 PostgreSQL Full 与托管 required check；G2B-03 统一后台 Entitlement Blocks、G2B-04 用户前台/SDK/源码/专用真实浏览器 E2E，以及 G2B-05 包内九面和 experimental verified candidate 均已通过。当前唯一严格关口为 G2C-01 状态同步与远端 required check；G2C-01 的 experimental 组合目录已本地 Full 22/22 通过，待本状态提交 CI 通过后进入 G2C-02。生产 OIDC/微信 Provider E2E 和 G2C 装配回归没有冒充完成；`package.account` 与 `package.entitlement` 仅进入 experimental verified candidate，ordinary 目录仍不可见，当前仍没有 `available` 完整能力包。
 
 范围：
 

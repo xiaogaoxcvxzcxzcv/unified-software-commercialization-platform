@@ -65,6 +65,12 @@ artifacts/reviews/G2A-08/*
 artifacts/reviews/G2B-04/*
 !artifacts/reviews/G2B-04/entitlement-user-sdk-source.md
 !artifacts/reviews/G2B-04/quality-gate-full-postgres-local.json
+!artifacts/reviews/G2C-01/
+artifacts/reviews/G2C-01/*
+!artifacts/reviews/G2C-01/candidate-catalog-compatibility.md
+!artifacts/reviews/G2C-01/quality-gate-core-candidate-catalog.json
+!artifacts/reviews/G2C-01/quality-gate-core-status-sync.json
+!artifacts/reviews/G2C-01/quality-gate-full-postgres.json
 
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*

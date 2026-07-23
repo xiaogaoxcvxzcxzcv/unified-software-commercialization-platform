@@ -1,12 +1,12 @@
-# G2C-01 candidate catalog compatibility checkpoint
+# G2C-01 candidate catalog compatibility verification
 
-Status: in_progress_checkpoint
+Status: local_verified_pending_status_commit_ci
 
 Date: 2026-07-23
 
 ## Scope
 
-This checkpoint starts G2C-01 by locking the experimental candidate inputs needed for the first account + entitlement assembly plan:
+G2C-01 locks the experimental candidate inputs needed for the first account + entitlement assembly plan:
 
 - `package.account` 1.0.0, experimental verified candidate.
 - `package.entitlement` 1.0.0, experimental verified candidate.
@@ -19,6 +19,7 @@ This checkpoint starts G2C-01 by locking the experimental candidate inputs neede
 
 - `go test -count=1 ./internal/modules/assembly/machinecatalog ./internal/modules/assembly/planning` passed.
 - `scripts/quality-gate.ps1 -Mode Core -ReportPath artifacts/reviews/G2C-01/quality-gate-core-candidate-catalog.json` passed 6/6.
+- `scripts/quality-gate.ps1 -Mode Full -RequirePostgres -ReportPath artifacts/reviews/G2C-01/quality-gate-full-postgres.json` passed 22/22.
 
 ## Coverage
 
@@ -26,7 +27,8 @@ This checkpoint starts G2C-01 by locking the experimental candidate inputs neede
 - Selecting `package.entitlement` resolves the `package.account` dependency and locks a deterministic catalog snapshot.
 - Planner builds deterministic Assembly Plan bytes for the real experimental account + entitlement + standard-a + tool + extension combination.
 - Ordinary catalog options remain empty and cannot see the experimental candidate closure.
+- The first failed Full attempt used the wrong local DSN user (`platform_test_user`) and failed PostgreSQL authentication before exercising module logic. The verification run was repeated with the repository-defined local user (`platform_test`) and passed.
 
-## Not yet verified
+## Remaining before final status flip
 
-This checkpoint does not mark G2C-01 verified. Remaining G2C-01 work still needs the broader ST-027 negative matrix, Full gate, remote CI, final status synchronization, and evidence review.
+The code checkpoint was already published to PR #14 by updating the remote branch to commit `8509c3e76e46588430a017a3045da18e757baad1`; that commit's push and pull_request `quality-gate` / `windows-tls` checks passed. This evidence file is being updated after the successful local Full run. G2C-01 should only be marked fully `verified` after the status-sync commit is also pushed and the required GitHub checks pass.

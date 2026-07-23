@@ -21,8 +21,8 @@
 | 交付面 | 当前状态 | 已有成果 | 仍缺少 |
 |---|---|---|---|
 | 工程治理 | F0 verified | 唯一文档入口、真相优先级、开发地图、端到端主开发计划、能力索引、ADR 状态、模块契约、Feature Block、冒烟和废弃记录；当前本地/CI 共用 Full 20 项门禁，并在 RequirePostgres 时用可观察详细输出拒绝数据库测试静默跳过；F0-02 补救后真实 PostgreSQL/浏览器通过；GitHub Actions push 与 PR 均绿色；`main` required `quality-gate` 已证明 pending 阻断、success 放行 | 每阶段专用门禁和真实恢复演练 |
-| 产品蓝图与 Assembly | G1-11 verified | G1-04 至 G1-11 已验证；创建/恢复、生命周期 API、可信 Extension Catalog、确定性快照/计划、本地 Full 18/18 和托管 push/PR 检查均通过 | G2C 真实工具、扩展安装/升级/卸载与完整软件装配 |
-| 完整能力包目录 | package.account verified candidate / package.entitlement verified candidate | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 至 G2A-08 的认证账号 API、准入、外部身份、安全通知、HostedInteraction、管理 Blocks、用户 Blocks、SDK/配置/Generated Source、包内九面验证和 experimental candidate 发布均已通过；Entitlement G2B-01 至 G2B-05 的模型/Manifest、后端/API、管理 Blocks、用户前台/SDK/源码、包内九面、ST-005/006/039、experimental candidate 和 CI 已通过；ordinary 目录仍为空 | 下一唯一关口为 G2C-01 锁定 experimental 组合目录；仍缺 G2C 装配回归，当前没有 available 完整能力包 |
+| 产品蓝图与 Assembly | G2C-01 local verified pending status CI | G1-04 至 G1-11 已验证；创建/恢复、生命周期 API、可信 Extension Catalog、确定性快照/计划、本地 Full 和托管 push/PR 检查均通过；G2C-01 已把 account + entitlement + standard-a + generator + SDK + 样板 extension 的 experimental 组合闭包锁定，并通过本地 Full `-RequirePostgres` 22/22 | 状态同步提交的远端 required check、随后进入 G2C-02 真实创建装配验收软件 A |
+| 完整能力包目录 | package.account verified candidate / package.entitlement verified candidate | Account 独立 Manifest、配置 Schema、九面合同、Product User Access 边界和目录防泄漏已验证；G2A-03 至 G2A-08 的认证账号 API、准入、外部身份、安全通知、HostedInteraction、管理 Blocks、用户 Blocks、SDK/配置/Generated Source、包内九面验证和 experimental candidate 发布均已通过；Entitlement G2B-01 至 G2B-05 的模型/Manifest、后端/API、管理 Blocks、用户前台/SDK/源码、包内九面、ST-005/006/039、experimental candidate 和 CI 已通过；G2C-01 已验证二者与 `standard-a`、受信工具和样板 Extension 的 experimental 兼容闭包；ordinary 目录仍为空 | 仍缺 G2C 装配回归，当前没有 available 完整能力包 |
 | UI Template / Generated Source | G1-07 verified | `standard-a` 0.1.0 已在受控实验目录完成 Web/desktop WebView 各 11 个文件真实生成、裸生成空状态、custom 工作台、离线安装、7 项交互测试、构建与启动；1440/760/390/320/低高度、浅深主题、键盘焦点、长内容和像素非空验收通过 | 普通目录发布、真实 Assembly Manifest/lock 样板、升级/eject/回滚 E2E；当前没有 available 包 |
 | 装配验收软件 | planned | G2 黄金链和 A/B/C 创建、隔离、晋级、回归标准已确定；它们不承担真实正文开发 | 可运行验收软件仓库、软件本地 AI 交接、最小扩展边界夹具、account/entitlement 装配与回归证据 |
 | 管理后台 | auth/G1-08.1-G1-08.4/G1-10/G2A-05/G2B-03 verified | 生命周期 Plan/Operation、重新认证回跳、幂等冲突显式处理、工件验证和有界轮询已实现；G2A-05 Account API Client、真实后端、权限/危险操作、nullable 会话、能力集审计持久化和浏览器入口已通过真实 PostgreSQL、浏览器与托管 required check；G2B-03 Entitlement API Client、查询、授予、延长、撤销、流水、reauth 返回和浏览器主路径已通过本地 Full 与托管 required check。`identity.user-table`、`identity.user-detail`、`entitlement.table`、`entitlement.grant-panel`、`entitlement.history` 已同步为 ready；`package.account` 与 `package.entitlement` 已完成 experimental verified candidate | 后续 G2C 装配回归 |
@@ -40,7 +40,7 @@
 
 | 模块 | 当前状态 | 说明 |
 |---|---|---|
-| assembly | G1-05/G1-07/G1-07.1/G1-08.1-G1-08.4/G1-10/G1-11 verified | 后端、Generator 文件安全、模板、工具/扩展目录基础、创建、工作区、durable Run/恢复和 lifecycle API 已验证；普通/实验 scope、权限、摘要、快照、Product 与环境绑定失败关闭 | G2C 发布真实工具、安装扩展并装配样板 |
+| assembly | G2C-01 local verified pending status CI | 后端、Generator 文件安全、模板、工具/扩展目录基础、创建、工作区、durable Run/恢复和 lifecycle API 已验证；普通/实验 scope、权限、摘要、快照、Product 与环境绑定失败关闭；G2C-01 experimental 工具、SDK、样板 Extension 与 account/entitlement/standard-a 兼容闭包已通过本地 Full 22/22 | G2C-02 安装扩展并真实装配样板 A |
 | product / product-application | verified foundation + admin workspace verified | `000007/000008`、Domain/Application/PostgreSQL/HTTP、可恢复 Product 开通、客户端凭据、精确 Application 绑定、回调白名单、停用与可信上下文解析已通过自动化；Product CapabilitySet 只接受受信 Plan；真实管理 Client、独立工作区、Application/CapabilitySet 只读投影和多 Product 浏览器切换已通过 | Product 编辑、客户端身份轮换、完整能力包装配与生产部署 |
 | tenant | verified foundation + admin read verified | `000009`、official 唯一、agent 创建/list、分发证明解析、Product/Application 范围隔离、Tenant 管理员到 Access Control 的组合绑定及 Outbox 已通过自动化；真实管理 Client 和 Product 切换后的 Tenant 投影已通过浏览器验收 | agent 停用/恢复管理入口、真实业务模块租户回归与生产部署 |
 | identity | admin auth + Account G2A verified candidate support | 管理认证、最终用户认证/账号、refresh 重放撤销、外部身份、注册验证/恢复投递、Hosted proof/grant、管理 Blocks、用户 Blocks、Account SDK、Generated Source 与 G2A-08 包内九面均已通过真实 PostgreSQL 与托管 CI | 生产 OIDC/微信 Provider E2E；G2C 装配回归 |
@@ -58,6 +58,8 @@
 | distribution / settlement / wallet / subscription | planned-later | 只有真实业务触发才立项，不塞入 Tenant、Usage 或 Payment |
 
 ## 最近验证（2026-07-23）
+
+- G2C-01：`local_verified_pending_status_commit_ci`。已发布并验证 experimental 组合闭包：`package.account` 1.0.0、`package.entitlement` 1.0.0、`standard-a` 0.1.0、`platform.generator` 1.0.0、`platform.sdk` 1.0.0 和 `extension.editor-tools` 1.0.0；真实机器目录测试覆盖依赖闭包、ordinary 不可见、受信工具/扩展锁定，Planner 测试覆盖真实组合的确定性 Assembly Plan。本地 Core 6/6 与 Full `-RequirePostgres` 22/22 已通过，Full 报告为 `artifacts/reviews/G2C-01/quality-gate-full-postgres.json`。代码 checkpoint 已通过 PR #14 远端 required checks；本状态同步提交仍需等待远端 CI 后才能把 G2C-01 终态改为 `verified` 并进入 G2C-02。证据：`artifacts/reviews/G2C-01/candidate-catalog-compatibility.md`。
 
 - G2B-05：`verified`。Entitlement 包内九面验证、experimental verified candidate 发布、ordinary 目录不可见、`entitlement.summary` 运行时 Feature Block 目录 ready、MachineCatalog 隔离专项和真实 PostgreSQL `TestRepositoryG2B05ST039LifecycleStackingConcurrencyExpiryAndIsolation` 已完成；本地 `go test -count=1 ./internal/modules/assembly/machinecatalog ./internal/modules/assembly/machinecontract ./internal/modules/assembly/generation ./internal/modules/entitlement/...` 通过，本地 Full `-RequirePostgres` 22/22 通过，报告为 `artifacts/reviews/G2B-05/quality-gate-full-postgres.json`。提交 `ff17adf` 已 push；PR #14 push run `30001599641` 与 pull_request run `30001604250` 的 `quality-gate` 和 `windows-tls` 均成功。`package.entitlement` 只进入 experimental verified candidate，ordinary runtime catalog 仍为空；G2C 前不得标记 available。证据：`artifacts/reviews/G2B-05/entitlement-package-nine-face-verification.md`。
 
