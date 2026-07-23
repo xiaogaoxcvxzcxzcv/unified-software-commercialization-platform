@@ -1,6 +1,6 @@
 # G2C-01 candidate catalog compatibility verification
 
-Status: local_verified_pending_status_commit_ci
+Status: verified
 
 Date: 2026-07-23
 
@@ -29,6 +29,10 @@ G2C-01 locks the experimental candidate inputs needed for the first account + en
 - Ordinary catalog options remain empty and cannot see the experimental candidate closure.
 - The first failed Full attempt used the wrong local DSN user (`platform_test_user`) and failed PostgreSQL authentication before exercising module logic. The verification run was repeated with the repository-defined local user (`platform_test`) and passed.
 
-## Remaining before final status flip
+## Remote CI
 
-The code checkpoint was already published to PR #14 by updating the remote branch to commit `8509c3e76e46588430a017a3045da18e757baad1`; that commit's push and pull_request `quality-gate` / `windows-tls` checks passed. This evidence file is being updated after the successful local Full run. G2C-01 should only be marked fully `verified` after the status-sync commit is also pushed and the required GitHub checks pass.
+The code checkpoint was published to PR #14 by updating the remote branch to commit `8509c3e76e46588430a017a3045da18e757baad1`; that commit's push and pull_request `quality-gate` / `windows-tls` checks passed.
+
+The status-sync commit `6cc9909` was pushed to PR #14 and both push run `30006697515` and pull_request run `30006701403` passed `quality-gate` and `windows-tls`.
+
+G2C-01 is verified. The next unique gate is G2C-02: real creation of assembly acceptance software A through the controlled experimental entry.
