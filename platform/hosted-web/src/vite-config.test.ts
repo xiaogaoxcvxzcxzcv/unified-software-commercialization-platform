@@ -125,6 +125,44 @@ describe("hosted Vite backend boundary", () => {
     }
   }, 180_000);
 
+  it("renders G2B-04 entitlement account states in a real browser", async () => {
+    const browser = findBrowser();
+    expect(browser, "G2B-04 entitlement browser acceptance requires a system Chrome/Chromium or Edge executable").toBeDefined();
+    const backend = await startG2B04EntitlementBackend();
+    process.env.HOSTED_BACKEND_TARGET = backend.origin;
+    delete process.env.HOSTED_DEV_TLS_PFX;
+    delete process.env.HOSTED_DEV_TLS_PFX_PASSWORD;
+    const vite = await createViteServer({
+      configFile,
+      root: appRoot,
+      logLevel: "silent",
+      server: { host: "127.0.0.1", port: 0, strictPort: false },
+    });
+    try {
+      await vite.listen();
+      const origin = serverOrigin(vite.httpServer);
+      const result = await runBrowser(browser!, g2b04EntitlementURLs(origin), createBrowserProfile("hosted-browser-g2b04-"), 30_000);
+      expect(result.consoleErrors).toEqual([]);
+      expect(result.stderr).not.toMatch(/content security policy|refused to/i);
+      const texts = Object.fromEntries(result.pages.map((page) => [new URL(page.href).searchParams.get("interaction_id"), page.rootText]));
+      expect(texts[g2b04EntitlementID("entitled")]).toContain("权益摘要");
+      expect(texts[g2b04EntitlementID("entitled")]).toContain("pro");
+      expect(texts[g2b04EntitlementID("entitled")]).toContain("priority_queue");
+      expect(texts[g2b04EntitlementID("entitled")]).not.toMatch(/¥|￥|paid|price|amount/i);
+      expect(texts[g2b04EntitlementID("empty")]).toContain("当前没有可用权益");
+      expect(texts[g2b04EntitlementID("expired")]).toContain("权益已到期");
+      expect(texts[g2b04EntitlementID("expired")]).toContain("曾经拥有权益");
+      expect(texts[g2b04EntitlementID("disabled")]).not.toContain("当前权益");
+      expect(texts[g2b04EntitlementID("disabled")]).not.toContain("权益摘要");
+      for (const id of Object.values(g2b04EntitlementIDs)) {
+        expect(backend.requests.some((path) => path.includes(id) && path.endsWith("/account/bootstrap"))).toBe(true);
+      }
+    } finally {
+      await vite.close();
+      await closeServer(backend.server);
+    }
+  }, 120_000);
+
   it("creates isolated private browser runtime paths within the POSIX socket budget", () => {
     const first = createBrowserProfile("hosted-browser-first-");
     const second = createBrowserProfile("hosted-browser-second-");
@@ -232,8 +270,65 @@ async function startBackend(): Promise<BackendFixture> {
   return { server, origin: serverOrigin(server), requests, observedRequests };
 }
 
+const g2b04EntitlementIDs = {
+  entitled: "hint_g2b04_entitled_abcdefghijk",
+  empty: "hint_g2b04_empty_abcdefghijklmn",
+  expired: "hint_g2b04_expired_abcdefghijkl",
+  disabled: "hint_g2b04_disabled_abcdefghij",
+} as const;
+
+function g2b04EntitlementID(kind: keyof typeof g2b04EntitlementIDs): string {
+  return g2b04EntitlementIDs[kind];
+}
+
+function g2b04EntitlementURLs(origin: string): readonly string[] {
+  return Object.values(g2b04EntitlementIDs).map((id) => `${origin}/ui/v1/account?interaction_id=${id}`);
+}
+
+async function startG2B04EntitlementBackend(): Promise<BackendFixture> {
+  const requests: string[] = [];
+  const observedRequests: BackendRequest[] = [];
+  const server = createHTTPServer((request, response) => {
+    const path = request.url ?? "";
+    requests.push(path);
+    observedRequests.push({ method: request.method ?? "GET", path, origin: typeof request.headers.origin === "string" ? request.headers.origin : undefined });
+    const id = /\/api\/v1\/hosted\/interactions\/([^/]+)/.exec(path)?.[1] ?? g2b04EntitlementID("entitled");
+    const interaction = hostedInteractionWithID(id, "hosted.account");
+    response.writeHead(200, { "Cache-Control": "no-store", "Content-Type": "application/json" });
+    if (path.endsWith("/browser-session")) {
+      response.end(JSON.stringify({ interaction, csrf_token: "c".repeat(32), browser_session_expires_at: "2030-01-01T00:00:00Z" }));
+      return;
+    }
+    response.end(JSON.stringify(g2b04AccountBootstrap(id, interaction)));
+  });
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  return { server, origin: serverOrigin(server), requests, observedRequests };
+}
+
 function hostedInteraction(route: "hosted.auth" | "hosted.account") {
   return { interaction_id: route === "hosted.account" ? "hint_account_abcdefghijklmnopqrstuvwx" : "hint_auth_abcdefghijklmnopqrstuvwx", route_id: route, channel: "web", status: "opened", allowed_actions: ["authenticate", "complete", "cancel"], created_at: "2029-01-01T00:00:00Z", expires_at: "2030-01-01T00:00:00Z" };
+}
+
+function hostedInteractionWithID(id: string, route: "hosted.auth" | "hosted.account") {
+  return { interaction_id: id, route_id: route, channel: "web", status: "opened", allowed_actions: ["complete"], created_at: "2029-01-01T00:00:00Z", expires_at: "2030-01-01T00:00:00Z" };
+}
+
+function g2b04AccountBootstrap(id: string, interaction: ReturnType<typeof hostedInteractionWithID>) {
+  const value = {
+    interaction,
+    presentation: { product_name: "G2B04 Entitlement", theme_variant: null },
+    profile: { user_id: "user_g2b04", version: 1, display_name: "G2B04 User", avatar_url: null, locale: "zh-CN", timezone: "Asia/Shanghai" },
+    sessions: [{ session_id: "sess_g2b04", current: true, device_label: "Runtime Browser", created_at: "2029-01-01T00:00:00Z", last_seen_at: "2029-01-01T00:00:00Z", expires_at: "2030-01-01T00:00:00Z" }],
+    external_identities: [],
+    allowed_actions: ["complete"],
+  };
+  if (id === g2b04EntitlementID("disabled")) return value;
+  if (id === g2b04EntitlementID("empty")) return { ...value, entitlement_summary: { revision: 8, plan_code: null, features: {}, valid_until: null, offline_grace_until: null, updated_at: "2026-07-23T00:00:00Z" } };
+  if (id === g2b04EntitlementID("expired")) return { ...value, entitlement_summary: { revision: 9, plan_code: "trial", features: {}, valid_until: "2020-01-01T00:00:00Z", offline_grace_until: null, updated_at: "2026-07-23T00:00:00Z" } };
+  return { ...value, entitlement_summary: { revision: 10, plan_code: "pro", features: { priority_queue: true, export_limit: 100 }, valid_until: "2030-01-01T00:00:00Z", offline_grace_until: "2030-01-02T00:00:00Z", updated_at: "2026-07-23T00:00:00Z" } };
 }
 
 async function expectProxy(origin: string, channel: string, requests: string[]): Promise<void> {
@@ -524,7 +619,7 @@ async function runBrowser(browser: string, urls: readonly string[], profile: str
 }
 
 async function readPageEvidence(session: CDPSession, expectedURL: string): Promise<BrowserPageEvidence | undefined> {
-  const expression = `(() => {
+  const expression = `(async () => {
     const root = document.querySelector('.hosted-root.client-ui-root');
     const header = document.querySelector('.hosted-header');
     const main = document.querySelector('.hosted-main');
@@ -532,6 +627,11 @@ async function readPageEvidence(session: CDPSession, expectedURL: string): Promi
     const field = document.querySelector('.client-field');
     const account = document.querySelector('.account-block');
     if (location.href !== ${JSON.stringify(expectedURL)} || !root || !header || !main || !button || !account) return undefined;
+    const entitlementButton = document.querySelector('.hosted-entitlement-nav button');
+    if (entitlementButton instanceof HTMLButtonElement) {
+      entitlementButton.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
     const sheets = Array.from(document.styleSheets);
     const cssRuleCount = sheets.reduce((count, sheet) => {
       try { return count + sheet.cssRules.length; } catch { return count; }
@@ -562,7 +662,7 @@ async function readPageEvidence(session: CDPSession, expectedURL: string): Promi
       rootText: root.textContent,
     };
   })()`;
-  const result = await session.command<{ readonly result?: { readonly value?: BrowserPageEvidence } }>("Runtime.evaluate", { expression, returnByValue: true });
+  const result = await session.command<{ readonly result?: { readonly value?: BrowserPageEvidence } }>("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
   const value = result.result?.value;
   return value && value.cssRuleCount > 0 ? value : undefined;
 }

@@ -189,6 +189,19 @@ describe("HostedApp runtime shell", () => {
     expect(view.container).not.toHaveTextContent("paid");
   });
 
+  it("maps an expired server entitlement projection to the expired empty state", async () => {
+    const fetchMock = sequence(
+      json(browser("hosted.account")),
+      json(accountBootstrap({ entitlement_summary: { ...entitlementSummary(), features: {}, valid_until: "2020-01-01T00:00:00Z" } })),
+    );
+    const view = render(<HostedApp href={href("account")} fetch={fetchMock as typeof fetch} />);
+    await waitFor(() => expect(view.getByRole("button", { name: /当前权益/ })).toBeInTheDocument());
+    fireEvent.click(view.getByRole("button", { name: /当前权益/ }));
+    expect(view.getByRole("heading", { name: "权益摘要" })).toBeInTheDocument();
+    expect(view.container).toHaveTextContent("权益已到期");
+    expect(view.container).toHaveTextContent("曾经拥有权益");
+  });
+
   it("exposes only the account workspace allowed-action subset", async () => {
     const fetchMock = sequence(
       json(browser("hosted.account")),

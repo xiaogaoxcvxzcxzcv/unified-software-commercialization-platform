@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-- 当前阶段：F0、G1、G2A-01 至 G2A-08 已退出；`package.account` 仅为 experimental verified candidate，非 ordinary available。G2A-08 Account 包内九面验证、本地真实 PostgreSQL Full 22/22、最终提交 `8e8dd7e` 和 GitHub required check 已通过。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；G2B-02 Entitlement 后端、迁移、HTTP API、Outbox/Audit、幂等、source tuple revoke 和复杂策略已通过本地真实 PostgreSQL Full 与托管 required check；G2B-03 统一后台 Entitlement Blocks 已通过本地和托管 required check。当前唯一严格关口为 G2B-04 用户前台、SDK 和源码；ordinary 能力包目录仍为空，普通创建入口继续失败关闭。
+- 当前阶段：F0、G1、G2A-01 至 G2A-08 已退出；`package.account` 仅为 experimental verified candidate，非 ordinary available。G2A-08 Account 包内九面验证、本地真实 PostgreSQL Full 22/22、最终提交 `8e8dd7e` 和 GitHub required check 已通过。G2B-01 Entitlement 模型、Manifest 和并发规则已验证；G2B-02 Entitlement 后端、迁移、HTTP API、Outbox/Audit、幂等、source tuple revoke 和复杂策略已通过本地真实 PostgreSQL Full 与托管 required check；G2B-03 统一后台 Entitlement Blocks 已通过；G2B-04 用户前台、SDK、源码和专用真实浏览器 E2E 已通过。当前唯一严格关口为 G2B-05 Entitlement 包内九面验证；ordinary 能力包目录仍为空，普通创建入口继续失败关闭。
 - 正式代码目录：`platform/`。
 - HostedInteraction 是独立短期编排模块：拥有 interaction、浏览器会话、恢复投影和完成 grant；只通过公开服务调用 Identity、Product Application 及后续业务模块，不拥有用户、回跳白名单、订单、支付或权益事实。G2A-04.1 已完成后端边界验证；G2A-06 Hosted UI 交付面已通过本地真实浏览器、Full 20/20 与托管 required check。两者都不得误报为完整 Account 包已完成。
 - 尚未创建生产数据库，尚未接入真实支付，尚未迁移旧项目数据。

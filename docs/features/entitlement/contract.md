@@ -1,6 +1,6 @@
 # Entitlement 模块契约
 
-状态：G2B-04 contract freeze。G2B-01 已封口模型、Manifest、状态表、唯一约束和并发规则；G2B-02 已验证后端、迁移、API、事件和真实 PostgreSQL；G2B-03 已验证统一后台 Blocks。当前 G2B-04 只允许在既有权威后端之上补齐用户前台、SDK 和 Generated Source，不改变 Entitlement 的数据所有权、授予/撤销语义或能力包可用性状态。
+状态：G2B-05 package verification gate。G2B-01 已封口模型、Manifest、状态表、唯一约束和并发规则；G2B-02 已验证后端、迁移、API、事件和真实 PostgreSQL；G2B-03 已验证统一后台 Blocks；G2B-04 已验证用户前台、SDK、Hosted account 投影和 Generated Source。当前 G2B-05 只允许在既有权威后端、管理后台、用户前台、SDK 和源码交付物之上执行包内九面验证与缺口修复，不改变 Entitlement 的数据所有权、授予/撤销语义或普通目录可用性状态。
 
 ## 数据所有权与调用边界
 
@@ -161,7 +161,7 @@ Check Decision 是公开检查结论，不等于 Grant 原始记录。
 
 Current Summary 是用户前台和 SDK 展示当前会员与权益的只读投影，不产生或修改 Grant。
 
-当前 G2B-04 使用既有后端与 OpenAPI 字段：
+当前用户前台交付使用既有后端与 OpenAPI 字段：
 
 - `revision`
 - `plan_code`

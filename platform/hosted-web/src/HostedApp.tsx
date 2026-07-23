@@ -128,7 +128,7 @@ function AccountWorkspace({ snapshot, controller, bootstrap }: { readonly snapsh
 		content = <AccountSecurityBlock {...common} state={passwordAllowed || revokeAllowed ? state : "disabled"} sessions={revokeAllowed ? sessions : sessions.filter((item) => item.current)} externalIdentities={identities} passwordChangeAllowed={passwordAllowed} passwordFieldErrors={mapFieldErrors(snapshot, { current_credential: "currentPassword", new_credential: "newPassword" })} actions={{ changePassword: passwordAllowed ? (input) => controller.changePassword({ current_credential: input.currentPassword, new_credential: input.newPassword, revoke_other_sessions: true }) : undefined, revokeSession: revokeAllowed ? (sessionId) => controller.revokeSession(sessionId) : undefined, revokeAllOtherSessions: revokeAllowed ? async () => { for (const session of sessions.filter((item) => !item.current && !item.revoked)) await controller.revokeSession(session.id); } : undefined, cancel: () => { controller.discardPendingMutation("change_password"); setScreen("center"); } }} />;
 	} else if (screen === "entitlements") {
 		const summary = mapEntitlementSummary(bootstrap);
-		content = <EntitlementSummaryBlock {...common} state={summary ? state : "disabled"} value={summary ?? undefined} disabledMessage="当前产品未启用权益能力。" actions={{ retry: () => void controller.refresh() }} />;
+		content = <EntitlementSummaryBlock {...common} emptyMessage={undefined} state={summary ? state : "disabled"} value={summary ?? undefined} disabledMessage="当前产品未启用权益能力。" actions={{ retry: () => void controller.refresh() }} />;
 	} else {
 		const summary = mapEntitlementSummary(bootstrap);
 		content = <>
@@ -206,6 +206,9 @@ function mapEntitlementSummary(bootstrap?: HostedAccountBootstrap): EntitlementS
 	const summary = bootstrap?.entitlement_summary;
 	if (!summary) return null;
 	const entries = Object.entries(summary.features);
+	const emptyReason = entries.length === 0
+		? (summary.valid_until && Date.parse(summary.valid_until) <= Date.now() ? "expired" : "never_owned")
+		: undefined;
 	return {
 		revision: summary.revision,
 		planCode: summary.plan_code,
@@ -213,7 +216,7 @@ function mapEntitlementSummary(bootstrap?: HostedAccountBootstrap): EntitlementS
 		offlineGraceUntil: summary.offline_grace_until,
 		updatedAt: summary.updated_at,
 		features: entries.map(([code, value]): EntitlementFeatureItem => ({ code, label: code, value: primitiveFeatureValue(value) })),
-		emptyReason: entries.length === 0 ? "never_owned" : undefined,
+		emptyReason,
 	};
 }
 function primitiveFeatureValue(value: unknown): string | number | boolean | null {
