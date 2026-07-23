@@ -106,6 +106,16 @@ type resolvedGenerator struct {
 	Checksum    string `json:"checksum"`
 }
 
+type rootHandoffSource struct {
+	OutputPath     string
+	SourcePath     string
+	SourceSHA256   string
+	TemplateID     string
+	Version        string
+	RenderStrategy string
+	ContentType    string
+}
+
 type resolvedSDK struct {
 	SDKID    string `json:"sdk_id"`
 	Version  string `json:"version"`
@@ -255,6 +265,7 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 	extensionByID := make(map[string]machinecatalog.ExtensionManifest)
 	applicationIDs := make(map[string]struct{}, len(applications))
 	outputPaths := make([]string, 0, len(applications))
+	rootHandoffSources := make(map[string]rootHandoffSource)
 	var generator machinecatalog.ToolManifest
 	var sdk machinecatalog.ToolManifest
 	for _, application := range applications {
@@ -337,10 +348,63 @@ func (p *Planner) BuildPlan(_ context.Context, blueprint core.Blueprint, environ
 		if !entrypointFound {
 			return core.PlannedDocument{}, machinecatalog.ErrEntrypointMismatch
 		}
+		if len(rootHandoffSources) == 0 {
+			first, firstOK := templateContentFile(resolution.Template, "template/AGENTS.md.tmpl")
+			second, secondOK := templateContentFile(resolution.Template, "template/docs/software-development-handoff.md.tmpl")
+			if firstOK != secondOK {
+				return core.PlannedDocument{}, fmt.Errorf("%w: template %s has an incomplete software handoff source set", ErrBlueprintMismatch, resolution.Template.TemplateID)
+			}
+			if !firstOK {
+				resolvedApplications = append(resolvedApplications, resolvedApplication{
+					ApplicationID: application.ApplicationID, Target: application.Target, Channel: application.Channel,
+					Environment: environment, DeliveryMode: application.UI.DeliveryMode, OutputPath: application.OutputPath,
+					Template: resolvedTemplate{TemplateID: resolution.Template.TemplateID, Version: resolution.Template.Version, Checksum: resolution.Template.ManifestSHA256},
+				})
+				continue
+			}
+			handoffContent := map[string]machinecatalog.ContentFile{
+				"template/AGENTS.md.tmpl":                            first,
+				"template/docs/software-development-handoff.md.tmpl": second,
+			}
+			for _, source := range []struct {
+				outputPath string
+				sourcePath string
+			}{
+				{outputPath: "AGENTS.md", sourcePath: "template/AGENTS.md.tmpl"},
+				{outputPath: "docs/software-development-handoff.md", sourcePath: "template/docs/software-development-handoff.md.tmpl"},
+			} {
+				content, ok := handoffContent[source.sourcePath]
+				if !ok {
+					continue
+				}
+				rootHandoffSources[source.outputPath] = rootHandoffSource{
+					OutputPath: source.outputPath, SourcePath: source.sourcePath, SourceSHA256: content.SHA256,
+					TemplateID: resolution.Template.TemplateID, Version: resolution.Template.Version,
+					RenderStrategy: "strict_template", ContentType: "text",
+				}
+			}
+		}
 		resolvedApplications = append(resolvedApplications, resolvedApplication{
 			ApplicationID: application.ApplicationID, Target: application.Target, Channel: application.Channel,
 			Environment: environment, DeliveryMode: application.UI.DeliveryMode, OutputPath: application.OutputPath,
 			Template: resolvedTemplate{TemplateID: resolution.Template.TemplateID, Version: resolution.Template.Version, Checksum: resolution.Template.ManifestSHA256},
+		})
+	}
+	rootOutputPaths := make([]string, 0, len(rootHandoffSources))
+	for outputPath := range rootHandoffSources {
+		rootOutputPaths = append(rootOutputPaths, outputPath)
+	}
+	sort.Strings(rootOutputPaths)
+	for _, outputPath := range rootOutputPaths {
+		source := rootHandoffSources[outputPath]
+		path := strings.TrimSuffix(input.OutputRoot, "/") + "/" + outputPath
+		if err := machinecontract.ValidateSafeRelativePath(path); err != nil {
+			return core.PlannedDocument{}, err
+		}
+		expectedOutputs = append(expectedOutputs, expectedOutput{
+			Path: path, Ownership: "generated", SourceID: source.TemplateID, SourceVersion: source.Version,
+			SourcePath: source.SourcePath, SourceSHA256: source.SourceSHA256, RenderStrategy: source.RenderStrategy,
+			ContentType: source.ContentType,
 		})
 	}
 
@@ -560,4 +624,13 @@ func pathsOverlap(first, second string) bool {
 	first = strings.ToLower(strings.Trim(first, "/"))
 	second = strings.ToLower(strings.Trim(second, "/"))
 	return first == second || strings.HasPrefix(first, second+"/") || strings.HasPrefix(second, first+"/")
+}
+
+func templateContentFile(template machinecatalog.TemplateManifest, sourcePath string) (machinecatalog.ContentFile, bool) {
+	for _, file := range template.ContentFiles {
+		if file.Path == sourcePath {
+			return file, true
+		}
+	}
+	return machinecatalog.ContentFile{}, false
 }

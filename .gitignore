@@ -71,6 +71,9 @@ artifacts/reviews/G2C-01/*
 !artifacts/reviews/G2C-01/quality-gate-core-candidate-catalog.json
 !artifacts/reviews/G2C-01/quality-gate-core-status-sync.json
 !artifacts/reviews/G2C-01/quality-gate-full-postgres.json
+!artifacts/reviews/G2C-02/
+artifacts/reviews/G2C-02/*
+!artifacts/reviews/G2C-02/quality-gate-core-handoff-checkpoint.json
 
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*

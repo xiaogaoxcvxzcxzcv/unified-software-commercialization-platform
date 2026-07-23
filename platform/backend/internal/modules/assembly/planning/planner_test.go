@@ -169,6 +169,19 @@ func TestG2C01RealExperimentalCandidateCombinationBuildsDeterministicPlan(t *tes
 	if len(plan.Capabilities) == 0 || len(plan.ExpectedOutputs) == 0 || len(plan.RequiredProvider) != 1 || plan.RequiredProvider[0] != "notification.security" {
 		t.Fatalf("plan capabilities/outputs/providers = %#v / %d / %#v", plan.Capabilities, len(plan.ExpectedOutputs), plan.RequiredProvider)
 	}
+	outputsByPath := map[string]expectedOutput{}
+	for _, output := range plan.ExpectedOutputs {
+		outputsByPath[output.Path] = output
+	}
+	for _, path := range []string{"generated-products/video-brain/AGENTS.md", "generated-products/video-brain/docs/software-development-handoff.md"} {
+		output, ok := outputsByPath[path]
+		if !ok {
+			t.Fatalf("G2C handoff output %s is missing from plan: %#v", path, plan.ExpectedOutputs)
+		}
+		if output.Ownership != "generated" || output.SourceID != "standard-a" || output.SourceVersion != "0.1.0" || output.RenderStrategy != "strict_template" || output.ContentType != "text" {
+			t.Fatalf("G2C handoff output %s is not sealed by standard-a: %#v", path, output)
+		}
+	}
 }
 
 func TestPlannerRejectsBlueprintWithoutCapabilityPackages(t *testing.T) {

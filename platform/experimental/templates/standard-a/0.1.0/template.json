@@ -32,6 +32,16 @@
       "kind": "file"
     },
     {
+      "path": "template/AGENTS.md.tmpl",
+      "sha256": "sha256:7c663c3302b2f9c789f1d32598903494dccacbfd00191557d85788fbf6e2c574",
+      "kind": "file"
+    },
+    {
+      "path": "template/docs/software-development-handoff.md.tmpl",
+      "sha256": "sha256:714fd911a7a86cfc1119a02cc9206a4f1e751a0b6a02b8079b1bcaba38f64b99",
+      "kind": "file"
+    },
+    {
       "path": "template/index.html",
       "sha256": "sha256:97407b78ccca18c66918e4e5ba2b745c420da7c7f008e1d0398db658e09a9a29",
       "kind": "file"
@@ -102,7 +112,7 @@
       "kind": "file"
     }
   ],
-  "content_tree_sha256": "sha256:13b88f0a7af1fd1d62277ec7bee5cd14aa2fa6c70869c2d8e8feb6194226bd20",
+  "content_tree_sha256": "sha256:16d1c55058c9e1fece59ecedc9e9824df6acfdd82633a2df6fbf3c5da6a4288a",
   "entrypoints": [
     {
       "content_type": "text",
@@ -335,7 +345,7 @@
       "target": "desktop_webview"
     }
   ],
-  "manifest_sha256": "sha256:364ff76d1f4120dfad3ffc4d3a6d56590effb792bc294e981db9ed02459187e8",
+  "manifest_sha256": "sha256:76644335153eb6c1718d7aef42207c3fb0b328d099ccdca52ad359210c8a3295",
   "name": "Standard A Workbench Shell",
   "package_compatibility": [
     {
