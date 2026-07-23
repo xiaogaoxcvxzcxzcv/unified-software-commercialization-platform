@@ -1,6 +1,6 @@
 # Entitlement 模块契约
 
-状态：G2B-05 package verification gate。G2B-01 已封口模型、Manifest、状态表、唯一约束和并发规则；G2B-02 已验证后端、迁移、API、事件和真实 PostgreSQL；G2B-03 已验证统一后台 Blocks；G2B-04 已验证用户前台、SDK、Hosted account 投影和 Generated Source。当前 G2B-05 只允许在既有权威后端、管理后台、用户前台、SDK 和源码交付物之上执行包内九面验证与缺口修复，不改变 Entitlement 的数据所有权、授予/撤销语义或普通目录可用性状态。
+状态：G2B-05 verified；当前唯一后续关口为 G2C-01。G2B-01 已封口模型、Manifest、状态表、唯一约束和并发规则；G2B-02 已验证后端、迁移、API、事件和真实 PostgreSQL；G2B-03 已验证统一后台 Blocks；G2B-04 已验证用户前台、SDK、Hosted account 投影和 Generated Source；G2B-05 已验证包内九面并发布 experimental verified candidate。G2C 之前不得改变 Entitlement 的数据所有权、授予/撤销语义或普通目录可用性状态；`package.entitlement` 仍非 ordinary available。
 
 ## 数据所有权与调用边界
 

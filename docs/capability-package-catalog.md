@@ -4,12 +4,12 @@
 
 当前没有任何包达到 `available`。创建软件页面不得把下表中的 planned/contracted 包显示成已经可用。
 
-机器目录加载、Schema、Manifest/完整内容树摘要、Permission/Feature Block 引用、依赖/冲突、目标端/交付形态/环境、模板兼容和确定性快照基础已经通过 G1-02/G1-04 验证；G1-04 还验证了受控目录到持久化 Assembly Plan/Run 的后端基础。普通能力包目录当前仍没有真实 Package Manifest；受控实验能力包目录已有 G2A-08 已验证的 `package.account` 1.0.0 verified candidate，受控实验模板目录已有 `standard-a` 0.1.0 候选，但普通模板目录和生产受信 Generator/SDK 工具目录仍为空。测试构造、进程内受控目录和 Schema fixtures 不算可勾选能力包或 UI 模板。
+机器目录加载、Schema、Manifest/完整内容树摘要、Permission/Feature Block 引用、依赖/冲突、目标端/交付形态/环境、模板兼容和确定性快照基础已经通过 G1-02/G1-04 验证；G1-04 还验证了受控目录到持久化 Assembly Plan/Run 的后端基础。普通能力包目录当前仍没有真实 Package Manifest；受控实验能力包目录已有 G2A-08 已验证的 `package.account` 1.0.0 verified candidate 和 G2B-05 已验证的 `package.entitlement` 1.0.0 verified candidate，受控实验模板目录已有 `standard-a` 0.1.0 候选，但普通模板目录和生产受信 Generator/SDK 工具目录仍为空。测试构造、进程内受控目录和 Schema fixtures 不算可勾选能力包或 UI 模板。
 
 | package_id | 名称 | 主要原子能力 | 用户前台 | 统一后台 | 依赖 | 首批目标端 | 状态 |
 |---|---|---|---|---|---|---|---|
 | package.account | 统一账号与个人中心 | identity、product-user-access、account composition | 登录、注册、找回、个人资料、会话安全和外部身份 | 范围用户查询、全局安全状态、Product/Tenant 准入 | product/application、notification.security；微信/OIDC 可选 | Web、桌面 | verified candidate；仅 experimental，非 ordinary available |
-| package.entitlement | 会员权益 | entitlement check/grant/revoke/history | 当前会员、权益摘要 | 权益查询、授予、延长、撤销和流水 | package.account | Web、桌面 | contracted；G2B-02 后端/API、G2B-03 管理 Blocks 与 G2B-04 用户前台/SDK/源码/专用真实浏览器 E2E 已 verified；仍缺 G2B-05 包内九面和 G2C 装配回归；非 ordinary available |
+| package.entitlement | 会员权益 | entitlement check/grant/revoke/history | 当前会员、权益摘要 | 权益查询、授予、延长、撤销和流水 | package.account | Web、桌面 | verified candidate；仅 experimental，非 ordinary available；G2B-05 包内九面、ST-005/006/039、本地 Full `-RequirePostgres` 22/22 和 PR #14 required check 已通过；仍缺 G2C 装配回归 |
 | package.device-license | 设备与激活码 | device bind/revoke、license issue/redeem | 我的设备、撤销确认、激活码兑换 | 设备、批次、激活码和兑换记录 | package.account、package.entitlement | Web、桌面 | planned |
 | package.commerce | 套餐订单与支付 | catalog、order、payment、commerce | 套餐、购买确认、收银台、支付结果和订单 | 商品、订单、支付、退款和对账 | package.account、package.entitlement | Web、桌面 | planned |
 | package.release-config | 发布更新与远程配置 | release、config | 更新提示、公告和帮助入口 | 版本、灰度、回滚、公告和远程配置 | product/application | 桌面、Web | planned |

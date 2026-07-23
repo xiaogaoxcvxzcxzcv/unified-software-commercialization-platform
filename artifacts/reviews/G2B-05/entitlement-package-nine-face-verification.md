@@ -1,6 +1,6 @@
 # G2B-05 Entitlement package nine-face verification
 
-Status: local_verified_pending_hosted_ci
+Status: verified
 
 Date: 2026-07-23
 
@@ -56,4 +56,10 @@ G2B-05 verifies `package.entitlement` as an experimental `verified candidate` on
 
 ## Hosted CI
 
-Pending. This report must be updated after the pushed commit's required GitHub checks pass.
+- Commit: `ff17adf`
+- Push run: `30001599641`; `quality-gate` job `89188213209` passed, `windows-tls` job `89187816134` passed.
+- Pull request run: `30001604250`; `quality-gate` job `89188239483` passed, `windows-tls` job `89187831418` passed.
+
+## Next gate
+
+G2C-01 must assemble the locked experimental catalog inputs. `package.entitlement` remains invisible to the ordinary catalog until G2C completes A/B/C assembly, upgrade/rollback, custom safety, and old product regression.
