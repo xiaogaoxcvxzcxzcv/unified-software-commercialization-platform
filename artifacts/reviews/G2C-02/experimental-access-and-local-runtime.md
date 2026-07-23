@@ -63,11 +63,16 @@ After granting the active acceptance administrator the separate `g2c02_experimen
 
 Report: `artifacts/reviews/G2C-02/g2c02-http-preflight-software-a-20260723232213.json`.
 
+Additional non-browser safety and recovery checkpoints:
+
+- `artifacts/reviews/G2C-02/g2c02-http-safety-recovery-20260723234705.json` records blueprint/plan/run idempotency replays, rejected unknown `output_target_ref`, recovery by a fresh login session, and non-overlapping output roots. The run intentionally remains a failure-recovery checkpoint because the isolated test database already contains the locked `video-brain` product required by the current experimental extension.
+- `artifacts/reviews/G2C-02/g2c02-generated-handoff-root-closure.json` records the completed `video-brain` generated source root, artifact root separation, root `AGENTS.md`, `docs/software-development-handoff.md`, `package.json`, `apps/web/src`, and generated/custom/API-SDK boundary wording.
+- Browser automation is still unavailable in the current Codex environment: the browser runtime initializes, but browser discovery returns an empty list. Therefore these HTTP and filesystem checkpoints are not final browser-click evidence.
+
 ## Remaining G2C-02 evidence required
 
 - Fresh PostgreSQL-backed browser acceptance for software A.
-- Repeated-submit/idempotency evidence.
-- Rejected unknown or mismatched `output_target_ref` evidence.
-- Recovery evidence after refresh or interrupted response.
-- Evidence that generated source root and artifact root are non-overlapping and closed by Manifest/lock.
-- Evidence that a new AI can read only generated software `AGENTS.md` and `docs/software-development-handoff.md` to understand provided public capabilities and custom-code boundaries.
+- Successful-run repeated-submit/idempotency evidence from the browser path.
+- Browser rejected unknown or mismatched `output_target_ref` evidence.
+- Browser recovery evidence after refresh or interrupted response.
+- Browser evidence that the completed run automatically enters the new Product workspace.

@@ -226,6 +226,30 @@ describe("assemblyClient request contract", () => {
     expect(String(authenticatedRequest.mock.calls[0][1].body)).not.toContain("catalog_scope");
   });
 
+  it("accepts stable nullable run step timestamps from the backend projection", async () => {
+    authenticatedRequest.mockResolvedValue({
+      ...runResponse,
+      steps: [{
+        step_id: "step.provision",
+        kind: "provision",
+        status: "pending",
+        attempt: 0,
+        compensation_status: "pending",
+        started_at: null,
+        finished_at: null,
+        diagnostic_ids: [],
+      }],
+    });
+
+    const result = await assemblyClient.getRun("run-1");
+
+    expect(result.steps[0]).toMatchObject({
+      step_id: "step.provision",
+      started_at: null,
+      finished_at: null,
+    });
+  });
+
   it("uses stable encoded read paths and forwards AbortSignal", async () => {
     const manifestResponse = { assembly_id: "assembly:1", product_id: "product-1", run_id: "run-1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", created_at: "2026-07-16T01:00:00Z" };
     const lockResponse = { lock_id: "lock:1", product_id: "product-1", run_id: "run-1", assembly_id: "assembly:1", schema_version: "1.0.0", document: {}, document_checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", created_at: "2026-07-16T01:00:00Z" };

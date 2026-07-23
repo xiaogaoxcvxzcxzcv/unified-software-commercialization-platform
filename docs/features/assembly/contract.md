@@ -127,7 +127,7 @@
 
 - 平台列表：`GET /api/v1/admin/assembly-runs?page_size={1..100}&cursor={opaque}&status={optional}&product_id={optional}`，要求 platform scope `assembly.read`。`product_id` 只是受权平台范围内的过滤条件；未绑定 Product 的 Run 返回 `product_id: null`，不能被伪造为某款软件记录。
 - 排序与游标：固定按 `(created_at DESC, run_id DESC)`；cursor 由服务端签发/校验，错误、过长、字段漂移或筛选条件不一致统一拒绝。响应包含稳定 `items` 和可空 `next_cursor`，空目录返回 200 与空数组。
-- Run 详情：`GET /api/v1/admin/assembly-runs/{run_id}` 继续兼容既有字段，并新增 `product_id`、`version`、`root_run_id`、可空 `retry_of_run_id`、`attempt_number`、`current_step_id`、类型化 `steps`、`recovery`、`diagnostics` 和 `reports`。管理页面只使用这些浏览器安全投影，不从 raw `document` 解析路径、权限或恢复结论。
+- Run 详情：`GET /api/v1/admin/assembly-runs/{run_id}` 继续兼容既有字段，并新增 `product_id`、`version`、`root_run_id`、可空 `retry_of_run_id`、`attempt_number`、`current_step_id`、类型化 `steps`、`recovery`、`diagnostics` 和 `reports`。每个 `steps[]` 项必须稳定返回 `started_at` 与 `finished_at` 键；尚未开始或尚未结束时值为 `null`，不得用省略字段表达。管理页面只使用这些浏览器安全投影，不从 raw `document` 解析路径、权限或恢复结论。
 - 创建恢复投影：Blueprint 响应必须提供服务端从已验证文档投影、去重并稳定排序的 `environments`；Plan 响应必须提供服务端重新校验得到的 `confirmation_checksum` 和只包含包、Application、模板、风险与确认声明的 `review`。当前 Planner 要求全部 Application 与所选环境一致，因此恢复页只在 `environments` 恰好一项时允许继续，否则失败关闭并要求修正蓝图。管理页面只使用这些顶层字段，不解析 raw Blueprint/Plan `document` 推断环境、确认摘要、风险或执行权限；恢复确认页必须展示 `review` 后才允许开始装配。
 - 恢复 URL：Blueprint 持久化响应成功后立即进入 `/create/blueprints/{blueprint_id}`，Plan 持久化响应成功后立即进入 `/create/plans/{plan_id}`，Run 持久化响应成功后立即进入 `/assemblies/{run_id}`。刷新这些 URL 只执行 GET；需要重放写请求时复用按资源隔离、保存在当前浏览器会话中的原幂等键，成功后清除。
 - 诊断：只返回稳定 `diagnostic_id/code/severity/category/message/blocking/retryable/remediation/related_paths`。`related_paths` 必须是安全相对路径；非 Generator 失败使用服务端静态诊断目录，任何 `error.Error()`、秘密、连接串、凭据、用户数据、ArtifactRoot/TargetRoot 或宿主路径都不得持久化或返回。

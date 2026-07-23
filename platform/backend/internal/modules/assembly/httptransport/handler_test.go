@@ -464,7 +464,7 @@ func TestRunResponseUsesStrictSnakeCaseNestedContract(t *testing.T) {
 			t.Fatalf("forbidden key %q in %s", forbidden, text)
 		}
 	}
-	for _, required := range []string{"\"step_id\"", "\"retryable\"", "\"type\":\"assembly_validation\"", "\"checksum\":null"} {
+	for _, required := range []string{"\"step_id\"", "\"retryable\"", "\"type\":\"assembly_validation\"", "\"checksum\":null", "\"started_at\":null", "\"finished_at\":null"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("missing %q in %s", required, text)
 		}

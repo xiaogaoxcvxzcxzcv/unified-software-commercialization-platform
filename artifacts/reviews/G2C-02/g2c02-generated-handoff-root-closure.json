@@ -1,0 +1,18 @@
+{
+  "evidence_type": "generated_handoff_and_root_closure_not_final_browser_click",
+  "generated_at": "2026-07-23T15:50:51.6303666Z",
+  "product_code": "video-brain",
+  "target_root": "D:\\AI_xeirj\\我的软件统一后台管理\\.runtime\\local-assembly-output\\g2c02-a",
+  "artifact_root": "D:\\AI_xeirj\\我的软件统一后台管理\\.runtime\\local-assembly-artifacts\\g2c02-a",
+  "roots_non_overlapping": true,
+  "generated_root": "D:\\AI_xeirj\\我的软件统一后台管理\\.runtime\\local-assembly-output\\g2c02-a\\generated-products\\video-brain",
+  "agents_exists": true,
+  "handoff_exists": true,
+  "package_json_exists": true,
+  "web_src_exists": true,
+  "agents_mentions_generated": true,
+  "agents_mentions_custom": true,
+  "handoff_mentions_public_capabilities": true,
+  "handoff_mentions_custom_boundary": true,
+  "handoff_mentions_sdk_or_api": true
+}

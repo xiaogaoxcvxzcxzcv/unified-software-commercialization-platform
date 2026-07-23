@@ -984,8 +984,8 @@ type runStepResponse struct {
 	Status             string     `json:"status"`
 	Attempt            int        `json:"attempt"`
 	CompensationStatus string     `json:"compensation_status"`
-	StartedAt          *time.Time `json:"started_at,omitempty"`
-	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	StartedAt          *time.Time `json:"started_at"`
+	FinishedAt         *time.Time `json:"finished_at"`
 	DiagnosticIDs      []string   `json:"diagnostic_ids"`
 }
 type runRecoveryResponse struct {
