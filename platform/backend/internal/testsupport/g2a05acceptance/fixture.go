@@ -261,7 +261,7 @@ func (acceptancePlanner) BuildPlan(_ context.Context, blueprint core.Blueprint, 
 	outputChecksum := digest("g2a05 acceptance output marker")
 	document := map[string]any{
 		"schema_version": "1.0.0", "plan_id": fixturePlanID, "blueprint_id": blueprint.BlueprintID, "blueprint_version": blueprint.Revision, "environment": "test",
-		"catalog_snapshot": map[string]any{"revision": catalogRevision, "scope": "experimental", "checksum": digest("g2a05 acceptance catalog marker")},
+		"catalog_snapshot": map[string]any{"revision": catalogRevision, "scope": "ordinary", "checksum": digest("g2a05 acceptance catalog marker")},
 		"packages":         []any{map[string]any{"package_id": "package.account", "version": "1.0.0", "checksum": packageChecksum}},
 		"applications":     []any{map[string]any{"application_id": fixtureApplication, "target": "web", "channel": "official", "environment": "test", "delivery_mode": "generated_source", "output_path": "acceptance/g2a05-account", "template": map[string]any{"template_id": "standard-a", "version": "1.0.0", "checksum": templateChecksum}}},
 		"extensions":       []any{}, "generator": map[string]any{"generator_id": "g2a05-acceptance-generator", "version": "1.0.0", "checksum": generatorChecksum},
