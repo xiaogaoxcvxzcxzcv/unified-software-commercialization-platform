@@ -54,14 +54,25 @@ type UserSessionResolver interface {
 	ResolveUserSession(context.Context, string) (UserSessionContext, error)
 }
 
+type PackageCapabilityChecker interface {
+	IsPackageEnabled(context.Context, string, string) (bool, error)
+}
+
 type Handler struct {
-	service  Service
-	guard    *adminrequest.Guard
-	resolver UserSessionResolver
+	service      Service
+	guard        *adminrequest.Guard
+	resolver     UserSessionResolver
+	capabilities PackageCapabilityChecker
 }
 
 func New(service Service, guard *adminrequest.Guard, resolver UserSessionResolver) *Handler {
 	return &Handler{service: service, guard: guard, resolver: resolver}
+}
+
+func (h *Handler) ConfigureCapabilityChecker(capabilities PackageCapabilityChecker) {
+	if h != nil {
+		h.capabilities = capabilities
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -402,6 +413,9 @@ func (h *Handler) requireUser(w http.ResponseWriter, r *http.Request) (UserSessi
 		httpx.Error(w, r, http.StatusUnauthorized, "entitlement.unauthorized", "authentication required")
 		return UserSessionContext{}, false
 	}
+	if !h.requirePackageEnabled(w, r, value.ProductID) {
+		return UserSessionContext{}, false
+	}
 	return value, true
 }
 
@@ -414,7 +428,30 @@ func (h *Handler) authorizeAdmin(w http.ResponseWriter, r *http.Request, permiss
 		httpx.Error(w, r, http.StatusBadRequest, "entitlement.invalid_request", "entitlement scope is invalid")
 		return adminrequest.Principal{}, false
 	}
-	return h.guard.Authorize(w, r, permission, adminrequest.TargetScope{Type: "tenant", ID: tenantID, ProductID: productID, TenantID: tenantID}, highRisk)
+	admin, ok := h.guard.Authorize(w, r, permission, adminrequest.TargetScope{Type: "tenant", ID: tenantID, ProductID: productID, TenantID: tenantID}, highRisk)
+	if !ok {
+		return adminrequest.Principal{}, false
+	}
+	if !h.requirePackageEnabled(w, r, productID) {
+		return adminrequest.Principal{}, false
+	}
+	return admin, true
+}
+
+func (h *Handler) requirePackageEnabled(w http.ResponseWriter, r *http.Request, productID string) bool {
+	if h == nil || h.capabilities == nil {
+		return true
+	}
+	enabled, err := h.capabilities.IsPackageEnabled(r.Context(), productID, "package.entitlement")
+	if err != nil {
+		httpx.Error(w, r, http.StatusServiceUnavailable, "entitlement.unavailable", "entitlement capability checker unavailable")
+		return false
+	}
+	if !enabled {
+		httpx.Error(w, r, http.StatusForbidden, entitlement.ErrCapabilityDisabled.Error(), "entitlement capability is disabled")
+		return false
+	}
+	return true
 }
 
 func validityFromRequest(value validityRequest) entitlement.ValidityInput {
@@ -618,6 +655,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		httpx.Error(w, r, http.StatusForbidden, "ENTITLEMENT_REQUIRED", "entitlement is required")
 	case errors.Is(err, entitlement.ErrExpired):
 		httpx.Error(w, r, http.StatusForbidden, "ENTITLEMENT_EXPIRED", "entitlement is expired")
+	case errors.Is(err, entitlement.ErrCapabilityDisabled):
+		httpx.Error(w, r, http.StatusForbidden, "ENTITLEMENT_CAPABILITY_DISABLED", "entitlement capability is disabled")
 	default:
 		httpx.Error(w, r, http.StatusInternalServerError, "entitlement.internal_error", "entitlement service unavailable")
 	}

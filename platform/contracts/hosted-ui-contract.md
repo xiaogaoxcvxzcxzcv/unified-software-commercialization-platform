@@ -253,7 +253,8 @@ temporarily_unavailable
 
 - `hosted.auth` 编排登录、注册和找回三个 tab/步骤；服务端未投影外部 Provider 时不渲染任何 Provider 入口。完成登录/注册后只导航到服务端返回的登记 return URL。
 - 注册/找回中间步骤必须从 HostedInteraction 持久化 flow 恢复；浏览器不持久化 identifier、continuation、proof 或密码。返回登录会清理服务端 flow，刷新后保持登录态；不得用本地存储伪造恢复。
-- `hosted.account` 编排个人中心、资料和安全三个入口；只显示服务端 bootstrap 明确允许的资料、active 会话和外部身份动作。Active 会话由 Identity 使用数据库时钟统一判定为未撤销且 refresh 尚未过期；撤销后下一次 bootstrap 必须立即移除目标会话，管理员历史与审计记录仍保留。未交付能力不显示占位入口。
+- `hosted.account` 编排个人中心、资料、安全和已启用的当前权益入口；只显示服务端 bootstrap 明确允许的资料、active 会话、外部身份动作和能力入口。Active 会话由 Identity 使用数据库时钟统一判定为未撤销且 refresh 尚未过期；撤销后下一次 bootstrap 必须立即移除目标会话，管理员历史与审计记录仍保留。未交付或已关闭的能力不显示占位入口，直接访问对应数据也必须返回 `capability_disabled`。
+- `hosted.account` 中的 `entitlement.summary` 只读取 Entitlement 当前用户 API 或 SDK 投影，展示当前会员、有效期、Revision、服务端更新时间和功能摘要；不得展示或计算价格、套餐营销、支付状态，不得把旧 bootstrap 或本地缓存作为永久授权。
 - 页面必须覆盖公共八态，刷新或重开时以服务端 interaction 与 bootstrap 为准恢复。写操作响应丢失后使用相同 Idempotency-Key 恢复首次结果，不通过重新读取当前事实冒充首次响应。
 - 终态 interaction 显示稳定的“返回应用”或“关闭”动作；不得自动循环提交、无限轮询或创建第二个 completion grant。
 - 刷新恢复终态时，browser-session 只可返回从既有 completion grant 构建的可选 `completion`；不得新建 grant、重跑业务写入或由浏览器重建返回 URL。

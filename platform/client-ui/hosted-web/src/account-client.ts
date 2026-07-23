@@ -54,6 +54,14 @@ export interface ExternalIdentity {
   readonly audit_id?: string;
 }
 export type HostedAccountAction = "update_profile" | "change_password" | "revoke_session" | "complete";
+export interface HostedEntitlementSummary {
+  readonly revision: number;
+  readonly plan_code: string | null;
+  readonly features: Readonly<Record<string, unknown>>;
+  readonly valid_until: string | null;
+  readonly offline_grace_until: string | null;
+  readonly updated_at: string;
+}
 export interface HostedAccountBootstrap {
   readonly interaction: HostedInteraction;
   readonly presentation: HostedPresentation;
@@ -61,6 +69,7 @@ export interface HostedAccountBootstrap {
   readonly sessions: readonly UserSessionSummary[];
   readonly external_identities: readonly ExternalIdentity[];
   readonly allowed_actions: readonly HostedAccountAction[];
+  readonly entitlement_summary?: HostedEntitlementSummary | null;
 }
 export interface HostedBrowserSession {
   readonly interaction: HostedInteraction;
@@ -364,9 +373,20 @@ function parseExternalIdentity(input: unknown): ExternalIdentity {
   const value = object(input, ["external_identity_id", "provider", "status", "linked_at"], ["masked_subject", "audit_id"]);
   return Object.freeze({ external_identity_id: identifier(value.external_identity_id, "external_identity_id"), provider: string(value.provider, "provider"), status: enumValue(value.status, "status", ["active", "revoked"] as const), linked_at: timestamp(value.linked_at, "linked_at"), ...(value.masked_subject === undefined ? {} : { masked_subject: string(value.masked_subject, "masked_subject") }), ...(value.audit_id === undefined ? {} : { audit_id: identifier(value.audit_id, "audit_id") }) });
 }
+function parseEntitlementSummary(input: unknown): HostedEntitlementSummary {
+  const value = object(input, ["revision", "plan_code", "features", "valid_until", "offline_grace_until", "updated_at"]);
+  return Object.freeze({
+    revision: nonNegativeInteger(value.revision, "revision"),
+    plan_code: nullableString(value.plan_code, "plan_code"),
+    features: plainRecord(value.features, "features"),
+    valid_until: nullableTimestamp(value.valid_until, "valid_until"),
+    offline_grace_until: nullableTimestamp(value.offline_grace_until, "offline_grace_until"),
+    updated_at: timestamp(value.updated_at, "updated_at"),
+  });
+}
 function parseAccountBootstrap(input: unknown): HostedAccountBootstrap {
-  const value = object(input, ["interaction", "presentation", "profile", "sessions", "external_identities", "allowed_actions"]);
-  return Object.freeze({ interaction: parseInteraction(value.interaction), presentation: parsePresentation(value.presentation), profile: parseUserProfile(value.profile), sessions: array(value.sessions, "sessions").map(parseSession), external_identities: array(value.external_identities, "external_identities").map(parseExternalIdentity), allowed_actions: uniqueEnumArray(value.allowed_actions, "allowed_actions", ["update_profile", "change_password", "revoke_session", "complete"] as const) });
+  const value = object(input, ["interaction", "presentation", "profile", "sessions", "external_identities", "allowed_actions"], ["entitlement_summary"]);
+  return Object.freeze({ interaction: parseInteraction(value.interaction), presentation: parsePresentation(value.presentation), profile: parseUserProfile(value.profile), sessions: array(value.sessions, "sessions").map(parseSession), external_identities: array(value.external_identities, "external_identities").map(parseExternalIdentity), allowed_actions: uniqueEnumArray(value.allowed_actions, "allowed_actions", ["update_profile", "change_password", "revoke_session", "complete"] as const), ...(value.entitlement_summary === undefined ? {} : { entitlement_summary: value.entitlement_summary === null ? null : parseEntitlementSummary(value.entitlement_summary) }) });
 }
 function parseCompletion(input: unknown): HostedCompletion {
   const value = object(input, ["interaction_id", "status", "return_url", "expires_at"]);
@@ -412,3 +432,7 @@ function nullableTimestamp(input: unknown, field: string): string | null { retur
 function enumValue<const T extends readonly string[]>(input: unknown, field: string, values: T): T[number] { const value = string(input, field); if (!(values as readonly string[]).includes(value)) throw new HostedProtocolError(`${field} has unsupported value`); return value as T[number]; }
 function nullableEnum<const T extends readonly string[]>(input: unknown, field: string, values: T): T[number] | null { return input === null ? null : enumValue(input, field, values); }
 function uniqueEnumArray<const T extends readonly string[]>(input: unknown, field: string, values: T): readonly T[number][] { const result = array(input, field).map((item) => enumValue(item, field, values)); if (new Set(result).size !== result.length) throw new HostedProtocolError(`${field} contains duplicates`); return Object.freeze(result); }
+function plainRecord(input: unknown, field: string): Readonly<Record<string, unknown>> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) throw new HostedProtocolError(`${field} must be an object`);
+  return Object.freeze({ ...(input as Record<string, unknown>) });
+}

@@ -61,6 +61,10 @@ artifacts/reviews/G2A-07/*
 !artifacts/reviews/G2A-08/
 artifacts/reviews/G2A-08/*
 !artifacts/reviews/G2A-08/account-package-nine-face-verification.md
+!artifacts/reviews/G2B-04/
+artifacts/reviews/G2B-04/*
+!artifacts/reviews/G2B-04/entitlement-user-sdk-source.md
+!artifacts/reviews/G2B-04/quality-gate-full-postgres-local.json
 
 !artifacts/reviews/G2A-06/screenshots/
 artifacts/reviews/G2A-06/screenshots/*

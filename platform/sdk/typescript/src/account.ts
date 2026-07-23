@@ -31,6 +31,8 @@ interface Transport {
   readonly requestId: () => string;
 }
 
+export const accountUserSession: unique symbol = Symbol("account.user-session");
+
 const accountStatuses = new Set(["active", "locked", "disabled"]);
 const accessStatuses = new Set(["active", "suspended"]);
 const identityStatuses = new Set(["active", "revoked"]);
@@ -206,6 +208,11 @@ export class AccountSdk {
 
   get session(): AccountSessionSnapshot | null {
     return this.#session ? snapshot(this.#session) : null;
+  }
+
+  /** @internal Used by sibling SDK modules that must use the SDK-held User Session without exposing bearer parameters. */
+  async [accountUserSession]<T>(operation: (accessToken: string) => Promise<T>): Promise<T> {
+    return this.#withUser(operation);
   }
 
 

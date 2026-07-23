@@ -45,12 +45,21 @@ idle | loading | ready | submitting | success | empty | failed | disabled
 |---|---|---|
 | auth.login | 密码、微信扫码或渠道登录 | UserContext / error |
 | account.center | 个人资料、设备、权益和订单入口 | navigation event |
+| entitlement.summary | 当前会员、功能权益和到期状态 | renew-selected / upgrade-selected / retry |
 | membership.plan-grid | 展示套餐卡和功能差异 | selected_plan |
 | checkout.summary | 服务端商品快照与购买确认 | order intent |
 | payment.cashier | 展示渠道、二维码和支付状态 | payment result |
 | usage.overview | 展示额度、成本和最近用量 | usage filters |
 | usage.ledger | 展示 Token、图片、音频等计费流水 | usage detail |
 | developer.api-keys | 创建、撤销和查看 API Key 摘要 | key-created / revoked |
+
+### Entitlement Summary v1
+
+- `entitlement.summary` 只能通过统一 SDK 的 `sdk.entitlement` 读取当前可信 Product/Tenant/User 范围内的权益结论；组件不得接受调用方传入的裸 Product/Tenant/User ID、价格、套餐文案、授权结论或到期裁决。
+- 组件至少覆盖 `loading`、`ready`、`empty`、`failed`、`disabled`。`ready` 展示当前有效权益、Revision、服务端更新时间 `updated_at`、到期时间和功能摘要；`empty` 区分从未拥有和曾经拥有但已过期；`disabled` 用于产品关闭能力或模板未启用该包。
+- 客户端缓存只允许作为有界提示。组件刷新、重新进入、写操作后或收到 `ENTITLEMENT_EXPIRED`、`ENTITLEMENT_REQUIRED`、`ENTITLEMENT_CAPABILITY_DISABLED` 时必须以服务端新响应为准，不得继续展示旧权益为有效。
+- `renew-selected` 与 `upgrade-selected` 只是进入后续购买或续费流程的导航事件；金额、套餐营销和实际购买资格不属于 Entitlement 组件决策。
+- 无权益、已到期、已撤销、能力关闭和认证失效必须有明确文本、可恢复动作和可访问状态；颜色不能是唯一表达。
 
 ## 主题边界
 

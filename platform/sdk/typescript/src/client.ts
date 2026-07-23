@@ -1,4 +1,5 @@
-import { AccountSdk } from "./account.js";
+import { AccountSdk, accountUserSession } from "./account.js";
+import { EntitlementSdk } from "./entitlement.js";
 import { TrustedClientContext } from "./context.js";
 import { classifyStatus, ClientSdkError } from "./errors.js";
 import type { ClientRequestOptions, ClientSdkOptions, CreateClientSessionInput, FetchLike } from "./types.js";
@@ -63,6 +64,7 @@ async function safeJson(response: Response): Promise<unknown> {
 
 export class ClientSdk {
   readonly account: AccountSdk;
+  readonly entitlement: EntitlementSdk;
   readonly #baseUrl: URL;
   readonly #fetch: FetchLike;
   readonly #timeoutMs: number;
@@ -87,6 +89,15 @@ export class ClientSdk {
         signal: accountOptions.signal,
       }, accountOptions.token, false, accountOptions.retry === true, true),
     }, options.accountSessionVault);
+    this.entitlement = new EntitlementSdk({
+      withUser: (operation) => this.account[accountUserSession](operation),
+      send: (path, entitlementOptions) => this.#send(path, {
+        method: entitlementOptions.method,
+        body: entitlementOptions.body,
+        timeoutMs: entitlementOptions.timeoutMs,
+        signal: entitlementOptions.signal,
+      }, entitlementOptions.token, false, entitlementOptions.retry === true, true),
+    });
   }
 
   get context(): TrustedClientContext | null { return this.#session?.context ?? null; }

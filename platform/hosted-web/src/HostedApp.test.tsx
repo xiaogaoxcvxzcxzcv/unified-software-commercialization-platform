@@ -171,6 +171,22 @@ describe("HostedApp runtime shell", () => {
     expect(view.queryByRole("button", { name: /账号安全/ })).not.toBeInTheDocument();
     expect(view.queryByRole("button", { name: "关闭" })).not.toBeInTheDocument();
     expect(view.container).not.toHaveTextContent("修改密码");
+    expect(view.queryByRole("button", { name: /当前权益/ })).not.toBeInTheDocument();
+  });
+
+  it("shows hosted.account entitlement summary only from the server bootstrap projection", async () => {
+    const fetchMock = sequence(
+      json(browser("hosted.account")),
+      json(accountBootstrap({ entitlement_summary: entitlementSummary() })),
+    );
+    const view = render(<HostedApp href={href("account")} fetch={fetchMock as typeof fetch} />);
+    await waitFor(() => expect(view.getByRole("button", { name: /当前权益/ })).toBeInTheDocument());
+    fireEvent.click(view.getByRole("button", { name: /当前权益/ }));
+    expect(view.getByRole("heading", { name: "权益摘要" })).toBeInTheDocument();
+    expect(view.container).toHaveTextContent("pro");
+    expect(view.container).toHaveTextContent("priority_queue");
+    expect(view.container).not.toHaveTextContent("￥");
+    expect(view.container).not.toHaveTextContent("paid");
   });
 
   it("exposes only the account workspace allowed-action subset", async () => {
@@ -364,4 +380,7 @@ function authBootstrap(overrides: Record<string, unknown> = {}) {
 }
 function accountBootstrap(overrides: Record<string, unknown> = {}) {
   return { interaction: interaction("hosted.account"), presentation: { product_name: "Example Product", theme_variant: null }, profile: { user_id: "user_test", version: 1, display_name: "Server User", avatar_url: null, locale: "zh-CN", timezone: "Asia/Shanghai" }, sessions: [{ session_id: "sess_current", current: true, device_label: "Current Browser", created_at: now, last_seen_at: now, expires_at: later }], external_identities: [], allowed_actions: ["update_profile", "change_password", "revoke_session", "complete"], ...overrides };
+}
+function entitlementSummary() {
+  return { revision: 4, plan_code: "pro", features: { priority_queue: true, export_limit: 100 }, valid_until: later, offline_grace_until: later, updated_at: now };
 }

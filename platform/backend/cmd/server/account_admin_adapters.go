@@ -139,16 +139,7 @@ func (a accountIdentityMutationAdapter) RevokeAdminUserSessions(ctx context.Cont
 type accountCapabilityAdapter struct{ service *product.Service }
 
 func (a accountCapabilityAdapter) IsPackageEnabled(ctx context.Context, productID, packageID string) (bool, error) {
-	set, err := a.service.CurrentCapabilitySet(ctx, productID)
-	if err != nil {
-		return false, err
-	}
-	for _, item := range set.Items {
-		if item.SourcePackageID == packageID && item.Enabled {
-			return true, nil
-		}
-	}
-	return false, nil
+	return productPackageEnabled(ctx, a.service, productID, packageID)
 }
 
 func accountScopeID(scope accountuserquery.Scope) string {

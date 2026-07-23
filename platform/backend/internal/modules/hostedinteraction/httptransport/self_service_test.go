@@ -13,6 +13,7 @@ import (
 type selfServiceStub struct {
 	*serviceStub
 	allowedActions      []string
+	entitlementSummary  *EntitlementSummary
 	authCapabilities    *bool
 	resetKey, revokeKey string
 }
@@ -43,7 +44,7 @@ func (s *selfServiceStub) AccountBootstrap(context.Context, HostedPrincipal, str
 	if actions == nil {
 		actions = []string{"update_profile", "change_password", "revoke_session", "complete"}
 	}
-	return HostedAccountBootstrap{Interaction: v, Presentation: HostedPresentation{ProductName: "Product"}, Profile: UserProfile{UserID: "user", Version: 1}, Sessions: []UserSessionSummary{}, ExternalIdentities: []ExternalIdentity{}, AllowedActions: actions}, s.error
+	return HostedAccountBootstrap{Interaction: v, Presentation: HostedPresentation{ProductName: "Product"}, Profile: UserProfile{UserID: "user", Version: 1}, Sessions: []UserSessionSummary{}, ExternalIdentities: []ExternalIdentity{}, AllowedActions: actions, EntitlementSummary: s.entitlementSummary}, s.error
 }
 func (s *selfServiceStub) PatchAccountProfile(context.Context, HostedPrincipal, string, ProfilePatchCommand) (UserProfile, error) {
 	return UserProfile{UserID: "user", Version: 2}, s.error
@@ -412,3 +413,29 @@ func TestAccountBootstrapPreservesServerAllowedActionSubsets(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountBootstrapIncludesOptionalEntitlementSummaryProjection(t *testing.T) {
+	summary := &EntitlementSummary{Revision: 4, PlanCode: stringPtr("pro"), Features: map[string]any{"priority_queue": true}, UpdatedAt: time.Now().UTC()}
+	h, e := New(&selfServiceStub{serviceStub: &serviceStub{}, entitlementSummary: summary}, authStub{}, "https://hosted.example")
+	if e != nil {
+		t.Fatal(e)
+	}
+	r := selfServiceRequest(http.MethodGet, "/account/bootstrap", "")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var body HostedAccountBootstrap
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.EntitlementSummary == nil || body.EntitlementSummary.Revision != 4 || body.EntitlementSummary.Features["priority_queue"] != true {
+		t.Fatalf("missing entitlement projection: %+v", body.EntitlementSummary)
+	}
+	if strings.Contains(w.Body.String(), "price") || strings.Contains(w.Body.String(), "access_token") || strings.Contains(w.Body.String(), "refresh_token") {
+		t.Fatalf("unsafe entitlement bootstrap body: %s", w.Body.String())
+	}
+}
+
+func stringPtr(value string) *string { return &value }

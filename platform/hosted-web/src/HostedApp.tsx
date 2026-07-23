@@ -6,10 +6,13 @@ import {
   AuthLoginBlock,
   AuthRecoveryBlock,
   AuthRegisterBlock,
+  EntitlementSummaryBlock,
   type AccountBlockError,
   type AccountBlockState,
   type AccountExternalIdentity,
   type AccountSessionSummary,
+  type EntitlementFeatureItem,
+  type EntitlementSummaryValue,
 } from "@capability-platform/client-ui/web-react";
 import {
   HostedAccountClient,
@@ -25,7 +28,7 @@ import {
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 type AuthScreen = "login" | "register" | "recovery";
-type AccountScreen = "center" | "profile" | "security";
+type AccountScreen = "center" | "profile" | "security" | "entitlements";
 
 export interface HostedAppProps {
   readonly href?: string;
@@ -123,7 +126,16 @@ function AccountWorkspace({ snapshot, controller, bootstrap }: { readonly snapsh
 		const revokeAllowed = allowed.has("revoke_session");
 		const passwordAllowed = allowed.has("change_password");
 		content = <AccountSecurityBlock {...common} state={passwordAllowed || revokeAllowed ? state : "disabled"} sessions={revokeAllowed ? sessions : sessions.filter((item) => item.current)} externalIdentities={identities} passwordChangeAllowed={passwordAllowed} passwordFieldErrors={mapFieldErrors(snapshot, { current_credential: "currentPassword", new_credential: "newPassword" })} actions={{ changePassword: passwordAllowed ? (input) => controller.changePassword({ current_credential: input.currentPassword, new_credential: input.newPassword, revoke_other_sessions: true }) : undefined, revokeSession: revokeAllowed ? (sessionId) => controller.revokeSession(sessionId) : undefined, revokeAllOtherSessions: revokeAllowed ? async () => { for (const session of sessions.filter((item) => !item.current && !item.revoked)) await controller.revokeSession(session.id); } : undefined, cancel: () => { controller.discardPendingMutation("change_password"); setScreen("center"); } }} />;
-	} else content = <AccountCenterBlock {...common} state={state} user={{ displayName: profile?.display_name ?? "账户用户", avatarUrl: profile?.avatar_url ?? undefined }} security={{ passwordConfigured: allowed.has("change_password"), activeSessionCount: sessions.filter((item) => !item.revoked).length, externalIdentityCount: identities.length }} actions={{ openProfile: allowed.has("update_profile") ? () => setScreen("profile") : undefined, openSecurity: allowed.has("change_password") || allowed.has("revoke_session") ? () => setScreen("security") : undefined, close: allowed.has("complete") ? () => void controller.completeAccount({ result: "closed" }) : undefined }} />;
+	} else if (screen === "entitlements") {
+		const summary = mapEntitlementSummary(bootstrap);
+		content = <EntitlementSummaryBlock {...common} state={summary ? state : "disabled"} value={summary ?? undefined} disabledMessage="当前产品未启用权益能力。" actions={{ retry: () => void controller.refresh() }} />;
+	} else {
+		const summary = mapEntitlementSummary(bootstrap);
+		content = <>
+			<AccountCenterBlock {...common} state={state} user={{ displayName: profile?.display_name ?? "账户用户", avatarUrl: profile?.avatar_url ?? undefined }} security={{ passwordConfigured: allowed.has("change_password"), activeSessionCount: sessions.filter((item) => !item.revoked).length, externalIdentityCount: identities.length }} actions={{ openProfile: allowed.has("update_profile") ? () => setScreen("profile") : undefined, openSecurity: allowed.has("change_password") || allowed.has("revoke_session") ? () => setScreen("security") : undefined, close: allowed.has("complete") ? () => void controller.completeAccount({ result: "closed" }) : undefined }} />
+			{summary && <nav className="account-center-nav hosted-entitlement-nav" aria-label="当前产品能力"><button type="button" disabled={state === "submitting"} onClick={() => setScreen("entitlements")}><span><strong>当前权益</strong><small>Revision {summary.revision} · {summary.features.length} 项功能</small></span><span aria-hidden="true">›</span></button></nav>}
+		</>;
+	}
 	return <div ref={workspace} className="hosted-workspace-view"><div className="client-sr-only" aria-live="polite">{announcement(screen)}</div>{content}</div>;
 }
 
@@ -190,6 +202,25 @@ function mapSessions(bootstrap?: HostedAccountBootstrap): readonly AccountSessio
 function mapIdentities(bootstrap?: HostedAccountBootstrap): readonly AccountExternalIdentity[] {
   return bootstrap?.external_identities.filter((item) => item.status === "active").map((item) => ({ id: item.external_identity_id, providerLabel: item.provider, subjectMasked: item.masked_subject ?? "已绑定", unlinkAllowed: false })) ?? [];
 }
+function mapEntitlementSummary(bootstrap?: HostedAccountBootstrap): EntitlementSummaryValue | null {
+	const summary = bootstrap?.entitlement_summary;
+	if (!summary) return null;
+	const entries = Object.entries(summary.features);
+	return {
+		revision: summary.revision,
+		planCode: summary.plan_code,
+		validUntil: summary.valid_until,
+		offlineGraceUntil: summary.offline_grace_until,
+		updatedAt: summary.updated_at,
+		features: entries.map(([code, value]): EntitlementFeatureItem => ({ code, label: code, value: primitiveFeatureValue(value) })),
+		emptyReason: entries.length === 0 ? "never_owned" : undefined,
+	};
+}
+function primitiveFeatureValue(value: unknown): string | number | boolean | null {
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) return value;
+	if (value === undefined) return null;
+	return JSON.stringify(value);
+}
 function formatTime(value: string): string { return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 
 function useFocusOnView(root: { readonly current: HTMLDivElement | null }, key: string): void {
@@ -201,6 +232,6 @@ function useFocusOnView(root: { readonly current: HTMLDivElement | null }, key: 
 function announcement(screen: AuthScreen | AccountScreen, flow?: HostedAuthBootstrap["flow"]["kind"]): string {
 	if (flow === "registration_verification") return "注册验证步骤";
 	if (flow === "recovery_verification") return "密码找回验证步骤";
-	const labels: Record<AuthScreen | AccountScreen, string> = { login: "登录", register: "创建账户", recovery: "找回密码", center: "个人中心", profile: "个人资料", security: "账户安全" };
+	const labels: Record<AuthScreen | AccountScreen, string> = { login: "登录", register: "创建账户", recovery: "找回密码", center: "个人中心", profile: "个人资料", security: "账户安全", entitlements: "当前权益" };
 	return labels[screen];
 }

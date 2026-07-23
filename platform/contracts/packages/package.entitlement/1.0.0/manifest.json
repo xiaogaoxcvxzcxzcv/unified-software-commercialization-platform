@@ -30,9 +30,34 @@
       "kind": "file",
       "path": "config.schema.json",
       "sha256": "sha256:5ac4d8dc1cced01db4a049dae479f94dca2c9a6c86b903fe1ff84cddcda41a60"
+    },
+    {
+      "kind": "file",
+      "path": "content/docs/entitlement-integration.md.tmpl",
+      "sha256": "sha256:03b92d6dc42bc89c7dd55131b7fef1d36f830a0c0cadd7b0b7732d60fdf47adc"
+    },
+    {
+      "kind": "file",
+      "path": "content/generated/client.ts.tmpl",
+      "sha256": "sha256:f502227d09f8461053814aaf2ca267b99a99da47b2e82b30f93c3f16354eb692"
+    },
+    {
+      "kind": "file",
+      "path": "content/generated/entitlement.generated.test.ts.tmpl",
+      "sha256": "sha256:0916a2a7de57d246a8f80eeb55948ba141417152779f490d76a8bb01327c6690"
+    },
+    {
+      "kind": "file",
+      "path": "content/generated/integration.example.ts.tmpl",
+      "sha256": "sha256:49283a0158036b7261cc748639599ace779ea6637147c48cec98a0b201326298"
+    },
+    {
+      "kind": "file",
+      "path": "content/generated/routes.tsx.tmpl",
+      "sha256": "sha256:ab5069e737c73c7c9284126c3c2129d612a8709627b884dce4ca01cc53e1d327"
     }
   ],
-  "content_tree_sha256": "sha256:348a910e4c2d2ca2b99d83ee7da25e3b791a0ce052bf2be198d1a0479cbb246e",
+  "content_tree_sha256": "sha256:245c592ab9d5194e853703e44900efc5dbb0275d3a7d563545fd9594b2c0b2d9",
   "data_retention": [
     {
       "data_set": "entitlement.grant",
@@ -70,10 +95,51 @@
   "extension_points": [
     "entitlement.summary-slot"
   ],
-  "generated_outputs": [],
+  "generated_outputs": [
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/client.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/client.ts.tmpl",
+      "source_sha256": "sha256:f502227d09f8461053814aaf2ca267b99a99da47b2e82b30f93c3f16354eb692"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/routes.tsx",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/routes.tsx.tmpl",
+      "source_sha256": "sha256:ab5069e737c73c7c9284126c3c2129d612a8709627b884dce4ca01cc53e1d327"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/integration.example.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/integration.example.ts.tmpl",
+      "source_sha256": "sha256:49283a0158036b7261cc748639599ace779ea6637147c48cec98a0b201326298"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "src/generated/packages/entitlement/entitlement.generated.test.ts",
+      "render_strategy": "strict_template",
+      "source_path": "content/generated/entitlement.generated.test.ts.tmpl",
+      "source_sha256": "sha256:0916a2a7de57d246a8f80eeb55948ba141417152779f490d76a8bb01327c6690"
+    },
+    {
+      "content_type": "text",
+      "ownership": "generated",
+      "path": "docs/generated/entitlement-integration.md",
+      "render_strategy": "strict_template",
+      "source_path": "content/docs/entitlement-integration.md.tmpl",
+      "source_sha256": "sha256:03b92d6dc42bc89c7dd55131b7fef1d36f830a0c0cadd7b0b7732d60fdf47adc"
+    }
+  ],
   "hosted_routes": [],
   "lifecycle_status": "contracted",
-  "manifest_sha256": "sha256:d989d191f27ebc77e1c7c2f690a991de6383a132da1ca2098464c2d1b203266d",
+  "manifest_sha256": "sha256:df76dc4227e67d8800496370bcfcb8f3a4de4704d2daaac04d44262f927c6a59",
   "migrations": [
     "platform/backend/migrations/000026_entitlement.up.sql"
   ],
@@ -117,6 +183,9 @@
   ],
   "source_locations": [
     "platform/backend/internal/modules/entitlement",
+    "platform/admin-web/src",
+    "platform/client-ui",
+    "platform/sdk/typescript",
     "docs/features/entitlement",
     "platform/contracts/packages/package.entitlement/1.0.0"
   ],
@@ -138,8 +207,11 @@
   ],
   "test_paths": [
     "platform/backend/internal/modules/entitlement",
+    "platform/backend/internal/modules/assembly/generation",
     "platform/backend/internal/modules/assembly/machinecontract",
-    "platform/backend/internal/modules/assembly/machinecatalog"
+    "platform/backend/internal/modules/assembly/machinecatalog",
+    "platform/client-ui",
+    "platform/sdk/typescript"
   ],
   "ui_template_compatibility": [
     {

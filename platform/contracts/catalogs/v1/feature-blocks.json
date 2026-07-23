@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "catalog_version": "1.4.0",
+  "catalog_version": "1.4.1",
   "blocks": [
     { "block_id": "account.center", "surface": "client", "readiness": "ready" },
     { "block_id": "account.profile", "surface": "client", "readiness": "ready" },
@@ -22,11 +22,11 @@
     { "block_id": "developer.quickstart", "surface": "client", "readiness": "not_ready" },
     { "block_id": "device.list", "surface": "client", "readiness": "not_ready" },
     { "block_id": "device.revoke-confirm", "surface": "client", "readiness": "not_ready" },
-    { "block_id": "entitlement.grant-panel", "surface": "admin", "readiness": "not_ready" },
-    { "block_id": "entitlement.history", "surface": "admin", "readiness": "not_ready" },
+    { "block_id": "entitlement.grant-panel", "surface": "admin", "readiness": "ready" },
+    { "block_id": "entitlement.history", "surface": "admin", "readiness": "ready" },
     { "block_id": "entitlement.redeem", "surface": "client", "readiness": "not_ready" },
     { "block_id": "entitlement.summary", "surface": "client", "readiness": "not_ready" },
-    { "block_id": "entitlement.table", "surface": "admin", "readiness": "not_ready" },
+    { "block_id": "entitlement.table", "surface": "admin", "readiness": "ready" },
     { "block_id": "identity.admin-login", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "identity.admin-session-menu", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "identity.user-detail", "surface": "admin", "readiness": "ready" },
@@ -57,5 +57,5 @@
     { "block_id": "usage.price-editor", "surface": "admin", "readiness": "not_ready" },
     { "block_id": "usage.record-detail", "surface": "client", "readiness": "not_ready" }
   ],
-  "catalog_sha256": "sha256:e0e9d6b25409549bff5ce77e8959d18e1ff01c9038ee991a7ec7458ee80dffeb"
+  "catalog_sha256": "sha256:3f3c2172444a29076432bb1efbd55d6cd274939eeae0afecf48a8cdbe1042e32"
 }

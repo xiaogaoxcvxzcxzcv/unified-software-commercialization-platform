@@ -1,4 +1,5 @@
 @import "./account/account-blocks.css";
+@import "./entitlement/entitlement-blocks.css";
 
 .client-ui-root {
   color: var(--client-text);

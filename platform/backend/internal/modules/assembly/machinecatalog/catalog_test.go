@@ -24,7 +24,7 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Version() != "1.4.0" || len(catalog.Checksum()) != len("sha256:")+64 {
+	if catalog.Version() != "1.4.1" || len(catalog.Checksum()) != len("sha256:")+64 {
 		t.Fatalf("catalog identity = %s %s", catalog.Version(), catalog.Checksum())
 	}
 	ready := map[string]struct{}{
@@ -38,6 +38,9 @@ func TestProductionFeatureBlockCatalogOnlyMarksVerifiedBlocksReady(t *testing.T)
 		"assembly.plan-review":      {},
 		"assembly.run-status":       {},
 		"assembly.upgrade-plan":     {},
+		"entitlement.grant-panel":   {},
+		"entitlement.history":       {},
+		"entitlement.table":         {},
 		"product.capability-menu":   {},
 		"product.overview":          {},
 		"product.switcher":          {},

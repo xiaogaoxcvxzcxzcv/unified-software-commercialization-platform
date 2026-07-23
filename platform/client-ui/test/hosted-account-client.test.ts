@@ -62,6 +62,20 @@ describe("HostedAccountClient", () => {
 		] as const) expect(new Headers(requests[index]![1]?.headers).get("Idempotency-Key")).toBe(key);
   });
 
+  it("accepts the optional hosted.account entitlement summary projection without caller-owned request scope", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(browser("hosted.account")))
+      .mockResolvedValueOnce(json(accountBootstrap({ entitlement_summary: entitlementSummary() })));
+    const account = client(fetchMock);
+    await account.openBrowserSession();
+    const bootstrap = await account.getAccountBootstrap();
+    expect(bootstrap.entitlement_summary?.revision).toBe(4);
+    expect(bootstrap.entitlement_summary?.features).toEqual({ priority_queue: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const requestBodies = fetchMock.mock.calls.map(([, init]) => init?.body).filter(Boolean).join("\n");
+    expect(requestBodies).not.toMatch(/product_id|tenant_id|user_id|access_token|refresh_token/i);
+  });
+
   it("rejects wrong content types, unknown fields, path mismatches, route mismatches, and malformed errors", async () => {
     const wrongType = client(vi.fn(async () => new Response(JSON.stringify(browser("hosted.auth")), { status: 200, headers: { "Content-Type": "text/plain" } })));
     await expect(wrongType.openBrowserSession()).rejects.toBeInstanceOf(HostedProtocolError);
@@ -123,5 +137,6 @@ function interaction(route: "hosted.auth" | "hosted.account") {
 function browser(route: "hosted.auth" | "hosted.account") { return { interaction: interaction(route), csrf_token: "c".repeat(32), browser_session_expires_at: later }; }
 function authBootstrap() { return { interaction: interaction("hosted.auth"), presentation: { product_name: "Product", theme_variant: null }, flow: { kind: "login" }, password_enabled: true, registration_enabled: true, recovery_enabled: true, external_providers: [] }; }
 function profile(version = 1) { return { user_id: "user_test", version, display_name: "User", avatar_url: null, locale: null, timezone: null }; }
-function accountBootstrap() { return { interaction: interaction("hosted.account"), presentation: { product_name: "Product", theme_variant: null }, profile: profile(), sessions: [{ session_id: "sess_other", current: false, device_label: null, created_at: now, last_seen_at: now, expires_at: later }], external_identities: [], allowed_actions: ["update_profile", "change_password", "revoke_session", "complete"] }; }
+function accountBootstrap(overrides: Record<string, unknown> = {}) { return { interaction: interaction("hosted.account"), presentation: { product_name: "Product", theme_variant: null }, profile: profile(), sessions: [{ session_id: "sess_other", current: false, device_label: null, created_at: now, last_seen_at: now, expires_at: later }], external_identities: [], allowed_actions: ["update_profile", "change_password", "revoke_session", "complete"], ...overrides }; }
+function entitlementSummary() { return { revision: 4, plan_code: "pro", features: { priority_queue: true }, valid_until: later, offline_grace_until: null, updated_at: now }; }
 function completion() { return { interaction_id: interactionId, status: "completed", return_url: "custom-app://callback?code=opaque&state=opaque", expires_at: later }; }

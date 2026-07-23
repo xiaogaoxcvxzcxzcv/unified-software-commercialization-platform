@@ -1,6 +1,6 @@
 # TypeScript Client SDK
 
-`@capability-platform/client-sdk` establishes a trusted Product/Application/Tenant context and provides the stable `sdk.account` composition entry.
+`@capability-platform/client-sdk` establishes a trusted Product/Application/Tenant context and provides the stable `sdk.account` and `sdk.entitlement` composition entries.
 
 ## Trusted client context
 
@@ -50,3 +50,24 @@ Credential responses must carry `Cache-Control: no-store`. Required response fie
 Access and refresh tokens stay in memory by default. A desktop host may inject an `AccountSessionVault` backed by operating-system secure storage through `accountSessionVault`. This package deliberately provides no Web Storage, plaintext file, or fixed-key Vault implementation. `restoreSession()` rejects malformed or refresh-expired records and refreshes an access-expired record with one recovery request ID.
 
 Login, password, and one-time external authentication attempts are never retried. Keyed registration, verification, recovery, profile, and external-link writes, refresh with the same request ID, and safe reads use the configured bounded retry limit. Idempotency keys and refresh `client_request_id` values must be 16 to 128 characters and are validated before any retryable request starts. An indeterminate refresh keeps the same pending request ID in memory and in the injected Vault until a later call succeeds or receives a definitive terminal response. Network failures, timeouts, and caller cancellation preserve a still-valid session. Logout success, revocation of the known current session, and stable terminal identity/session errors clear memory and the injected Vault.
+
+## Entitlement
+
+The `sdk.entitlement` API implements:
+
+- `checkEntitlement`
+- `getCurrentEntitlements`
+- `listEntitlementHistory`
+
+Entitlement calls require both the established Client Session and the SDK-held Account User Session. Callers provide only requested feature codes, optional device diagnostics, and pagination hints. The SDK does not accept caller-selected Product/Tenant/User IDs, bearer tokens, Cookies, prices, plan marketing text, or client-computed authorization results.
+
+    await sdk.account.login({ identifier: "user@example.com", credential: password });
+    const decision = await sdk.entitlement.checkEntitlement({
+      requestedFeatures: ["export_pdf"],
+      deviceId: "device-1",
+      clientTime: new Date().toISOString(),
+    });
+    const current = await sdk.entitlement.getCurrentEntitlements();
+    const history = await sdk.entitlement.listEntitlementHistory({ pageSize: 50 });
+
+`getCurrentEntitlements()` preserves the current OpenAPI summary fields: `revision`, `planCode`, `features`, `validUntil`, `offlineGraceUntil`, and `updatedAt`. `updatedAt` is only a display/cache-boundary hint. Client caches may use this data only as a short-lived UI hint; `ENTITLEMENT_EXPIRED`, `ENTITLEMENT_REQUIRED`, `ENTITLEMENT_CAPABILITY_DISABLED`, revocation, and capability-disable responses must be treated as authoritative server results. History is append-only evidence and must not be converted into current authorization.

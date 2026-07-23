@@ -2,12 +2,13 @@ package hostedinteraction
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 )
 
 type HostedCapabilities struct {
-	Password, Registration, Recovery, Profile, Sessions, AccountCompletion bool
+	Password, Registration, Recovery, Profile, Sessions, AccountCompletion, Entitlement bool
 }
 type HostedCapabilityPort interface {
 	Capabilities(context.Context, Scope) HostedCapabilities
@@ -31,6 +32,8 @@ func (s *Service) capability(ctx context.Context, scope Scope, name string) bool
 		return c.Sessions
 	case "complete":
 		return c.AccountCompletion
+	case "entitlement":
+		return c.Entitlement
 	}
 	return false
 }
@@ -98,6 +101,19 @@ type HostedExternalIdentity struct {
 
 type HostedExternalProvider struct{ Provider, Mode, DisplayName string }
 
+type HostedEntitlementSummary struct {
+	Revision          int64
+	PlanCode          string
+	Features          map[string]any
+	ValidUntil        *time.Time
+	OfflineGraceUntil *time.Time
+	UpdatedAt         time.Time
+}
+
+type HostedEntitlementPort interface {
+	CurrentEntitlementSummary(context.Context, Scope, Actor) (*HostedEntitlementSummary, error)
+}
+
 type HostedSelfServicePort interface {
 	Capabilities(context.Context, Scope) HostedCapabilities
 	StartRegistrationVerification(context.Context, Scope, string, string, string) (string, error)
@@ -127,12 +143,13 @@ type HostedAuthBootstrap struct {
 }
 
 type HostedAccountBootstrap struct {
-	Interaction        Projection               `json:"interaction"`
-	Presentation       HostedPresentation       `json:"presentation"`
-	Profile            HostedUserProfile        `json:"profile"`
-	Sessions           []HostedSessionSummary   `json:"sessions"`
-	ExternalIdentities []HostedExternalIdentity `json:"external_identities"`
-	AllowedActions     []string                 `json:"allowed_actions"`
+	Interaction        Projection                `json:"interaction"`
+	Presentation       HostedPresentation        `json:"presentation"`
+	Profile            HostedUserProfile         `json:"profile"`
+	Sessions           []HostedSessionSummary    `json:"sessions"`
+	ExternalIdentities []HostedExternalIdentity  `json:"external_identities"`
+	AllowedActions     []string                  `json:"allowed_actions"`
+	EntitlementSummary *HostedEntitlementSummary `json:"entitlement_summary,omitempty"`
 }
 
 func (s *Service) selfServiceAccess(ctx context.Context, interactionID, browserToken string, route Route) (Interaction, error) {
@@ -329,7 +346,28 @@ func (s *Service) AccountBootstrap(ctx context.Context, interactionID, browserTo
 	if err != nil {
 		return HostedAccountBootstrap{}, err
 	}
-	return HostedAccountBootstrap{Interaction: Project(v), Presentation: p, Profile: profile, Sessions: sessions, ExternalIdentities: external, AllowedActions: s.accountActions(ctx, v.Scope)}, nil
+	summary, err := s.accountEntitlementSummary(ctx, v)
+	if err != nil {
+		return HostedAccountBootstrap{}, err
+	}
+	return HostedAccountBootstrap{Interaction: Project(v), Presentation: p, Profile: profile, Sessions: sessions, ExternalIdentities: external, AllowedActions: s.accountActions(ctx, v.Scope), EntitlementSummary: summary}, nil
+}
+
+func (s *Service) accountEntitlementSummary(ctx context.Context, v Interaction) (*HostedEntitlementSummary, error) {
+	if s == nil || s.entitlements == nil {
+		return nil, nil
+	}
+	if !s.capability(ctx, v.Scope, "entitlement") {
+		return nil, nil
+	}
+	summary, err := s.entitlements.CurrentEntitlementSummary(ctx, v.Scope, v.Actor)
+	if err == nil || summary == nil {
+		return summary, err
+	}
+	if errors.Is(err, ErrCapabilityUnavailable) {
+		return nil, nil
+	}
+	return nil, err
 }
 func (s *Service) PatchAccountProfile(ctx context.Context, interactionID, browserToken string, patch HostedProfilePatch, version int64, key, traceID string) (HostedUserProfile, error) {
 	v, err := s.selfServiceAccess(ctx, interactionID, browserToken, RouteAccount)

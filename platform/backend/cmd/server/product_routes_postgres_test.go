@@ -153,7 +153,7 @@ func TestProductApplicationTenantAndClientSessionHTTPFlow(t *testing.T) {
 		StateKeyRef: "hosted.state.integration.v1", StateKey: strings.Repeat("hosted-state-key-", 3), DigestKey: strings.Repeat("hosted-digest-key-", 3),
 		InteractionTTL: 10 * time.Minute, BrowserTTL: 10 * time.Minute, AuthLeaseTTL: 30 * time.Second,
 		GrantTTL: 2 * time.Minute, GrantLeaseTTL: 30 * time.Second, AuthProofTTL: 5 * time.Minute,
-	}, database.Pool, products, applications, endUsers, hasher)
+	}, database.Pool, products, applications, endUsers, nil, hasher)
 	if err != nil {
 		t.Fatal(err)
 	}

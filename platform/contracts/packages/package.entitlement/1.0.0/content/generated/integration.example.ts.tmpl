@@ -1,0 +1,22 @@
+import type { EntitlementSdk } from "@capability-platform/client-sdk";
+
+export interface EntitlementIntegrationFixture {
+  readonly featureCode: string;
+}
+
+export async function verifyEntitlementIntegration(
+  entitlement: EntitlementSdk,
+  fixture: EntitlementIntegrationFixture,
+) {
+  const decision = await entitlement.checkEntitlement({ requestedFeatures: [fixture.featureCode] });
+  const current = await entitlement.getCurrentEntitlements();
+  const history = await entitlement.listEntitlementHistory({ pageSize: 20 });
+
+  return Object.freeze({
+    allowed: decision.allowed,
+    revision: current.revision,
+    featureCount: Object.keys(current.features).length,
+    historyCount: history.items.length,
+    updatedAt: current.updatedAt,
+  });
+}

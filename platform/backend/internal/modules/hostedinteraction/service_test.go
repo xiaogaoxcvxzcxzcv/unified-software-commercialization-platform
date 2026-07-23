@@ -499,6 +499,24 @@ func (s *revokeSelfServiceStub) RevokeSession(context.Context, Scope, Actor, str
 	return nil
 }
 
+type hostedPresentationStub struct{}
+
+func (hostedPresentationStub) ResolveHostedPresentation(context.Context, Scope) (HostedPresentation, error) {
+	return HostedPresentation{ProductName: "Product"}, nil
+}
+
+type hostedEntitlementStub struct {
+	summary *HostedEntitlementSummary
+	scope   Scope
+	actor   Actor
+	err     error
+}
+
+func (s *hostedEntitlementStub) CurrentEntitlementSummary(_ context.Context, scope Scope, actor Actor) (*HostedEntitlementSummary, error) {
+	s.scope, s.actor = scope, actor
+	return s.summary, s.err
+}
+
 func TestCurrentSessionRevokeReplayBypassesOnlyOuterActiveSessionCheck(t *testing.T) {
 	value := accountValue()
 	repository := &stubRepository{value: value}
@@ -526,6 +544,70 @@ func TestCurrentSessionRevokeReplayBypassesOnlyOuterActiveSessionCheck(t *testin
 	}
 	if _, err = service.AccountBootstrap(context.Background(), value.InteractionID, browser.Token); !errors.Is(err, ErrSessionRevoked) {
 		t.Fatalf("ordinary account operation was unexpectedly relaxed: %v", err)
+	}
+}
+
+func TestAccountBootstrapProjectsOptionalEntitlementSummaryFromTrustedScope(t *testing.T) {
+	value := accountValue()
+	tenant := "tenant_test"
+	value.Scope.TenantID = &tenant
+	repository := &stubRepository{value: value}
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.selfService, service.capabilities, service.presentation = &revokeSelfServiceStub{}, capabilityIdentity{caps: HostedCapabilities{Entitlement: true}}, hostedPresentationStub{}
+	entitlements := &hostedEntitlementStub{summary: &HostedEntitlementSummary{Revision: 7, PlanCode: "pro", Features: map[string]any{"priority_queue": true}, UpdatedAt: time.Now().UTC()}}
+	service.ConfigureEntitlementProjection(entitlements)
+	browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := service.AccountBootstrap(context.Background(), value.InteractionID, browser.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bootstrap.EntitlementSummary == nil || bootstrap.EntitlementSummary.Revision != 7 || bootstrap.EntitlementSummary.Features["priority_queue"] != true {
+		t.Fatalf("missing entitlement summary: %+v", bootstrap.EntitlementSummary)
+	}
+	if !entitlements.scope.Matches(value.Scope) || entitlements.actor.UserID != value.Actor.UserID || entitlements.actor.UserSessionID != value.Actor.UserSessionID {
+		t.Fatalf("entitlement projection did not use persisted scope/actor: scope=%+v actor=%+v", entitlements.scope, entitlements.actor)
+	}
+}
+
+func TestAccountBootstrapOmitsEntitlementSummaryWhenCapabilityDisabled(t *testing.T) {
+	value := accountValue()
+	tenant := "tenant_test"
+	value.Scope.TenantID = &tenant
+	repository := &stubRepository{value: value}
+	hasher, err := securevalue.NewHasher("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(repository, stubReturnTarget{}, stubIdentity{}, stubSessions{}, stubState{}, hasher, "https://hosted.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entitlements := &hostedEntitlementStub{summary: &HostedEntitlementSummary{Revision: 7, PlanCode: "pro", Features: map[string]any{"priority_queue": true}, UpdatedAt: time.Now().UTC()}}
+	service.selfService, service.capabilities, service.presentation = &revokeSelfServiceStub{}, capabilityIdentity{}, hostedPresentationStub{}
+	service.ConfigureEntitlementProjection(entitlements)
+	browser, _, err := service.OpenBrowserSession(context.Background(), value.InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := service.AccountBootstrap(context.Background(), value.InteractionID, browser.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bootstrap.EntitlementSummary != nil {
+		t.Fatalf("disabled entitlement capability leaked summary: %+v", bootstrap.EntitlementSummary)
+	}
+	if entitlements.scope.ProductID != "" || entitlements.actor.UserID != "" {
+		t.Fatalf("disabled entitlement capability should not call projection: scope=%+v actor=%+v", entitlements.scope, entitlements.actor)
 	}
 }
 

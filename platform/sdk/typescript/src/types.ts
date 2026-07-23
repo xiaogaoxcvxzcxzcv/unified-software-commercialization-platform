@@ -269,3 +269,61 @@ export interface LinkExternalIdentityInput {
 export interface LinkedExternalIdentity extends ExternalIdentitySummary {
   readonly auditId: string | null;
 }
+
+export interface EntitlementCheckInput {
+  readonly requestedFeatures: readonly string[];
+  readonly deviceId?: string;
+  readonly clientTime?: string;
+}
+
+export interface EntitlementCheckDecision {
+  readonly allowed: boolean;
+  readonly decisionStage: "entitlement";
+  readonly reasonCode:
+    | "ENTITLEMENT_REQUIRED"
+    | "ENTITLEMENT_EXPIRED"
+    | "ENTITLEMENT_DEVICE_LIMITED"
+    | "ENTITLEMENT_CAPABILITY_DISABLED"
+    | "unknown"
+    | null;
+  readonly revision: number;
+  readonly planCode: string | null;
+  readonly features: Readonly<Record<string, unknown>>;
+  readonly validUntil: string | null;
+  readonly offlineGraceUntil: string | null;
+  readonly serverTime: string;
+  readonly signedDecision: string | null;
+}
+
+export interface EntitlementSummary {
+  readonly revision: number;
+  readonly planCode: string | null;
+  readonly features: Readonly<Record<string, unknown>>;
+  readonly validUntil: string | null;
+  readonly offlineGraceUntil: string | null;
+  readonly updatedAt: string;
+}
+
+export interface ListEntitlementHistoryInput {
+  readonly pageSize?: number;
+  readonly cursor?: string;
+}
+
+export interface EntitlementHistoryEntry {
+  readonly ledgerId: string;
+  readonly operationType: "grant" | "extend" | "replace" | "revoke" | "expire" | "unknown";
+  readonly operationId: string;
+  readonly sourceType: string | null;
+  readonly sourceId: string | null;
+  readonly grantId: string;
+  readonly beforeRevision: number;
+  readonly afterRevision: number;
+  readonly auditId: string;
+  readonly traceId: string;
+  readonly createdAt: string;
+}
+
+export interface EntitlementHistoryPage {
+  readonly items: readonly EntitlementHistoryEntry[];
+  readonly nextCursor: string | null;
+}

@@ -2,7 +2,7 @@
 
 Entitlement 是产品内会员、功能开关、期限、额度上限和设备策略的核心事实来源，统一回答“已经通过 Identity 与 Product/Tenant 准入的用户，在当前 Product/Tenant 范围内拥有什么、到什么时候、以什么版本结论生效”。付款、激活码、赠送和试用最终都只能通过本模块公开应用服务产生权益效果。
 
-G2B-02 已 verified：`000026_entitlement` 迁移、后端公开应用服务、PostgreSQL Adapter、API、幂等、Outbox、范围/并发测试、source tuple revoke、互斥组、优先级和 replace/reject conflict 已通过本地真实 PostgreSQL Full 与托管 required check。当前唯一推进关口是 G2B-03：统一后台 Entitlement Blocks；不得提前进入 G2B-04 用户前台、SDK 和源码。
+G2B-02 已 verified：`000026_entitlement` 迁移、后端公开应用服务、PostgreSQL Adapter、API、幂等、Outbox、范围/并发测试、source tuple revoke、互斥组、优先级和 replace/reject conflict 已通过本地真实 PostgreSQL Full 与托管 required check。G2B-03 已 verified：统一后台 Entitlement Blocks 使用真实 API Client 完成查询、授予、延长、撤销和流水验收。当前唯一推进关口是 G2B-04：用户前台、SDK 和源码；不得提前把 `package.entitlement` 标记为 verified candidate 或 ordinary available。
 
 ## 拥有的数据
 

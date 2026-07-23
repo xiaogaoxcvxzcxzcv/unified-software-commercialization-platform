@@ -1,5 +1,6 @@
 export { ClientSdk } from "./client.js";
 export type { AccountSdk } from "./account.js";
+export type { EntitlementSdk } from "./entitlement.js";
 export { TrustedClientContext } from "./context.js";
 export { ClientSdkError } from "./errors.js";
 export type { ClientErrorKind } from "./errors.js";
@@ -24,6 +25,11 @@ export type {
   CompleteRecoveryInput,
   CreateClientSessionInput,
   CurrentAccountSession,
+  EntitlementCheckDecision,
+  EntitlementCheckInput,
+  EntitlementHistoryEntry,
+  EntitlementHistoryPage,
+  EntitlementSummary,
   ExternalExchangeResult,
   ExternalIdentitySummary,
   ExternalLoginFlow,
@@ -32,6 +38,7 @@ export type {
   FetchLike,
   IdempotentAccountCallOptions,
   LinkExternalIdentityInput,
+  ListEntitlementHistoryInput,
   LinkedExternalIdentity,
   LoginInput,
   ProductContext,

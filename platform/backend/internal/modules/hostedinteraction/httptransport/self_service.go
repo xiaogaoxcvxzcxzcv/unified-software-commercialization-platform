@@ -61,6 +61,14 @@ type ExternalIdentity struct {
 	LinkedAt           time.Time `json:"linked_at"`
 	AuditID            *string   `json:"audit_id,omitempty"`
 }
+type EntitlementSummary struct {
+	Revision          int64          `json:"revision"`
+	PlanCode          *string        `json:"plan_code"`
+	Features          map[string]any `json:"features"`
+	ValidUntil        *time.Time     `json:"valid_until"`
+	OfflineGraceUntil *time.Time     `json:"offline_grace_until"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+}
 type HostedAccountBootstrap struct {
 	Interaction        Interaction          `json:"interaction"`
 	Presentation       HostedPresentation   `json:"presentation"`
@@ -68,6 +76,7 @@ type HostedAccountBootstrap struct {
 	Sessions           []UserSessionSummary `json:"sessions"`
 	ExternalIdentities []ExternalIdentity   `json:"external_identities"`
 	AllowedActions     []string             `json:"allowed_actions"`
+	EntitlementSummary *EntitlementSummary  `json:"entitlement_summary,omitempty"`
 }
 
 type Challenge struct {

@@ -361,7 +361,7 @@ func main() {
 		logger.Error("end-user identity service initialization failed", "error", err)
 		os.Exit(1)
 	}
-	hostedRuntime, err := newHostedInteractionRuntime(cfg.HostedInteraction, db.Pool(), productService, applicationService, endUserService, hasher, registrationVerificationService)
+	hostedRuntime, err := newHostedInteractionRuntime(cfg.HostedInteraction, db.Pool(), productService, applicationService, endUserService, entitlementService, hasher, registrationVerificationService)
 	cfg.HostedInteraction.StateKey = ""
 	cfg.HostedInteraction.DigestKey = ""
 	if err != nil {
@@ -391,6 +391,7 @@ func main() {
 	accountUserQueryHandler := accountuserqueryhttp.New(accountUserQueryService, adminGuard)
 	accountUserAdminHandler := accountuseradminhttp.New(accountUserAdminService, adminGuard)
 	entitlementHandler := entitlementhttp.New(entitlementService, adminGuard, entitlementUserSessionResolver{base: endUserAdapter})
+	entitlementHandler.ConfigureCapabilityChecker(accountCapabilityChecker)
 	assemblyHandler := assemblyhttp.New(newAssemblyAdminAdapterWithCatalogs(assemblyService, assemblyCatalog, experimentalAssemblyCatalog, configuredOutputTargets...).withLifecycle(assemblyLifecycleService), adminGuard)
 	clientContextHandler := clientcontexthttp.New(clientContextWorkflow)
 	adminAuthHandler := identityhttp.New(identityService, identityhttp.Config{AllowedOrigins: cfg.AdminAuth.AllowedOrigins})

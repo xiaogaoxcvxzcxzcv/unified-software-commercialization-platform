@@ -104,6 +104,17 @@ func (s resolverStub) ResolveUserSession(context.Context, string) (UserSessionCo
 	return s.value, s.err
 }
 
+type capabilityStub struct {
+	enabled   bool
+	productID string
+	packageID string
+}
+
+func (s *capabilityStub) IsPackageEnabled(_ context.Context, productID, packageID string) (bool, error) {
+	s.productID, s.packageID = productID, packageID
+	return s.enabled, nil
+}
+
 type authStub struct{}
 
 func (authStub) Authenticate(context.Context, *http.Request, bool) (adminrequest.Principal, error) {
@@ -141,6 +152,23 @@ func TestUserRoutesUseResolvedUserScopeAndRejectClientScope(t *testing.T) {
 	}
 }
 
+func TestUserRoutesRejectWhenEntitlementPackageDisabled(t *testing.T) {
+	service := &serviceStub{}
+	capabilities := &capabilityStub{enabled: false}
+	handler := New(service, nil, resolverStub{value: UserSessionContext{UserID: "user-a", ProductID: "product-a", TenantID: "tenant-a"}})
+	handler.ConfigureCapabilityChecker(capabilities)
+	recorder := serve(handler, http.MethodPost, "/api/v1/entitlements/check", `{"requested_features":["pro.member"]}`, map[string]string{"Authorization": "Bearer user-token-0000000001", "Content-Type": "application/json"})
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "ENTITLEMENT_CAPABILITY_DISABLED") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if capabilities.productID != "product-a" || capabilities.packageID != "package.entitlement" {
+		t.Fatalf("capability check=%s %s", capabilities.productID, capabilities.packageID)
+	}
+	if service.checkCommand.Product.ProductID != "" {
+		t.Fatalf("service should not be called when capability is disabled: %+v", service.checkCommand)
+	}
+}
+
 func TestAdminGrantAuthorizesTenantScopeAndRequiresIdempotency(t *testing.T) {
 	service := &serviceStub{}
 	authorizer := &authorizerStub{allowed: true}
@@ -159,6 +187,27 @@ func TestAdminGrantAuthorizesTenantScopeAndRequiresIdempotency(t *testing.T) {
 	}
 	if service.grantCommand.Admin.AdminID != "admin-a" || service.grantCommand.IdempotencyKey != "idempotency-grant-0001" || service.grantCommand.Validity.Duration != time.Hour {
 		t.Fatalf("grant command=%+v", service.grantCommand)
+	}
+}
+
+func TestAdminRoutesRejectWhenEntitlementPackageDisabled(t *testing.T) {
+	service := &serviceStub{}
+	authorizer := &authorizerStub{allowed: true}
+	capabilities := &capabilityStub{enabled: false}
+	handler := New(service, adminrequest.New(authStub{}, authorizer, denialStub{}), nil)
+	handler.ConfigureCapabilityChecker(capabilities)
+	recorder := serve(handler, http.MethodGet, "/api/v1/admin/entitlements?product_id=product-a&tenant_id=tenant-a", "", nil)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "ENTITLEMENT_CAPABILITY_DISABLED") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if authorizer.permission != readPermission {
+		t.Fatalf("authorization should still run before capability gate, permission=%s", authorizer.permission)
+	}
+	if capabilities.productID != "product-a" || capabilities.packageID != "package.entitlement" {
+		t.Fatalf("capability check=%s %s", capabilities.productID, capabilities.packageID)
+	}
+	if service.listQuery.ProductID != "" {
+		t.Fatalf("service should not be called when capability is disabled: %+v", service.listQuery)
 	}
 }
 

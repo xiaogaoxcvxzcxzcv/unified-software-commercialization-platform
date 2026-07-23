@@ -1,0 +1,16 @@
+import {
+  EntitlementSummaryBlock,
+  type EntitlementSummaryBlockProps,
+} from "@capability-platform/client-ui/web-react";
+
+export interface EntitlementRouteBindings {
+  readonly summary: EntitlementSummaryBlockProps;
+}
+
+export function createEntitlementRoutes(bindings: EntitlementRouteBindings) {
+  return [
+    { blockId: "entitlement.summary", path: "/account/entitlements", Component: EntitlementSummaryBlock, props: bindings.summary },
+  ] as const;
+}
+
+export type EntitlementRoute = ReturnType<typeof createEntitlementRoutes>[number];

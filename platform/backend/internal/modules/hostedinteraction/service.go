@@ -26,6 +26,7 @@ type Service struct {
 	sessions       SessionValidationPort
 	selfService    HostedSelfServicePort
 	presentation   HostedPresentationPort
+	entitlements   HostedEntitlementPort
 	flows          SelfServiceFlowRepository
 	capabilities   HostedCapabilityPort
 	protector      StateProtector
@@ -51,6 +52,21 @@ func (s *Service) ConfigureSelfService(identity HostedSelfServicePort, presentat
 	}
 	s.selfService, s.presentation, s.flows, s.capabilities = identity, presentation, flows, identity
 	return nil
+}
+
+// ConfigureEntitlementProjection wires an optional read-only entitlement projection
+// for hosted.account. Entitlement remains the owner of membership facts; Hosted
+// only omits or displays the safe summary it receives through this port.
+func (s *Service) ConfigureEntitlementProjection(entitlements HostedEntitlementPort) {
+	if s != nil {
+		s.entitlements = entitlements
+	}
+}
+
+func (s *Service) ConfigureCapabilityPort(capabilities HostedCapabilityPort) {
+	if s != nil {
+		s.capabilities = capabilities
+	}
 }
 
 type ServicePolicy struct {

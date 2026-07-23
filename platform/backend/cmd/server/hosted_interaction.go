@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"platform.local/capability-platform/backend/internal/modules/entitlement"
 	"platform.local/capability-platform/backend/internal/modules/hostedinteraction"
 	hostedhttp "platform.local/capability-platform/backend/internal/modules/hostedinteraction/httptransport"
 	hostedpostgres "platform.local/capability-platform/backend/internal/modules/hostedinteraction/postgres"
@@ -23,7 +24,7 @@ type hostedInteractionRuntime struct {
 	handler *hostedhttp.Handler
 }
 
-func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Pool, products *product.Service, applications *productapplication.Service, users *identity.EndUserService, clientHasher securevalue.Hasher, registrationVerification ...*identity.RegistrationVerificationService) (hostedInteractionRuntime, error) {
+func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Pool, products *product.Service, applications *productapplication.Service, users *identity.EndUserService, entitlements *entitlement.Service, clientHasher securevalue.Hasher, registrationVerification ...*identity.RegistrationVerificationService) (hostedInteractionRuntime, error) {
 	if pool == nil || products == nil || applications == nil || users == nil || !clientHasher.Configured() {
 		return hostedInteractionRuntime{}, errors.New("hosted interaction dependencies are required")
 	}
@@ -63,6 +64,8 @@ func newHostedInteractionRuntime(cfg config.HostedInteraction, pool *pgxpool.Poo
 	if err := service.ConfigureSelfService(identityAdapter, hostedPresentationAdapter{products: products}); err != nil {
 		return hostedInteractionRuntime{}, err
 	}
+	service.ConfigureCapabilityPort(hostedCapabilityAdapter{identity: identityAdapter, products: products})
+	service.ConfigureEntitlementProjection(hostedEntitlementAdapter{service: entitlements})
 	httpAdapter := hostedHTTPServiceAdapter{service: service}
 	authenticator := hostedHTTPAuthenticator{products: products, applications: applications, users: users, clientHasher: clientHasher, hosted: service}
 	handler, err := hostedhttp.New(httpAdapter, authenticator, cfg.AllowedOrigin)
@@ -105,6 +108,11 @@ type hostedIdentityAdapter struct {
 }
 
 type hostedPresentationAdapter struct{ products *product.Service }
+type hostedEntitlementAdapter struct{ service *entitlement.Service }
+type hostedCapabilityAdapter struct {
+	identity hostedIdentityAdapter
+	products *product.Service
+}
 
 func (a hostedPresentationAdapter) ResolveHostedPresentation(ctx context.Context, scope hostedinteraction.Scope) (hostedinteraction.HostedPresentation, error) {
 	value, err := a.products.GetProduct(ctx, scope.ProductID)
@@ -117,6 +125,47 @@ func (a hostedPresentationAdapter) ResolveHostedPresentation(ctx context.Context
 func (a hostedIdentityAdapter) Capabilities(_ context.Context, _ hostedinteraction.Scope) hostedinteraction.HostedCapabilities {
 	c := a.users.HostedSelfServiceCapabilities()
 	return hostedinteraction.HostedCapabilities{Password: c.PasswordEnabled, Registration: c.RegistrationEnabled && a.verification != nil, Recovery: c.RecoveryEnabled, Profile: true, Sessions: true, AccountCompletion: true}
+}
+
+func (a hostedCapabilityAdapter) Capabilities(ctx context.Context, scope hostedinteraction.Scope) hostedinteraction.HostedCapabilities {
+	capabilities := a.identity.Capabilities(ctx, scope)
+	capabilities.Entitlement = packageEnabled(ctx, a.products, scope.ProductID, "package.entitlement")
+	return capabilities
+}
+
+func (a hostedEntitlementAdapter) CurrentEntitlementSummary(ctx context.Context, scope hostedinteraction.Scope, actor hostedinteraction.Actor) (*hostedinteraction.HostedEntitlementSummary, error) {
+	if a.service == nil || scope.TenantID == nil || actor.Kind != "user" || strings.TrimSpace(actor.UserID) == "" {
+		return nil, hostedinteraction.ErrCapabilityUnavailable
+	}
+	value, err := a.service.GetCurrentEntitlements(ctx, entitlement.ProductContext{ProductID: scope.ProductID}, entitlement.TenantContext{ProductID: scope.ProductID, TenantID: *scope.TenantID}, entitlement.UserContext{UserID: actor.UserID})
+	if err != nil {
+		if errors.Is(err, entitlement.ErrInvalidArgument) || errors.Is(err, entitlement.ErrScopeMismatch) {
+			return nil, hostedinteraction.ErrCapabilityUnavailable
+		}
+		return nil, err
+	}
+	return &hostedinteraction.HostedEntitlementSummary{Revision: value.Revision, PlanCode: value.PlanCode, Features: value.EffectiveFeatures, ValidUntil: value.ValidUntil, OfflineGraceUntil: value.OfflineGraceUntil, UpdatedAt: value.UpdatedAt}, nil
+}
+
+func packageEnabled(ctx context.Context, products *product.Service, productID, packageID string) bool {
+	enabled, err := productPackageEnabled(ctx, products, productID, packageID)
+	return err == nil && enabled
+}
+
+func productPackageEnabled(ctx context.Context, products *product.Service, productID, packageID string) (bool, error) {
+	if products == nil {
+		return false, nil
+	}
+	set, err := products.CurrentCapabilitySet(ctx, productID)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range set.Items {
+		if item.SourcePackageID == packageID && item.Enabled {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 func (a hostedIdentityAdapter) StartRegistrationVerification(ctx context.Context, scope hostedinteraction.Scope, identifier, key, traceID string) (string, error) {
 	if a.verification == nil {
@@ -430,7 +479,19 @@ func (a hostedHTTPServiceAdapter) AccountBootstrap(ctx context.Context, p hosted
 	for _, x := range v.ExternalIdentities {
 		external = append(external, hostedhttp.ExternalIdentity{ExternalIdentityID: x.ExternalIdentityID, Provider: x.Provider, MaskedSubject: x.MaskedSubject, Status: x.Status, LinkedAt: x.LinkedAt, AuditID: x.AuditID})
 	}
-	return hostedhttp.HostedAccountBootstrap{Interaction: mapHTTPInteraction(v.Interaction), Presentation: mapHTTPPresentation(v.Presentation), Profile: mapHTTPProfile(v.Profile), Sessions: sessions, ExternalIdentities: external, AllowedActions: v.AllowedActions}, nil
+	return hostedhttp.HostedAccountBootstrap{Interaction: mapHTTPInteraction(v.Interaction), Presentation: mapHTTPPresentation(v.Presentation), Profile: mapHTTPProfile(v.Profile), Sessions: sessions, ExternalIdentities: external, AllowedActions: v.AllowedActions, EntitlementSummary: mapHTTPEntitlementSummary(v.EntitlementSummary)}, nil
+}
+
+func mapHTTPEntitlementSummary(v *hostedinteraction.HostedEntitlementSummary) *hostedhttp.EntitlementSummary {
+	if v == nil {
+		return nil
+	}
+	var plan *string
+	if strings.TrimSpace(v.PlanCode) != "" {
+		value := v.PlanCode
+		plan = &value
+	}
+	return &hostedhttp.EntitlementSummary{Revision: v.Revision, PlanCode: plan, Features: v.Features, ValidUntil: v.ValidUntil, OfflineGraceUntil: v.OfflineGraceUntil, UpdatedAt: v.UpdatedAt}
 }
 func (a hostedHTTPServiceAdapter) PatchAccountProfile(ctx context.Context, p hostedhttp.HostedPrincipal, id string, c hostedhttp.ProfilePatchCommand) (hostedhttp.UserProfile, error) {
 	v, e := a.service.PatchAccountProfile(ctx, id, p.BrowserToken, hostedinteraction.HostedProfilePatch{DisplayName: hostedinteraction.HostedProfilePatchValue{Set: c.DisplayName.Set, Value: c.DisplayName.Value}, AvatarURL: hostedinteraction.HostedProfilePatchValue{Set: c.AvatarURL.Set, Value: c.AvatarURL.Value}, Locale: hostedinteraction.HostedProfilePatchValue{Set: c.Locale.Set, Value: c.Locale.Value}, Timezone: hostedinteraction.HostedProfilePatchValue{Set: c.Timezone.Set, Value: c.Timezone.Value}}, c.ExpectedVersion, c.IdempotencyKey, c.RequestID)
@@ -638,6 +699,8 @@ var (
 	_ hostedinteraction.SessionValidationPort  = hostedIdentityAdapter{}
 	_ hostedinteraction.HostedSelfServicePort  = hostedIdentityAdapter{}
 	_ hostedinteraction.HostedPresentationPort = hostedPresentationAdapter{}
+	_ hostedinteraction.HostedEntitlementPort  = hostedEntitlementAdapter{}
+	_ hostedinteraction.HostedCapabilityPort   = hostedCapabilityAdapter{}
 	_ hostedhttp.Authenticator                 = hostedHTTPAuthenticator{}
 	_ hostedhttp.Service                       = hostedHTTPServiceAdapter{}
 	_ hostedhttp.SelfService                   = hostedHTTPServiceAdapter{}
